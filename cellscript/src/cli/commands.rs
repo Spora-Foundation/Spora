@@ -5,7 +5,7 @@
 use crate::docgen::{DocGenerator, OutputFormat};
 use crate::error::Result;
 use crate::fmt::format_default;
-use crate::package::{Dependency, DetailedDependency, PackageManager, PolicyConfig};
+use crate::package::{Dependency, DetailedDependency, Lockfile, PackageManager, PolicyConfig};
 use crate::{
     compile_path, default_metadata_path_for_artifact, default_output_path_for_input, load_modules_for_input, resolve_input_path,
     validate_artifact_metadata, validate_source_units_on_disk, ArtifactFormat, CompileMetadata, CompileOptions, TargetProfile,
@@ -182,6 +182,7 @@ pub struct VerifyArtifactArgs {
     pub metadata: Option<PathBuf>,
     pub verify_sources: bool,
     pub json: bool,
+    pub expect_target_profile: Option<String>,
     pub expect_artifact_hash: Option<String>,
     pub expect_source_hash: Option<String>,
     pub expect_source_content_hash: Option<String>,
@@ -197,6 +198,8 @@ pub struct VerifyArtifactArgs {
 pub struct RunArgs {
     pub args: Vec<String>,
     pub release: bool,
+    /// 使用 AST 模拟解释器代替 ckb-vm 执行
+    pub simulate: bool,
 }
 
 /// 发布参数
@@ -921,6 +924,7 @@ impl CommandExecutor {
         if args.verify_sources {
             validate_source_units_on_disk(&result.metadata)?;
         }
+        validate_expected_target_profile(result.metadata.target_profile.name.as_str(), args.expect_target_profile.as_deref())?;
         validate_expected_metadata_hash(
             "artifact_hash_blake3",
             result.metadata.artifact_hash_blake3.as_deref(),
@@ -948,6 +952,7 @@ impl CommandExecutor {
             },
         )?;
 
+        let expected_target_profile_verified = args.expect_target_profile.is_some();
         let expected_hashes_verified =
             args.expect_artifact_hash.is_some() || args.expect_source_hash.is_some() || args.expect_source_content_hash.is_some();
         let policy_verified = args.production
@@ -993,6 +998,7 @@ impl CommandExecutor {
                 "pool_runtime_input_requirements": pool_runtime_input_requirement_count(&result.metadata),
                 "pool_runtime_input_requirement_summaries": pool_runtime_input_requirement_summaries(&result.metadata),
                 "sources_verified": args.verify_sources,
+                "expected_target_profile_verified": expected_target_profile_verified,
                 "expected_hashes_verified": expected_hashes_verified,
                 "policy_verified": policy_verified,
             });
@@ -1012,6 +1018,9 @@ impl CommandExecutor {
         println!("  Target profile: {}", result.metadata.target_profile.name);
         println!("  Hash: {}", result.metadata.artifact_hash_blake3.as_deref().unwrap_or("missing"));
         println!("  Size: {} bytes", result.artifact_bytes.len());
+        if expected_target_profile_verified {
+            println!("  Expected target profile: verified");
+        }
         if expected_hashes_verified {
             println!("  Expected hashes: verified");
         }
@@ -1026,19 +1035,24 @@ impl CommandExecutor {
 
     /// 运行程序
     fn run(args: RunArgs) -> Result<()> {
+        let opt_level = if args.release { 3 } else { 0 };
+        let compile_result = compile_path(
+            ".",
+            CompileOptions { opt_level, output: None, debug: false, target: Some("riscv64-elf".to_string()), target_profile: None },
+        );
+
+        // ---- --simulate 路径：始终可用，无需 ckb-vm ----
+        if args.simulate {
+            let result = compile_result?;
+            return Self::run_simulate(&result, &args);
+        }
+
+        // ---- vm-runner 路径 ----
         #[cfg(feature = "vm-runner")]
         {
-            let opt_level = if args.release { 3 } else { 0 };
-            let result = compile_path(
-                ".",
-                CompileOptions {
-                    opt_level,
-                    output: None,
-                    debug: false,
-                    target: Some("riscv64-elf".to_string()),
-                    target_profile: None,
-                },
-            )?;
+            let result = compile_result?;
+
+            // 有参数的入口 → 引导到 simulate
             let parameterized_entries = result
                 .metadata
                 .actions
@@ -1048,22 +1062,35 @@ impl CommandExecutor {
                 .chain(result.metadata.locks.iter().filter(|lock| !lock.params.is_empty()).map(|lock| format!("lock {}", lock.name)))
                 .collect::<Vec<_>>();
             if !parameterized_entries.is_empty() {
-                return Err(crate::error::CompileError::without_span(format!(
-                    "cellc run only supports no-argument pure ELF entrypoints today; {} requires a transaction/parameter ABI context",
-                    parameterized_entries.join(", ")
-                )));
+                eprintln!(
+                    "{}",
+                    format!(
+                        "Warning: {} requires transaction/parameter ABI context; falling back to simulate mode",
+                        parameterized_entries.join(", ")
+                    )
+                    .yellow()
+                );
+                return Self::run_simulate(&result, &args);
             }
+
+            // CKB runtime → 引导到 simulate
             if result.metadata.runtime.ckb_runtime_required {
-                return Err(crate::error::CompileError::without_span(format!(
-                    "cellc run cannot provide CKB transaction/syscall context; required runtime features: {}",
-                    result.metadata.runtime.ckb_runtime_features.join(", ")
-                )));
+                eprintln!(
+                    "{}",
+                    format!(
+                        "Warning: CKB runtime required ({}); falling back to simulate mode",
+                        result.metadata.runtime.ckb_runtime_features.join(", ")
+                    )
+                    .yellow()
+                );
+                return Self::run_simulate(&result, &args);
             }
+
             if !result.metadata.runtime.standalone_runner_compatible {
-                return Err(crate::error::CompileError::without_span(
-                    "cellc run only supports standalone-compatible ELF without symbolic Cell/runtime requirements",
-                ));
+                eprintln!("{}", "Warning: ELF is not standalone-compatible; falling back to simulate mode".yellow());
+                return Self::run_simulate(&result, &args);
             }
+
             let vm_args = args.args.into_iter().map(|arg| arg.into_bytes()).collect::<Vec<_>>();
             let cycles = run_elf_in_ckb_vm(&result.artifact_bytes, &vm_args)?;
 
@@ -1073,42 +1100,273 @@ impl CommandExecutor {
             Ok(())
         }
 
+        // ---- 无 vm-runner 的降级路径 ----
         #[cfg(not(feature = "vm-runner"))]
         {
-            let release = if args.release { "release" } else { "debug" };
+            let mode = if args.release { "release" } else { "debug" };
             Self::experimental_command(
-            "run",
-            &format!(
-                "trusted CKB-VM execution must be provided by a separate runner or feature-gated VM backend (requested {} mode with {} argument(s))",
-                release,
-                args.args.len()
-            ),
-        )
+                "run",
+                &format!(
+                    "feature-gated VM backend is not enabled (requested {}, {} argument(s)); use --simulate for AST-level symbolic execution or compile with --features vm-runner to execute",
+                    mode,
+                    args.args.len()
+                ),
+            )
         }
+    }
+
+    /// 使用 AST 模拟解释器执行
+    fn run_simulate(compile_result: &crate::CompileResult, _args: &RunArgs) -> Result<()> {
+        use crate::simulate::{SimValue, SimulateInterpreter};
+
+        let modules = crate::load_modules_for_input(".")?;
+        let module =
+            modules.iter().find(|module| module.ast.name == compile_result.metadata.module).map(|module| &module.ast).ok_or_else(
+                || {
+                    crate::error::CompileError::without_span(format!(
+                        "failed to load module '{}' for simulation",
+                        compile_result.metadata.module
+                    ))
+                },
+            )?;
+
+        // 找到 main action 或第一个无参 action
+        let entry = compile_result
+            .metadata
+            .actions
+            .iter()
+            .find(|a| a.name == "main")
+            .or_else(|| compile_result.metadata.actions.iter().find(|a| a.params.is_empty()));
+
+        let Some(entry) = entry else {
+            return Err(crate::error::CompileError::without_span(
+                "no suitable entry point found for simulation; define an action main() or a zero-argument action",
+            ));
+        };
+
+        let mut interp = SimulateInterpreter::new(module, 100_000);
+        let sim_args: Vec<SimValue> = Vec::new(); // 无参入口
+        let sim_result = interp
+            .simulate_action(&entry.name, &sim_args)
+            .map_err(|e| crate::error::CompileError::without_span(format!("simulation error: {}", e)))?;
+
+        println!("{}", "Simulate complete".green());
+        println!("  Entry: action {}", sim_result.entry_name);
+        println!("  Steps: {}", sim_result.steps);
+        if sim_result.has_cell_ops {
+            println!("  Cell operations: {} (symbolic)", "yes".yellow());
+        } else {
+            println!("  Cell operations: none (pure computation)");
+        }
+        println!("  Result: {}", sim_result.return_value);
+
+        if !sim_result.trace.is_empty() {
+            println!("  Trace:");
+            for event in &sim_result.trace {
+                println!("{}", event);
+            }
+        }
+
+        Ok(())
     }
 
     /// 发布包
     fn publish(args: PublishArgs) -> Result<()> {
-        let mode = if args.dry_run { "dry-run" } else { "publish" };
-        let dirty = if args.allow_dirty { "allow-dirty" } else { "clean-tree-only" };
-        Self::experimental_command(
-            "publish",
-            &format!("registry publication flow is not implemented yet (requested {}, {})", mode, dirty),
-        )
+        let pm = PackageManager::new(".");
+        let manifest = pm.read_manifest()?;
+
+        // --dry-run: 验证清单完整性
+        if args.dry_run {
+            // 检查必要字段
+            let mut issues = Vec::<String>::new();
+            if manifest.package.name.is_empty() {
+                issues.push("package name is empty".to_string());
+            }
+            if manifest.package.version.is_empty() {
+                issues.push("package version is empty".to_string());
+            }
+            if manifest.package.description.is_empty() {
+                issues.push("package description is missing".to_string());
+            }
+            if manifest.package.license.is_empty() {
+                issues.push("package license is missing".to_string());
+            }
+            if manifest.package.repository.is_empty() {
+                issues.push("package repository is missing".to_string());
+            }
+
+            // 检查入口文件存在
+            let entry_path = std::path::Path::new(".").join(&manifest.package.entry);
+            if !entry_path.exists() {
+                issues.push(format!("entry file '{}' does not exist", manifest.package.entry));
+            }
+
+            // 检查构建
+            let compile_result = compile_path(".", CompileOptions::default());
+            match compile_result {
+                Ok(result) => {
+                    println!("{}", "Publish dry-run passed".green());
+                    println!("  Package: {} v{}", manifest.package.name, manifest.package.version);
+                    println!("  Artifact: {} ({} bytes)", result.artifact_format.display_name(), result.artifact_bytes.len());
+                }
+                Err(e) => {
+                    issues.push(format!("compilation failed: {}", e));
+                }
+            }
+
+            if !issues.is_empty() {
+                println!("{}", "Issues found:".yellow());
+                for issue in &issues {
+                    println!("  - {}", issue);
+                }
+                return Err(crate::error::CompileError::without_span(format!("publish dry-run found {} issue(s)", issues.len())));
+            }
+
+            Ok(())
+        } else {
+            let dirty = if args.allow_dirty { "allow-dirty" } else { "clean-tree-only" };
+            Self::experimental_command(
+                "publish",
+                &format!(
+                    "registry publication is not implemented yet (package {} v{}, {})",
+                    manifest.package.name, manifest.package.version, dirty
+                ),
+            )
+        }
     }
 
     /// 安装包
     fn install(args: InstallArgs) -> Result<()> {
-        let source = args.crate_name.unwrap_or_else(|| "current directory".to_string());
-        Self::experimental_command(
-            "install",
-            &format!("package installation flow is not implemented yet (requested source '{}')", source),
-        )
+        let pm = PackageManager::new(".");
+
+        // 验证项目存在
+        let _manifest = pm.read_manifest()?;
+
+        if let Some(git_url) = &args.git {
+            // git 依赖安装
+            let crate_name = args.crate_name.clone().unwrap_or_else(|| {
+                // 从 URL 推导包名
+                git_url.trim_end_matches('/').trim_end_matches(".git").split('/').last().unwrap_or("unknown").to_string()
+            });
+
+            // 构建详细依赖配置
+            let dep = DetailedDependency {
+                version: args.version.clone().unwrap_or_else(|| "*".to_string()),
+                git: Some(git_url.clone()),
+                branch: None,
+                tag: None,
+                rev: None,
+                path: None,
+                optional: false,
+                features: Vec::new(),
+                default_features: true,
+            };
+
+            // 解析 git 依赖以验证可用性
+            let resolved = pm.resolve_from_git(&crate_name, git_url, &dep)?;
+
+            // 写入 Cell.toml
+            let mut manifest = pm.read_manifest()?;
+            manifest.dependencies.insert(crate_name.clone(), Dependency::Detailed(dep));
+            pm.write_manifest(&manifest)?;
+
+            // 更新锁文件
+            let mut lockfile = Lockfile::read_from_root(std::path::Path::new(".")).unwrap_or_default();
+            let mut resolved_map = HashMap::new();
+            resolved_map.insert(crate_name.clone(), resolved);
+            lockfile.update_from_resolved(&resolved_map);
+            lockfile.write_to_root(std::path::Path::new("."))?;
+
+            println!("{}", format!("Installed {} from git {}", crate_name, git_url).green());
+            Ok(())
+        } else if let Some(path) = &args.path {
+            // 本地路径安装
+            let crate_name =
+                args.crate_name.clone().unwrap_or_else(|| path.file_name().unwrap_or_default().to_string_lossy().to_string());
+
+            let dep = DetailedDependency {
+                version: args.version.clone().unwrap_or_else(|| "*".to_string()),
+                git: None,
+                branch: None,
+                tag: None,
+                rev: None,
+                path: Some(path.to_string_lossy().to_string()),
+                optional: false,
+                features: Vec::new(),
+                default_features: true,
+            };
+
+            // 验证路径依赖
+            pm.resolve_from_path(&crate_name, &path.to_string_lossy())?;
+
+            // 写入 Cell.toml
+            let mut manifest = pm.read_manifest()?;
+            manifest.dependencies.insert(crate_name.clone(), Dependency::Detailed(dep));
+            pm.write_manifest(&manifest)?;
+
+            println!("{}", format!("Installed {} from path {}", crate_name, path.display()).green());
+            Ok(())
+        } else if let Some(crate_name) = &args.crate_name {
+            // 注册表安装 (基础实现)
+            Self::experimental_command(
+                "install",
+                &format!(
+                    "registry package installation is not implemented yet; use --git URL or --path PATH to install {}",
+                    crate_name
+                ),
+            )
+        } else {
+            // 无参数：解析并安装所有依赖
+            let mut pm = PackageManager::new(".");
+            pm.resolve_dependencies()?;
+
+            // 更新锁文件
+            let mut lockfile = Lockfile::read_from_root(std::path::Path::new(".")).unwrap_or_default();
+            lockfile.update_from_resolved(pm.get_resolved());
+            lockfile.write_to_root(std::path::Path::new("."))?;
+
+            println!("{}", "Dependencies resolved and lockfile updated".green());
+            Ok(())
+        }
     }
 
     /// 更新依赖
     fn update() -> Result<()> {
-        Self::experimental_command("update", "dependency resolution and lockfile update flow are not implemented yet")
+        let mut pm = PackageManager::new(".");
+        let manifest = pm.read_manifest()?;
+
+        // 解析所有依赖
+        pm.resolve_dependencies()?;
+
+        // 读取或创建锁文件
+        let mut lockfile = Lockfile::read_from_root(std::path::Path::new(".")).unwrap_or_default();
+
+        // 更新锁文件
+        lockfile.update_from_resolved(pm.get_resolved());
+        lockfile.write_to_root(std::path::Path::new("."))?;
+
+        // 显示已解析的依赖
+        let resolved = pm.get_resolved();
+        if resolved.is_empty() {
+            println!("{}", "No dependencies to update".green());
+        } else {
+            println!("{}", format!("Updated {} dependencies", resolved.len()).green());
+            for (name, package) in resolved {
+                let source = match &package.source {
+                    crate::package::PackageSource::Local(path) => format!("path: {}", path.display()),
+                    crate::package::PackageSource::Git { url, revision } => format!("git: {}#{}", url, revision),
+                    crate::package::PackageSource::Registry { name, version } => format!("registry: {}@{}", name, version),
+                };
+                println!("  {} v{} ({})", name, package.version, source);
+            }
+        }
+
+        // 检查一致性
+        if !lockfile.is_consistent(&manifest) {
+            println!("{}", "Warning: lockfile is not consistent with Cell.toml".yellow());
+        }
+
+        Ok(())
     }
 
     /// 显示包信息
@@ -1152,12 +1410,76 @@ impl CommandExecutor {
     /// 登录注册表
     fn login(args: LoginArgs) -> Result<()> {
         let registry = args.registry.unwrap_or_else(|| "https://cellscript.io".to_string());
-        Self::experimental_command("login", &format!("registry auth flow is not implemented yet (requested '{}')", registry))
+
+        // 创建凭证目录
+        let config_dir = dirs_config_dir();
+        std::fs::create_dir_all(&config_dir).map_err(|e| {
+            crate::error::CompileError::without_span(format!("failed to create config directory '{}': {}", config_dir.display(), e))
+        })?;
+
+        let credentials_path = config_dir.join("credentials.toml");
+
+        // 读取现有凭证
+        let mut credentials: HashMap<String, RegistryCredential> = if credentials_path.exists() {
+            let content = std::fs::read_to_string(&credentials_path).unwrap_or_default();
+            toml::from_str(&content).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+
+        // 提示输入凭证
+        eprintln!("Logging in to {}", registry);
+        eprintln!("Enter your authentication token (or press Enter to use environment variable CELLSCRIPT_TOKEN):");
+
+        let mut token = String::new();
+        if std::io::stdin().read_line(&mut token).is_err() || token.trim().is_empty() {
+            token = std::env::var("CELLSCRIPT_TOKEN").unwrap_or_default();
+        }
+
+        if token.trim().is_empty() {
+            return Err(crate::error::CompileError::without_span(
+                "no authentication token provided; set CELLSCRIPT_TOKEN environment variable or enter token interactively",
+            ));
+        }
+
+        let token = token.trim().to_string();
+
+        // 存储凭证
+        credentials.insert(registry.clone(), RegistryCredential { registry: registry.clone(), token });
+
+        let content = toml::to_string_pretty(&credentials)?;
+        std::fs::write(&credentials_path, content)?;
+
+        println!("{}", format!("Login credentials saved for {}", registry).green());
+        println!("  Config directory: {}", config_dir.display());
+        Ok(())
     }
 }
 
 #[cfg(feature = "vm-runner")]
 type CliVmMachine = TraceMachine<DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>>;
+
+/// 注册表凭证
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct RegistryCredential {
+    registry: String,
+    token: String,
+}
+
+/// 获取配置目录路径
+fn dirs_config_dir() -> PathBuf {
+    // 优先使用 CELLSCRIPT_CONFIG 环境变量
+    if let Ok(config) = std::env::var("CELLSCRIPT_CONFIG") {
+        return PathBuf::from(config);
+    }
+    // XDG 规范
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        return PathBuf::from(xdg).join("cellscript");
+    }
+    // 默认: ~/.config/cellscript
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".config").join("cellscript")
+}
 
 fn effective_check_args(mut args: CheckArgs) -> Result<CheckArgs> {
     let policy = PackageManager::new(".").read_manifest()?.policy;
@@ -1198,7 +1520,8 @@ fn manifest_target_profile() -> Result<Option<TargetProfile>> {
 fn compile_target_profile_for_check(profile: TargetProfile) -> Option<String> {
     match profile {
         TargetProfile::Spora => Some(TargetProfile::Spora.name().to_string()),
-        TargetProfile::Ckb | TargetProfile::PortableCell => Some(TargetProfile::Spora.name().to_string()),
+        TargetProfile::Ckb => Some(TargetProfile::Ckb.name().to_string()),
+        TargetProfile::PortableCell => Some(TargetProfile::Spora.name().to_string()),
     }
 }
 
@@ -1308,6 +1631,22 @@ fn validate_expected_metadata_hash(field: &str, actual: Option<&str>, expected: 
             field, expected
         ))),
     }
+}
+
+fn validate_expected_target_profile(actual: &str, expected: Option<&str>) -> Result<()> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    let expected_profile = TargetProfile::from_name(expected)?;
+    if actual == expected_profile.name() {
+        return Ok(());
+    }
+
+    Err(crate::error::CompileError::without_span(format!(
+        "metadata target_profile '{}' does not match expected '{}'",
+        actual,
+        expected_profile.name()
+    )))
 }
 
 fn validate_check_policy(metadata: &crate::CompileMetadata, args: &CheckArgs) -> Result<()> {
@@ -1425,20 +1764,23 @@ fn target_profile_policy_violations(
     profile: TargetProfile,
 ) -> Vec<String> {
     match profile {
-        TargetProfile::Spora => Vec::new(),
+        TargetProfile::Spora => spora_target_profile_policy_violations(metadata),
         TargetProfile::Ckb => ckb_target_profile_policy_violations(metadata, artifact_format),
         TargetProfile::PortableCell => portable_cell_target_profile_policy_violations(metadata),
     }
 }
 
-fn ckb_target_profile_policy_violations(metadata: &crate::CompileMetadata, artifact_format: ArtifactFormat) -> Vec<String> {
-    let mut violations = common_portability_policy_violations(metadata);
-
-    if artifact_format == ArtifactFormat::RiscvElf {
-        violations.push(
-            "ckb artifact packaging is not implemented: current riscv64-elf output embeds the Spora SPORABI trailer".to_string(),
-        );
+fn spora_target_profile_policy_violations(metadata: &crate::CompileMetadata) -> Vec<String> {
+    let mut violations = Vec::new();
+    let ckb_only_features = ckb_only_feature_names(metadata);
+    if !ckb_only_features.is_empty() {
+        violations.push(format!("CKB chain APIs require the 'ckb' target profile: {}", ckb_only_features.join(", ")));
     }
+    violations
+}
+
+fn ckb_target_profile_policy_violations(metadata: &crate::CompileMetadata, _artifact_format: ArtifactFormat) -> Vec<String> {
+    let mut violations = common_portability_policy_violations(metadata);
 
     let spora_only_features = metadata
         .runtime
@@ -1455,7 +1797,12 @@ fn ckb_target_profile_policy_violations(metadata: &crate::CompileMetadata, artif
 }
 
 fn portable_cell_target_profile_policy_violations(metadata: &crate::CompileMetadata) -> Vec<String> {
-    common_portability_policy_violations(metadata)
+    let mut violations = common_portability_policy_violations(metadata);
+    let ckb_only_features = ckb_only_feature_names(metadata);
+    if !ckb_only_features.is_empty() {
+        violations.push(format!("CKB chain APIs are target-specific and not portable: {}", ckb_only_features.join(", ")));
+    }
+    violations
 }
 
 fn common_portability_policy_violations(metadata: &crate::CompileMetadata) -> Vec<String> {
@@ -1495,23 +1842,29 @@ fn common_portability_policy_violations(metadata: &crate::CompileMetadata) -> Ve
         violations.push(format!("runtime-required transaction inputs are not portable: {}", runtime_required_inputs.join(", ")));
     }
 
-    let persistent_types = metadata
+    let persistent_types_without_schema = metadata
         .types
         .iter()
         .filter(|ty| matches!(ty.kind.as_str(), "Resource" | "Shared" | "Receipt"))
+        .filter(|ty| !type_has_public_molecule_schema(ty))
         .map(|ty| format!("{} ({})", ty.name, ty.kind))
         .collect::<Vec<_>>();
-    if !persistent_types.is_empty() {
+    if !persistent_types_without_schema.is_empty() {
         violations.push(format!(
             "generated Molecule schemas are required before persistent Cell types can be portable: {}",
-            persistent_types.join(", ")
+            persistent_types_without_schema.join(", ")
         ));
     }
 
-    let metadata_only_type_ids = metadata.types.iter().filter(|ty| ty.type_id.is_some()).map(|ty| ty.name.clone()).collect::<Vec<_>>();
+    let metadata_only_type_ids = metadata
+        .types
+        .iter()
+        .filter(|ty| ty.type_id.is_some() && ty.ckb_type_id.is_none())
+        .map(|ty| ty.name.clone())
+        .collect::<Vec<_>>();
     if !metadata_only_type_ids.is_empty() {
         violations.push(format!(
-            "metadata-only type_id declarations require a real CKB type-id lineage verifier: {}",
+            "metadata-only type_id declarations require profile-specific type-id lowering before they are portable: {}",
             metadata_only_type_ids.join(", ")
         ));
     }
@@ -1532,6 +1885,22 @@ fn common_portability_policy_violations(metadata: &crate::CompileMetadata) -> Ve
     }
 
     violations
+}
+
+fn ckb_only_feature_names(metadata: &crate::CompileMetadata) -> Vec<String> {
+    metadata
+        .runtime
+        .ckb_runtime_features
+        .iter()
+        .filter(|feature| feature.starts_with("ckb-header-epoch-") || feature.as_str() == "ckb-input-since")
+        .cloned()
+        .collect()
+}
+
+fn type_has_public_molecule_schema(ty: &crate::TypeMetadata) -> bool {
+    ty.molecule_schema
+        .as_ref()
+        .is_some_and(|schema| schema.abi == "molecule" && schema.layout == "fixed-struct-v1" && !schema.schema.is_empty())
 }
 
 fn runtime_required_obligation_count(metadata: &crate::CompileMetadata) -> usize {
@@ -2419,6 +2788,12 @@ impl CliParser {
                             .help("Emit a machine-readable JSON verification summary"),
                     )
                     .arg(
+                        Arg::new("expect-target-profile")
+                            .long("expect-target-profile")
+                            .value_name("PROFILE")
+                            .help("Require metadata target_profile to match this value: spora or ckb"),
+                    )
+                    .arg(
                         Arg::new("expect-artifact-hash")
                             .long("expect-artifact-hash")
                             .value_name("BLAKE3")
@@ -2471,6 +2846,13 @@ impl CliParser {
                 ClapCommand::new("run")
                     .about("Experimental: build and run a package")
                     .arg(Arg::new("release").long("release").short('r').action(ArgAction::SetTrue).help("Run in release mode"))
+                    .arg(
+                        Arg::new("simulate")
+                            .long("simulate")
+                            .short('s')
+                            .action(ArgAction::SetTrue)
+                            .help("Simulate execution using AST interpreter instead of ckb-vm"),
+                    )
                     .arg(Arg::new("args").value_name("ARGS").num_args(0..).trailing_var_arg(true)),
             )
             .subcommand(
@@ -2583,6 +2965,7 @@ impl CliParser {
                 metadata: m.get_one::<String>("metadata").map(PathBuf::from),
                 verify_sources: m.get_flag("verify-sources"),
                 json: m.get_flag("json"),
+                expect_target_profile: m.get_one::<String>("expect-target-profile").cloned(),
                 expect_artifact_hash: m.get_one::<String>("expect-artifact-hash").cloned(),
                 expect_source_hash: m.get_one::<String>("expect-source-hash").cloned(),
                 expect_source_content_hash: m.get_one::<String>("expect-source-content-hash").cloned(),
@@ -2595,6 +2978,7 @@ impl CliParser {
             Some(("run", m)) => Command::Run(RunArgs {
                 args: m.get_many::<String>("args").map(|values| values.cloned().collect()).unwrap_or_default(),
                 release: m.get_flag("release"),
+                simulate: m.get_flag("simulate"),
             }),
             Some(("publish", m)) => {
                 Command::Publish(PublishArgs { dry_run: m.get_flag("dry-run"), allow_dirty: m.get_flag("allow-dirty") })

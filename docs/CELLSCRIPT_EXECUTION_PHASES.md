@@ -3,7 +3,7 @@
 **Snapshot date**: 2026-04-19
 **Purpose**: maintain the operational execution plan for CellScript implementation work.
 
-This file is the working phase table. It is not a historical changelog. Detailed release evidence belongs in `docs/CELLSCRIPT_RELEASE_CHECKLIST.md`.
+This file is the working phase table. It is not a historical changelog. Detailed release evidence belongs in `docs/CELLSCRIPT_RELEASE_CHECKLIST.md`, and the v1 product boundary is defined in `docs/CELLSCRIPT_V1_RELEASE_SCOPE.md`.
 
 ## Operating Rule
 
@@ -56,12 +56,33 @@ Current evidence:
 - `transfer-output-relation-gap`, `resource-conservation-proof-gap`, and `claim-source-predicate-gap` already have CLI JSON and `--deny-runtime-obligations` coverage.
 - `finalization-policy-gap` and `linear-collection-ownership-gap` are now covered by dedicated CLI JSON and `--deny-runtime-obligations` regressions.
 - Operation-specific checked Input data components are exposed for `consume`, `transfer`, `destroy`, `claim`, and `settle`.
-- The post-change `cargo test -p cellscript` gate passed: `286` library tests, `57` CLI integration tests, `7` bundled example tests, and `0` doctests.
+- The latest local `cargo test -p cellscript` gate passed: `315` library tests, `61` CLI integration tests, `7` bundled example tests, and `0` doctests.
 - `git diff --check` passed after the convergence changes.
 
 Remaining closure item:
 
 - None for the v1 convergence close gate. Generalized protocol semantics remain explicit blocker-classed debt rather than v1 core promises.
+
+## Release-v1 Boundary
+
+A release-v1 tag is separate from the v1 core-language convergence gate. The
+core gate is closed; product release readiness still requires final gate
+evidence on the tagged worktree and explicit scope control.
+
+Release-v1 can remain closed only if these surfaces stay outside the v1 core
+promise, or the gate is reopened as implementation work:
+
+- first-class `launch` and first-class `pool`
+- user-defined generics, registry distribution, schema migration, and executable Wasm
+- complete AMM economics, generalized Pool admission, and first-class Pool protocol semantics
+
+Remaining release/product-readiness work:
+
+- rerun the full release gate after the final worktree changes, including the current `cargo test -p cellscript`, scheduler/trusted-summary integration tests, and `git diff --check`
+- keep generalized resource conservation outside the restricted checked subsets policy-visible until executable
+- keep unsupported transfer/claim/settle/finalization output relations policy-visible until executable
+- keep external RPC trusted-summary submission out of scope unless RPC-side builders are admitted with authenticated trust policy
+- keep `docs/CELLSCRIPT_V1_RELEASE_SCOPE.md` current as the separate SDK/tooling/product-scope boundary document
 
 Known non-Phase-4 blockers:
 
@@ -70,6 +91,9 @@ Known non-Phase-4 blockers:
 - Registry package install/publish/update.
 - Executable Wasm backend for CellScript actions or locks.
 - External RPC trusted-summary submission, unless RPC-side builders are explicitly admitted and authenticated.
+- Generalized resource-conservation proofs beyond the restricted checked subsets.
+- Generalized transfer, claim, settle, and finalization semantics.
+- AMM/Pool economic invariants and generalized Pool admission.
 
 ## Phase 4 Current Evidence
 
@@ -81,15 +105,28 @@ CARGO_TARGET_DIR=/tmp/spora-phase4-full-gate-target CARGO_INCREMENTAL=0 CARGO_BU
 
 Result: passed.
 
+Latest v1-scope quick gate after adding release-scope documentation and wallet
+CellScript generator coverage:
+
+```bash
+CARGO_TARGET_DIR=/tmp/spora-v1-release-gate-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 ./scripts/cellscript_phase4_release_gate.sh quick
+```
+
+Result: passed.
+
+The `v1` script mode is the tag preflight: it validates release scope,
+feature-completeness, the feature matrix, CKB-compatibility decision, status-doc
+boundaries, and public README overclaim boundaries, then runs the full gate.
+
 Current gate coverage:
 
 - `cargo fmt --all --check`
 - `cargo check --workspace --all-targets`
-- Full `cellscript` tests: `286` library tests, `57` CLI integration tests, `7` bundled example tests, `0` doctests
+- Full `cellscript` tests: `315` library tests, `61` CLI integration tests, `7` bundled example tests, `0` doctests
 - `spora-adaptor`: `2` unit tests, `0` doctests, executable `adaptor_roundtrip` and `adaptor_reject_noncanonical` examples
-- `spora-exec`: `14` scheduler witness tests and `10` scheduler property tests
+- `spora-exec`: `17` scheduler witness tests and `10` scheduler property tests
 - `spora-consensus`: `8` strict trusted-summary tests and `12` template scheduler policy tests
-- `spora-wallet-core`: `3` compiled scheduler witness attachment tests
+- `spora-wallet-core`: `3` compiled scheduler witness attachment tests plus focused CellScript action metadata, CKB TYPE_ID, and explicit deps/header deps generator tests
 - `spora-mining`: `13` scheduler sidecar lifecycle tests
 - `git diff --check`
 - Targeted trailing-whitespace checks in the release gate

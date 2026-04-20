@@ -170,7 +170,7 @@ CellScript does **not** introduce a new VM. It compiles to standard RISC-V ELF b
 | `BLAKE3` (Spora ext) | TBD | Used by `hash()` builtin |
 
 The compiler links a thin CellScript stdlib into each ELF binary. This stdlib provides:
-- Borsh serialization/deserialization for typed Cell data
+- Molecule/schema encoding and decoding for typed Cell data
 - Syscall wrappers with safe Rust-like APIs
 - Linearity enforcement at runtime (debug mode) and compile time (always)
 - Scheduler metadata serialization
@@ -248,7 +248,7 @@ resource FungibleToken {
 
 Maps to:
 - `CellOutput.type_` = Script pointing to the FungibleToken type script
-- `outputs_data[i]` = Borsh-serialized `{ amount: u64, symbol: [u8; 8] }`
+- `outputs_data[i]` = Molecule/schema encoded `{ amount: u64, symbol: [u8; 8] }`
 - `CellOutput.capacity` = minimum required capacity for this data layout
 - `CellOutput.lock` = owner's lock script (set by `transfer` target)
 
@@ -320,7 +320,7 @@ Current status: `launch` is not part of the v1 language core. Until transaction-
 
 **How it maps to Spora**: A pool is a shared Cell where:
 - `CellOutput.type_` = pool type script (enforces AMM invariant)
-- `outputs_data[i]` = Borsh-serialized pool state: `{ reserve_a: u64, reserve_b: u64, total_lp: u64, fee_rate: u16 }`
+- `outputs_data[i]` = Molecule/schema encoded pool state: `{ reserve_a: u64, reserve_b: u64, total_lp: u64, fee_rate: u16 }`
 - Swap transactions consume the pool Cell and create a new pool Cell with updated reserves
 - LP add/remove transactions modify reserves and create/consume LP receipt Cells
 
@@ -454,7 +454,7 @@ shared Registry has store {
 }
 ```
 
-Current implementation note: `#[type_id("...")]` is an item-level attribute for `resource` / `shared` / `receipt` / `struct`. The compiler parses it, rejects duplicate values in the same module, preserves it in IR, and emits `types[].type_id` plus `types[].type_id_hash_blake3` in metadata schema v22. This is not yet a complete CKB type-id lineage verifier; proving that a Cell's OutPoint chain traces back to a genesis transaction remains future executable verifier / transaction-builder semantics.
+Current implementation note: `#[type_id("...")]` is an item-level attribute for `resource` / `shared` / `receipt` / `struct`. The compiler parses it, rejects duplicate values in the same module, preserves it in IR, and emits `types[].type_id` plus `types[].type_id_hash_blake3` in metadata schema v26. Under the `ckb` profile, persistent Cell types also emit `types[].ckb_type_id` with the CKB built-in TYPE_ID script contract. Direct `create` outputs of those types also emit `create_set[].ckb_type_id` output plans with concrete Output indexes. Wallet builders can explicitly install TYPE_ID scripts by final output index, native/WASM generator settings can consume CellScript action metadata profile-aware so Spora metadata attaches the Molecule scheduler witness while CKB metadata installs TYPE_ID scripts, and native/WASM generator settings can carry explicit CKB deps/header deps. Higher-level CellScript transaction builders still need to pass metadata/action/deps automatically.
 
 ### 5.6 Shared Object Representation
 
@@ -974,7 +974,7 @@ Source (.cell)
        │
        ├──── Lock Script ELF (authorization logic)
        ├──── Type Script ELF (state transition validation)
-       ├──── Typed Data Layouts (Borsh schemas for Cell data)
+       ├──── Typed Data Layouts (Molecule schemas for Cell data)
        └──── Scheduler Metadata (witness-encoded hints)
 ```
 
@@ -1140,7 +1140,7 @@ struct SchedulerAccessWitness {
 }
 ```
 
-Current implementation note: schema v22 keeps scheduler witness access records
+Current implementation note: schema v26 keeps scheduler witness access records
 limited to scheduler-visible Input/CellDep/Output cell-state accesses. Runtime-only
 claim witness/signature syscalls stay in `ckb_runtime_accesses`, not in the compact
 scheduler witness. `spora-exec` can attach/discover/decode/admit these witnesses
@@ -2301,9 +2301,9 @@ CellScript is a compiler that targets the existing infrastructure. It adds capab
 
 1. **Raw byte-level programming**: CKB encourages writing scripts in C/assembly. CellScript replaces this with a typed language. Raw scripts remain supported but are not the recommended path.
 
-2. **Manual witness encoding**: CKB scripts parse witnesses byte-by-byte. CellScript's compiler generates Borsh-based witness encoding/decoding automatically. The stdlib handles serialization.
+2. **Manual witness encoding**: CKB scripts parse witnesses byte-by-byte. CellScript's compiler generates Molecule-based public scheduler witness encoding/decoding automatically. Legacy Borsh decoding remains only for migration/private tooling paths.
 
-3. **Untyped Cell data**: CKB Cell data is `Vec<u8>` with no enforced schema. CellScript enforces typed data layouts at compile time and generates Borsh schemas for each resource type. Type scripts validate data layout transitions.
+3. **Untyped Cell data**: CKB Cell data is `Vec<u8>` with no enforced schema. CellScript enforces typed data layouts at compile time and generates Molecule schemas for fixed-width persistent Cell types. Type scripts validate data layout transitions.
 
    Important limitation:
    CellScript should not replace this with a mandatory universal object header. Typed layout should remain compiler- and script-defined, with optional standardized layout templates only where the abstraction clearly pays for itself.
@@ -2315,7 +2315,7 @@ CellScript is a compiler that targets the existing infrastructure. It adds capab
    Important trust boundary:
    these hints are advisory only. The chain must not depend on them for consensus validity in v1.
 
-6. **Molecule serialization**: CKB uses Molecule for on-chain encoding. Spora has already adopted Borsh (80% smaller code size). CellScript generates Borsh encoding exclusively.
+6. **Molecule serialization**: CKB uses Molecule for on-chain encoding. Spora now keeps the public VM and CellScript ABI aligned with Molecule too. Borsh remains only for legacy/private migration paths, not new public Cell data or scheduler witness surfaces.
 
 ### 13.6 How CellScript Replaces CoBuild / OTX / tx-builder Mental Models
 
@@ -2373,7 +2373,7 @@ Stated precisely: CellScript does not erase the underlying functions behind CoBu
 | Concern | Location | Rationale |
 |---|---|---|
 | Transaction structure | CellTx envelope (unchanged) | CellScript compiles INTO valid CellTx. The envelope is the protocol's wire format. |
-| Object data layout | Cell data (outputs_data) | CellScript generates Borsh-encoded typed data. Type scripts validate layout. |
+| Object data layout | Cell data (outputs_data) | CellScript generates Molecule/schema encoded typed data. Type scripts validate layout. |
 | Optional object header templates | compiler convention for selected patterns | useful for some `shared` / `receipt` / `settle` patterns, but not globally mandatory |
 | State transition rules | Type script ELF (compiler output) | The type script IS the compiled CellScript action. It runs in ckbvm. |
 | Authorization logic | Lock script ELF (compiler output) | Lock scripts compiled from CellScript lock functions. |

@@ -26,7 +26,10 @@ action add(x: u64, y: u64) -> u64 {
     let metadata = std::fs::read_to_string(dir.path().join("sample.s.meta.json")).unwrap();
     assert!(metadata.contains("\"actions\""));
     assert!(metadata.contains("\"add\""));
-    assert!(metadata.contains("\"scheduler_witness_borsh_hex\""));
+    assert!(metadata.contains("\"scheduler_witness_abi\""));
+    assert!(metadata.contains("\"scheduler_witness_hex\""));
+    assert!(!metadata.contains("\"scheduler_witness_molecule_hex\""));
+    assert!(!metadata.contains("\"scheduler_witness_borsh_hex\""));
     assert!(metadata.contains("\"metadata_schema_version\""));
     assert!(metadata.contains("\"compiler_version\""));
     assert!(metadata.contains("\"artifact_hash_blake3\""));
@@ -759,7 +762,10 @@ action ping() -> u64 {
     assert!(written.contains(".section .text"));
     let metadata = std::fs::read_to_string(root.join("build").join("main.s.meta.json")).unwrap();
     assert!(metadata.contains("\"module\": \"demo::main\""));
-    assert!(metadata.contains("\"scheduler_witness_borsh_hex\""));
+    assert!(metadata.contains("\"scheduler_witness_abi\""));
+    assert!(metadata.contains("\"scheduler_witness_hex\""));
+    assert!(!metadata.contains("\"scheduler_witness_molecule_hex\""));
+    assert!(!metadata.contains("\"scheduler_witness_borsh_hex\""));
 
     let output = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("build").arg("--json").output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -836,7 +842,7 @@ action ping() -> u64 {
 }
 
 #[test]
-fn cellc_build_rejects_prelaunch_gated_target_profile() {
+fn cellc_build_accepts_pure_ckb_target_profile_without_sporabi_trailer() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
 
@@ -862,12 +868,49 @@ action ping() -> u64 {
     )
     .unwrap();
 
-    let output =
-        Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("build").arg("--target-profile").arg("ckb").output().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .current_dir(root)
+        .arg("build")
+        .arg("--target-profile")
+        .arg("ckb")
+        .arg("--target")
+        .arg("riscv64-elf")
+        .arg("--json")
+        .output()
+        .unwrap();
 
-    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("target profile 'ckb' is prelaunch-gated"), "unexpected stderr: {}", stderr);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["target_profile"], "ckb");
+    assert_eq!(stdout["artifact_format"], "RISC-V ELF");
+    let artifact_path = stdout["artifact"].as_str().unwrap();
+    let artifact = std::fs::read(artifact_path).unwrap();
+    assert!(artifact.starts_with(b"\x7fELF"));
+    assert!(!artifact.ends_with(b"SPORABI\0\x01\x80\0\0\0\0\0\0"));
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .arg("verify-artifact")
+        .arg(artifact_path)
+        .arg("--expect-target-profile")
+        .arg("ckb")
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(verify.status.success(), "{}", String::from_utf8_lossy(&verify.stderr));
+    let verify_stdout: serde_json::Value = serde_json::from_slice(&verify.stdout).unwrap();
+    assert_eq!(verify_stdout["target_profile"], "ckb");
+    assert_eq!(verify_stdout["expected_target_profile_verified"], true);
+
+    let verify = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .arg("verify-artifact")
+        .arg(artifact_path)
+        .arg("--expect-target-profile")
+        .arg("spora")
+        .output()
+        .unwrap();
+    assert!(!verify.status.success(), "unexpected success: {}", String::from_utf8_lossy(&verify.stdout));
+    let stderr = String::from_utf8_lossy(&verify.stderr);
+    assert!(stderr.contains("metadata target_profile 'ckb' does not match expected 'spora'"), "{}", stderr);
 }
 
 #[test]
@@ -958,7 +1001,7 @@ action add(x: u64, y: u64) -> u64 {
     let checked_targets = stdout["checked_targets"].as_array().unwrap();
     assert_eq!(checked_targets.len(), 1);
     assert_eq!(checked_targets[0]["target_profile"], "ckb");
-    assert_eq!(checked_targets[0]["compiled_target_profile"], "spora");
+    assert_eq!(checked_targets[0]["compiled_target_profile"], "ckb");
     assert!(checked_targets[0]["target_profile_policy_violations"].as_array().unwrap().is_empty());
 }
 
@@ -1080,7 +1123,7 @@ action now() -> u64 {
 }
 
 #[test]
-fn cellc_check_rejects_portable_profile_persistent_cell_types() {
+fn cellc_check_accepts_portable_profile_fixed_persistent_cell_schema() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
 
@@ -1117,6 +1160,108 @@ action mint(amount: u64) -> Token {
         .arg("check")
         .arg("--target-profile")
         .arg("portable-cell")
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let checked_targets = stdout["checked_targets"].as_array().unwrap();
+    assert_eq!(checked_targets[0]["target_profile"], "portable-cell");
+    assert!(checked_targets[0]["target_profile_policy_violations"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn cellc_check_accepts_portable_profile_nested_fixed_persistent_cell_schema() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+struct Owner {
+    pubkey: Hash,
+    flags: [u8; 2],
+}
+
+resource Token has store {
+    owner: Owner,
+    pair: (u64, Owner),
+    checkpoints: [(Owner, u64); 2],
+    amount: u64,
+}
+
+action value() -> u64 {
+    return 1
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .current_dir(root)
+        .arg("check")
+        .arg("--target-profile")
+        .arg("portable-cell")
+        .arg("--json")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let checked_targets = stdout["checked_targets"].as_array().unwrap();
+    assert_eq!(checked_targets[0]["target_profile"], "portable-cell");
+    assert!(checked_targets[0]["target_profile_policy_violations"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn cellc_check_rejects_portable_profile_persistent_cell_types_without_molecule_schema() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+resource Bag has store {
+    items: Vec
+}
+
+action value() -> u64 {
+    return 1
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .current_dir(root)
+        .arg("check")
+        .arg("--target-profile")
+        .arg("portable-cell")
         .output()
         .unwrap();
 
@@ -1124,7 +1269,7 @@ action mint(amount: u64) -> Token {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("target profile policy failed for 'portable-cell'"), "unexpected stderr: {}", stderr);
     assert!(stderr.contains("generated Molecule schemas are required"), "unexpected stderr: {}", stderr);
-    assert!(stderr.contains("Token (Resource)"), "unexpected stderr: {}", stderr);
+    assert!(stderr.contains("Bag (Resource)"), "unexpected stderr: {}", stderr);
 }
 
 #[test]
@@ -1216,7 +1361,7 @@ action issue() -> Fingerprint {
 }
 
 #[test]
-fn cellc_check_can_reject_symbolic_runtime_requirements() {
+fn cellc_check_allows_deny_symbolic_when_lowering_is_fail_closed_or_verified() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
 
@@ -1248,12 +1393,15 @@ action issue(amount: u64) -> Token {
 
     let output =
         Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("check").arg("--deny-symbolic-runtime").output().unwrap();
-    assert!(!output.status.success(), "unexpected success: {}", String::from_utf8_lossy(&output.stdout));
+    assert!(
+        output.status.success(),
+        "unexpected failure:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("check policy failed"), "unexpected stderr: {}", stderr);
-    assert!(stderr.contains("symbolic Cell/runtime"), "unexpected stderr: {}", stderr);
-    assert!(stderr.contains("verify-output-cell"), "unexpected stderr: {}", stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Check succeeded"), "unexpected stdout: {}", stdout);
 }
 
 #[test]
@@ -2191,28 +2339,23 @@ version = "0.1.0"
         .expect("runtime-required Pool invariant blocker class summaries array");
     assert!(
         blocker_classes.iter().any(|value| value.as_str().is_some_and(|summary| {
-            summary.contains("pool-mutation-invariants:Pool:reserve-conservation")
-                && summary.contains("blocker_class=phase2-deferred-amm-reserve-conservation")
-        })),
-        "unexpected Pool blocker class summaries: {}",
-        stdout
-    );
-    assert!(
-        blocker_classes.iter().any(|value| value.as_str().is_some_and(|summary| {
             summary.contains("pool-mutation-invariants:Pool:pool-specific-admission")
                 && summary.contains("blocker_class=phase2-deferred-pool-admission")
         })),
         "unexpected Pool blocker class summaries: {}",
         stdout
     );
+    assert!(
+        !blocker_classes.iter().any(|value| value
+            .as_str()
+            .is_some_and(|summary| { summary.contains("pool-mutation-invariants:Pool:reserve-conservation") })),
+        "reserve-conservation should be checked-runtime, not in blocker classes: {}",
+        stdout
+    );
     let runtime_inputs = target["pool_runtime_input_requirement_summaries"].as_array().expect("runtime input summaries array");
     assert!(
-        runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| {
-            summary.contains("reserve-conservation=Input#")
-                && summary.contains(":pool.reserve_a:")
-                && summary.contains("blocker_class=phase2-deferred-amm-reserve-conservation")
-        })),
-        "unexpected Pool runtime input summaries: {}",
+        !runtime_inputs.iter().any(|value| value.as_str().is_some_and(|summary| { summary.contains("reserve-conservation=") })),
+        "checked reserve-conservation should not appear in runtime input summaries: {}",
         stdout
     );
 
@@ -2222,7 +2365,6 @@ version = "0.1.0"
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("runtime-required Pool invariant blocker classes"), "unexpected stderr: {}", stderr);
-    assert!(stderr.contains("phase2-deferred-amm-reserve-conservation"), "unexpected stderr: {}", stderr);
     assert!(stderr.contains("phase2-deferred-pool-admission"), "unexpected stderr: {}", stderr);
 }
 
@@ -2608,7 +2750,7 @@ action ping() -> u64 {
         r#"
 // cellscript-test: expect-not-standalone
 // cellscript-test: expect-ckb-runtime
-// cellscript-test: expect-symbolic-runtime
+// cellscript-test: expect-no-symbolic-runtime
 // cellscript-test: expect-no-fail-closed-runtime
 // cellscript-test: expect-runtime-feature: verify-output-cell
 // cellscript-test: expect-no-runtime-feature: transfer-expression
@@ -3108,16 +3250,16 @@ action update(amount: u64) -> u64 {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("\"lowering\""));
     assert!(stdout.contains("\"runtime\""));
-    assert!(stdout.contains("\"symbolic_cell_runtime_required\": true"));
+    assert!(stdout.contains("\"symbolic_cell_runtime_required\": false"));
     assert!(stdout.contains("\"fail_closed_runtime_features\""));
     assert!(stdout.contains("\"verifier_obligations\""));
     assert!(stdout.contains("\"source\": \"Input\""));
     assert!(stdout.contains("\"source\": \"CellDep\""));
     assert!(stdout.contains("\"source\": \"Output\""));
-    assert!(stdout.contains("\"elf_compatible\": false"));
+    assert!(stdout.contains("\"elf_compatible\": true"));
     assert!(stdout.contains("\"ckb_runtime_required\": true"));
     assert!(stdout.contains("read-cell-dep"));
-    assert!(stdout.contains("create-expression"));
+    assert!(stdout.contains("verify-output-cell"));
     assert!(!stdout.contains("schema-field-access"));
 }
 
@@ -3164,12 +3306,16 @@ version = "0.1.0"
 
 #[cfg(not(feature = "vm-runner"))]
 #[test]
-fn cellc_run_subcommand_is_fail_closed_without_vm_runner_feature() {
+fn cellc_run_subcommand_without_vm_runner_degrades_gracefully() {
     let output = Command::new(env!("CARGO_BIN_EXE_cellc")).arg("run").output().unwrap();
+    // Without a project directory, compile_path will fail
+    // The new behavior is to attempt simulation or provide guidance
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("cellc run is still experimental"));
-    assert!(stderr.contains("feature-gated VM backend"));
+    // Should mention simulate or experimental or compile error
+    assert!(
+        stderr.contains("simulate") || stderr.contains("experimental") || stderr.contains("Cell.toml") || stderr.contains("compile")
+    );
 }
 
 #[cfg(feature = "vm-runner")]

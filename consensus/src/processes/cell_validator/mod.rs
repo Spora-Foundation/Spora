@@ -32,6 +32,7 @@ use spora_consensus_core::{
     sign::{key_id20, parse_standard_witness_envelope, KEY_ID_DOMAIN_ECDSA, KEY_ID_DOMAIN_SCHNORR},
     tx::{classify_script, MutableTransaction, ScriptClass, VerifiableTransaction},
 };
+use spora_exec::DepGroupDataAbi;
 #[cfg(feature = "vm")]
 use spora_exec::{
     vm::{
@@ -56,6 +57,11 @@ pub struct CellConsensusParams {
     pub max_tx_size: usize,
     /// Maximum bytes allowed in a single output's data payload.
     pub max_cell_data_size: usize,
+    /// Cell data ABI used when expanding `DepType::DepGroup`.
+    ///
+    /// Spora defaults to its existing count-prefixed ABI, while CKB-targeted
+    /// validation can select Molecule `OutPointVec` through this explicit knob.
+    pub dep_group_data_abi: DepGroupDataAbi,
 }
 
 impl Default for CellConsensusParams {
@@ -66,6 +72,7 @@ impl Default for CellConsensusParams {
             max_block_cycles: 70_000_000, // 70M cycles (same as CKB)
             max_tx_size: 500 * 1024,      // 500KB
             max_cell_data_size: 500 * 1024,
+            dep_group_data_abi: DepGroupDataAbi::Spora,
         }
     }
 }
@@ -305,7 +312,12 @@ impl<P: CellStateProvider> CellValidator<P> {
     where
         P: cell_validation_in_dag::DagCellProvider,
     {
-        cell_validation_in_dag::validate_cell_existence(tx, pov, self.provider.as_ref())?;
+        cell_validation_in_dag::validate_cell_existence_for_dep_group_abi(
+            tx,
+            pov,
+            self.provider.as_ref(),
+            self.params.dep_group_data_abi,
+        )?;
 
         // First validate in context
         self.validate_in_context(tx, pov, daa_score)?;
@@ -739,7 +751,8 @@ impl<P: CellStateProvider> CellValidator<P> {
                         metadata_to_resolved_cell(group_metadata.clone(), Some(group_data.clone()))?,
                         group_metadata.block_hash,
                     );
-                    let outpoints = spora_exec::parse_dep_group_data(&group_data).map_err(CellValidationError::InvalidFormat)?;
+                    let outpoints = spora_exec::parse_dep_group_data_for_abi(&group_data, self.params.dep_group_data_abi)
+                        .map_err(CellValidationError::InvalidFormat)?;
                     for op in &outpoints {
                         let code_dep = CellDep { out_point: *op, dep_type: DepType::Code };
                         let metadata = self

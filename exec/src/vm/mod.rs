@@ -106,6 +106,23 @@ impl VmSemantics {
     pub const fn allow_header_dep_cell_lookup(self) -> bool {
         matches!(self, Self::SporaExtended)
     }
+
+    /// Whether Spora-only helper syscalls in the `3001..3004` range are exposed.
+    pub const fn allow_spora_extension_syscalls(self) -> bool {
+        matches!(self, Self::SporaExtended)
+    }
+
+    /// Whether Spora's DAG header object and field ABI are exposed through
+    /// `LOAD_HEADER` and `LOAD_HEADER_BY_FIELD`.
+    pub const fn allow_spora_header_abi(self) -> bool {
+        matches!(self, Self::SporaExtended)
+    }
+
+    /// Whether legacy Spora group source encodings such as `0x0100` are
+    /// accepted in addition to canonical CKB high-bit group source values.
+    pub const fn allow_legacy_group_source_encoding(self) -> bool {
+        matches!(self, Self::SporaExtended)
+    }
 }
 
 impl VmLimits {

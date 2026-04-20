@@ -2683,9 +2683,9 @@ mod tests {
     };
     use spora_exec::{
         celltx::{
-            sighash::compute_wtxid, CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness,
-            CELLSCRIPT_SCHEDULER_EFFECT_CREATING, CELLSCRIPT_SCHEDULER_OP_CREATE, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
-            CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+            encode_cellscript_scheduler_witness_molecule, sighash::compute_wtxid, CellScriptSchedulerAccessWitness,
+            CellScriptSchedulerWitness, CELLSCRIPT_SCHEDULER_EFFECT_CREATING, CELLSCRIPT_SCHEDULER_OP_CREATE,
+            CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT, CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
         },
         CellInput, CellOutput, CellTx, OutPoint, Script,
     };
@@ -2747,7 +2747,7 @@ mod tests {
     }
 
     fn scheduler_witness_bytes(accesses: Vec<CellScriptSchedulerAccessWitness>) -> Vec<u8> {
-        borsh::to_vec(&scheduler_witness(accesses)).unwrap()
+        encode_cellscript_scheduler_witness_molecule(&scheduler_witness(accesses))
     }
 
     fn scheduler_witness(accesses: Vec<CellScriptSchedulerAccessWitness>) -> CellScriptSchedulerWitness {

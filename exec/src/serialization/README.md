@@ -6,7 +6,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Layer 3: VM/Script ABI 层 (Borsh v1 + Molecule v1)             │
+│  Layer 3: VM/Script ABI 层 (Molecule v1 public + legacy v1)     │
 │  - ResolvedHeader, ResolvedCell, Witness Payload                │
 │  - 脚本可见的所有数据结构                                        │
 │  - 需要: canonical, partial read, version兼容                  │
@@ -78,7 +78,8 @@ let tx = envelope.parse()?;
 
 ### VmSerializable
 
-为 VM-facing 类型提供 ABI 抽象：
+为 VM-facing 类型提供 public Molecule ABI 抽象。显式 legacy Borsh/custom v1 路径保留在 `VmAbiFormat::Legacy`
+和旧 serializer helpers 中，不再是 `VmSerializable` 的默认语义：
 
 ```rust
 use spora_exec::{VmSerializable, ResolvedHeader};
@@ -101,8 +102,8 @@ let header = ResolvedHeader::from_vm_bytes(&bytes)?;
 
 ### ABI 版本 (VmSerializable)
 
-- `0x0001`: Borsh-based ABI v1 (legacy default)
-- `0x8001`: Molecule-based ABI v1 (available canonical VM ABI)
+- `0x8001`: Molecule-based ABI v1 (launch/public VM ABI)
+- `0x0001`: Borsh/custom ABI v1 (explicit legacy compatibility only)
 - 使用 `VmAbiNegotiator` 协商版本
 - 使用 `VmAbiFormat` 在 VM runtime/syscall 边界选择实际 wire format
 
@@ -121,7 +122,7 @@ serialization/
 ### Phase 1 (当前) ✅
 - ✅ 所有 CellTx 类型实现 `VersionedSerializable`
 - ✅ `ResolvedHeader` / `ResolvedCell` 实现 `VmSerializable`
-- ✅ VM syscall 使用 `VmSerializable` 抽象
+- ✅ `VmSerializable` 的 public bytes 使用 Molecule；VM syscall 在 runtime 边界通过 `VmAbiFormat` 选择 Molecule 或显式 legacy
 - ✅ `vm_abi` 模块标准化序列化格式
 
 ### Phase 2 (未来 3-6 个月)
@@ -132,9 +133,13 @@ serialization/
 ### Phase 3 (当前推进)
 - `molecule_compat` 已实现 canonical Molecule wire layout，不再是 NotImplemented 占位
 - `LOAD_SCRIPT` / `LOAD_INPUT` / `LOAD_CELL` / `LOAD_HEADER` full-load 路径已支持 `VmAbiFormat::Molecule`
+- `LoadScript` / `LoadInput` / `LoadCell` / `LoadHeader` constructors and `TransactionScriptVerifier` now default to Molecule
+- CKB `Script` / `OutPoint` / `CellInput` / `CellOutput` / `CellDep` / `RawTransaction` / `Transaction` / `WitnessArgs` / `RawHeader` / `Header` / packed `EpochNumberWithFraction` helpers are available for CKB-profile byte and hash material, including zeroed-lock `SIGHASH_ALL`, raw-header pow hash, header hash, Blake160 pubkey hashes, local CKB Blake160 recoverable-signature verification, and local zeroed-lock CKB sighash-all witness verification
+- `VmSemantics::CkbStrict` uses provider-supplied CKB `Header` bytes for `LOAD_HEADER` and CKB epoch fields for `LOAD_HEADER_BY_FIELD`; it does not fall back to Spora `ResolvedHeader`
 - CellScript metadata 通过 `runtime.vm_abi.version = 0x8001` 声明所需 VM object ABI
+- CellScript scheduler witness 的 public admission 只接受 Molecule bytes；legacy Borsh witness decode 只保留为显式迁移/回归入口
 - RISC-V ELF artifact 可以内嵌固定 ABI trailer；verifier/loader 在交给 CKB-VM 前 strip trailer，并据此选择 Molecule syscall 输出格式
 - verifier caller 仍可以用 `with_abi_version(0x8001)` 将 artifact metadata 映射到 Molecule syscall 输出格式
-- 现有 syscall 默认输出仍是 legacy，避免破坏 Borsh/custom ABI v1 脚本
+- TransactionScriptVerifier 默认使用 Molecule；Borsh/custom ABI v1 必须通过 explicit legacy ABI 选择
 - 非 ELF artifact 的 sidecar metadata 不是链上自动事实；仍需嵌入或认证 artifact ABI manifest
 - 保持分层架构，不做全栈 Molecule 切换

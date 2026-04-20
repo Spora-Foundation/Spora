@@ -675,6 +675,10 @@ impl IrGenerator {
     }
 
     fn fixed_encoded_size(&self, ty: &IrType) -> Option<usize> {
+        self.fixed_encoded_size_with_seen(ty, &mut HashSet::new())
+    }
+
+    fn fixed_encoded_size_with_seen(&self, ty: &IrType, seen: &mut HashSet<String>) -> Option<usize> {
         match ty {
             IrType::U8 | IrType::Bool => Some(1),
             IrType::U16 => Some(2),
@@ -682,10 +686,25 @@ impl IrGenerator {
             IrType::U64 => Some(8),
             IrType::U128 => Some(16),
             IrType::Address | IrType::Hash => Some(32),
-            IrType::Array(inner, len) => self.fixed_encoded_size(inner).map(|inner_size| inner_size * len),
-            IrType::Tuple(items) => items.iter().try_fold(0usize, |acc, item| self.fixed_encoded_size(item).map(|size| acc + size)),
+            IrType::Array(inner, len) => self.fixed_encoded_size_with_seen(inner, seen).map(|inner_size| inner_size * len),
+            IrType::Tuple(items) => {
+                items.iter().try_fold(0usize, |acc, item| self.fixed_encoded_size_with_seen(item, seen).map(|size| acc + size))
+            }
             IrType::Unit => Some(0),
-            IrType::Named(_) | IrType::Ref(_) | IrType::MutRef(_) => None,
+            IrType::Named(name) => {
+                let base_name = name.split('<').next().unwrap_or(name.as_str());
+                if !seen.insert(base_name.to_string()) {
+                    return None;
+                }
+                let size = self.type_fields.get(base_name).and_then(|fields| {
+                    fields.values().try_fold(0usize, |acc, field_ty| {
+                        self.fixed_encoded_size_with_seen(field_ty, seen).map(|field_size| acc + field_size)
+                    })
+                });
+                seen.remove(base_name);
+                size
+            }
+            IrType::Ref(_) | IrType::MutRef(_) => None,
         }
     }
 
@@ -2847,6 +2866,42 @@ impl IrGenerator {
                     });
                     Some(LoweredExpr { operand: IrOperand::Var(dest), current: Some(current) })
                 }
+                "ckb::header_epoch_number" if call.args.is_empty() => {
+                    let dest = self.new_var("ckb_header_epoch_number", IrType::U64);
+                    self.block_mut(blocks, current).instructions.push(IrInstruction::Call {
+                        dest: Some(dest.clone()),
+                        func: "__ckb_header_epoch_number".to_string(),
+                        args: Vec::new(),
+                    });
+                    Some(LoweredExpr { operand: IrOperand::Var(dest), current: Some(current) })
+                }
+                "ckb::header_epoch_start_block_number" if call.args.is_empty() => {
+                    let dest = self.new_var("ckb_header_epoch_start_block_number", IrType::U64);
+                    self.block_mut(blocks, current).instructions.push(IrInstruction::Call {
+                        dest: Some(dest.clone()),
+                        func: "__ckb_header_epoch_start_block_number".to_string(),
+                        args: Vec::new(),
+                    });
+                    Some(LoweredExpr { operand: IrOperand::Var(dest), current: Some(current) })
+                }
+                "ckb::header_epoch_length" if call.args.is_empty() => {
+                    let dest = self.new_var("ckb_header_epoch_length", IrType::U64);
+                    self.block_mut(blocks, current).instructions.push(IrInstruction::Call {
+                        dest: Some(dest.clone()),
+                        func: "__ckb_header_epoch_length".to_string(),
+                        args: Vec::new(),
+                    });
+                    Some(LoweredExpr { operand: IrOperand::Var(dest), current: Some(current) })
+                }
+                "ckb::input_since" if call.args.is_empty() => {
+                    let dest = self.new_var("ckb_input_since", IrType::U64);
+                    self.block_mut(blocks, current).instructions.push(IrInstruction::Call {
+                        dest: Some(dest.clone()),
+                        func: "__ckb_input_since".to_string(),
+                        args: Vec::new(),
+                    });
+                    Some(LoweredExpr { operand: IrOperand::Var(dest), current: Some(current) })
+                }
                 "Vec::new" if call.args.is_empty() => {
                     let dest = self.new_var("vec_new_tmp", IrType::Named("Vec".to_string()));
                     self.block_mut(blocks, current)
@@ -2888,10 +2943,24 @@ impl IrGenerator {
                     let active = lowered_collection.current?;
                     let lowered_value = self.lower_expr(&call.args[0], active, blocks, vars);
                     let active = lowered_value.current?;
+                    let collection_operand = lowered_collection.operand;
+                    if let (Expr::Identifier(receiver_name), IrOperand::Var(collection_var)) =
+                        (field.expr.as_ref(), &collection_operand)
+                    {
+                        if matches!(&collection_var.ty, IrType::Named(name) if name == "Vec") {
+                            if let (Some(item_ty), Some(receiver_var)) =
+                                (inline_ir_type_repr(&self.operand_type(&lowered_value.operand)), vars.get_mut(receiver_name))
+                            {
+                                if receiver_var.id == collection_var.id {
+                                    receiver_var.ty = IrType::Named(format!("Vec<{}>", item_ty));
+                                }
+                            }
+                        }
+                    }
                     let block = self.block_mut(blocks, active);
                     block
                         .instructions
-                        .push(IrInstruction::CollectionPush { collection: lowered_collection.operand, value: lowered_value.operand });
+                        .push(IrInstruction::CollectionPush { collection: collection_operand, value: lowered_value.operand });
                     Some(LoweredExpr { operand: IrOperand::Const(IrConst::Bool(true)), current: Some(active) })
                 }
                 "extend_from_slice" if call.args.len() == 1 => {
@@ -3060,6 +3129,21 @@ impl IrGenerator {
         if let Some(elements) = self.aggregate_elements.get(&source_var.id).cloned() {
             self.aggregate_elements.insert(dest_id, elements);
         }
+    }
+}
+
+fn inline_ir_type_repr(ty: &IrType) -> Option<String> {
+    match ty {
+        IrType::U8 => Some("u8".to_string()),
+        IrType::U16 => Some("u16".to_string()),
+        IrType::U32 => Some("u32".to_string()),
+        IrType::U64 => Some("u64".to_string()),
+        IrType::U128 => Some("u128".to_string()),
+        IrType::Bool => Some("bool".to_string()),
+        IrType::Address => Some("Address".to_string()),
+        IrType::Hash => Some("Hash".to_string()),
+        IrType::Named(name) => Some(name.clone()),
+        IrType::Unit | IrType::Array(_, _) | IrType::Tuple(_) | IrType::Ref(_) | IrType::MutRef(_) => None,
     }
 }
 

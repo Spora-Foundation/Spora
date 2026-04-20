@@ -68,7 +68,7 @@ use spora_consensus_client::{pay_to_address_lock_script, CellEntry, TransactionI
 use spora_consensus_core::block::CellScriptSchedulerAccessList;
 use spora_consensus_core::constants::UNACCEPTED_DAA_SCORE;
 use spora_consensus_core::tx::{TransactionId, TransactionOutpoint};
-use spora_exec::{CellInput, CellTx};
+use spora_exec::{ckb_apply_type_id_script_to_output_molecule, CellDep, CellInput, CellTx};
 use std::collections::VecDeque;
 
 use super::SignerT;
@@ -339,6 +339,12 @@ struct Inner {
     // compiled CellScript scheduler witness for the final transaction
     final_cellscript_compiled_scheduler_witness: Option<Vec<u8>>,
     final_cellscript_compiled_scheduler_witness_mass: u64,
+    // Cell dependencies included in each generated transaction.
+    cell_deps: Vec<CellDep>,
+    // Header dependencies included in each generated transaction.
+    header_deps: Vec<[u8; 32]>,
+    // Final-transaction user output indexes that should receive CKB TYPE_ID scripts.
+    ckb_type_id_output_indexes: Vec<usize>,
     // execution context
     context: Mutex<Context>,
 }
@@ -368,6 +374,9 @@ impl std::fmt::Debug for Inner {
                 "final_cellscript_compiled_scheduler_witness_mass",
                 &self.final_cellscript_compiled_scheduler_witness_mass,
             )
+            .field("cell_deps", &self.cell_deps)
+            .field("header_deps", &self.header_deps)
+            .field("ckb_type_id_output_indexes", &self.ckb_type_id_output_indexes)
             // .field("context", &self.context)
             .finish()
     }
@@ -397,6 +406,9 @@ impl Generator {
             final_transaction_destination,
             final_transaction_payload,
             final_cellscript_compiled_scheduler_witness,
+            cell_deps,
+            header_deps,
+            ckb_type_id_output_indexes,
             destination_cell_context,
         } = settings;
 
@@ -430,6 +442,7 @@ impl Generator {
                 (outputs.outputs.clone(), Some(outputs.amount()))
             }
         };
+        validate_ckb_type_id_output_indexes(&ckb_type_id_output_indexes, final_transaction_outputs.len())?;
 
         if final_transaction_outputs.is_empty() && matches!(final_transaction_priority_fee, Fees::ReceiverPays(_)) {
             return Err(Error::GeneratorIncludeFeesRequiresOneOutput);
@@ -443,7 +456,8 @@ impl Generator {
         let standard_change_output_mass =
             mass_calculator.calc_compute_mass_for_payment_output(&PaymentOutput::new(change_address.clone(), 0));
         let signature_mass_per_input = mass_calculator.calc_compute_mass_for_signature(minimum_signatures);
-        let final_transaction_outputs_compute_mass = mass_calculator.calc_compute_mass_for_payment_outputs(&final_transaction_outputs);
+        let final_transaction_outputs_compute_mass = mass_calculator.calc_compute_mass_for_payment_outputs(&final_transaction_outputs)
+            + mass_calculator.calc_compute_mass_for_ckb_type_id_output_scripts(ckb_type_id_output_indexes.len());
         let final_transaction_payload = final_transaction_payload.unwrap_or_default();
         let final_transaction_payload_mass = mass_calculator.calc_compute_mass_for_payload(final_transaction_payload.len());
         let final_cellscript_compiled_scheduler_witness_mass = final_cellscript_compiled_scheduler_witness
@@ -511,6 +525,9 @@ impl Generator {
             final_transaction_payload_mass,
             final_cellscript_compiled_scheduler_witness,
             final_cellscript_compiled_scheduler_witness_mass,
+            cell_deps,
+            header_deps,
+            ckb_type_id_output_indexes,
             destination_cell_context,
         };
 
@@ -1165,6 +1182,7 @@ impl Generator {
 
                 let mut tx =
                     self.build_unsigned_cell_transaction(inputs, final_outputs, self.inner.final_transaction_payload.clone())?;
+                apply_ckb_type_id_output_scripts(&mut tx, &self.inner.ckb_type_id_output_indexes)?;
                 let cellscript_scheduler_accesses = attach_cellscript_compiled_scheduler_witness(
                     &mut tx,
                     self.inner.final_cellscript_compiled_scheduler_witness.clone(),
@@ -1303,8 +1321,15 @@ impl Generator {
             // Preserve opaque payload bytes without reintroducing a top-level payload field.
             witnesses.push(payload);
         }
-        CellTx::new(inputs, vec![], outputs, outputs_data, witnesses)
-            .map_err(|err| Error::custom(format!("failed to build canonical CellTx: {err}")))
+        CellTx::new_with_header_deps(
+            inputs,
+            self.inner.cell_deps.clone(),
+            self.inner.header_deps.clone(),
+            outputs,
+            outputs_data,
+            witnesses,
+        )
+        .map_err(|err| Error::custom(format!("failed to build canonical CellTx: {err}")))
     }
 
     fn create_batch_cell_entry_reference(txid: TransactionId, amount: u64, address: &Address) -> CellEntryReference {
@@ -1348,6 +1373,38 @@ fn cell_out_from_payment_output(output: &PaymentOutput) -> spora_exec::CellOutpu
     spora_exec::CellOutput { lock: lock_script, type_: None, capacity: output.amount }
 }
 
+fn validate_ckb_type_id_output_indexes(output_indexes: &[usize], output_count: usize) -> Result<()> {
+    if output_indexes.is_empty() {
+        return Ok(());
+    }
+    let mut sorted = output_indexes.to_vec();
+    sorted.sort_unstable();
+    for output_index in &sorted {
+        if *output_index >= output_count {
+            return Err(Error::custom(format!(
+                "CKB TYPE_ID output index {} is outside final user output count {}",
+                output_index, output_count
+            )));
+        }
+    }
+    for pair in sorted.windows(2) {
+        if pair[0] == pair[1] {
+            return Err(Error::custom(format!("duplicate CKB TYPE_ID output index {}", pair[0])));
+        }
+    }
+    Ok(())
+}
+
+fn apply_ckb_type_id_output_scripts(tx: &mut CellTx, output_indexes: &[usize]) -> Result<Vec<[u8; 32]>> {
+    output_indexes
+        .iter()
+        .map(|output_index| {
+            ckb_apply_type_id_script_to_output_molecule(tx, *output_index)
+                .map_err(|err| Error::custom(format!("failed to apply CKB TYPE_ID script to output {output_index}: {err}")))
+        })
+        .collect()
+}
+
 fn attach_cellscript_compiled_scheduler_witness(
     tx: &mut CellTx,
     compiled_scheduler_witness: Option<Vec<u8>>,
@@ -1364,11 +1421,16 @@ fn attach_cellscript_compiled_scheduler_witness(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tx::PaymentOutputs;
     use spora_exec::celltx::{
-        CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness, CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
-        CELLSCRIPT_SCHEDULER_OP_CREATE, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT, CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+        encode_cellscript_scheduler_witness_molecule, CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness,
+        CELLSCRIPT_SCHEDULER_EFFECT_CREATING, CELLSCRIPT_SCHEDULER_OP_CREATE, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+        CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
     };
-    use spora_exec::{CellOutput, Script};
+    use spora_exec::{
+        ckb_type_id_args, CellDep, CellOutput, CkbSecp256k1Blake160SighashAllLockConfig, DepType, OutPoint, Script,
+        CKB_SCRIPT_HASH_TYPE_TYPE, CKB_TYPE_ID_CODE_HASH,
+    };
 
     #[test]
     fn test_attach_cellscript_compiled_scheduler_witness_returns_trusted_summary() {
@@ -1386,7 +1448,7 @@ mod tests {
             index: 0,
             binding_hash: [0x4a; 32],
         };
-        let witness = borsh::to_vec(&CellScriptSchedulerWitness {
+        let witness = encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
@@ -1396,8 +1458,7 @@ mod tests {
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![access.clone()],
-        })
-        .unwrap();
+        });
 
         let summary = attach_cellscript_compiled_scheduler_witness(&mut tx, Some(witness.clone())).unwrap();
 
@@ -1418,7 +1479,7 @@ mod tests {
     #[test]
     fn test_attach_cellscript_compiled_scheduler_witness_rejects_shape_mismatch_without_append() {
         let mut tx = CellTx::new(vec![], vec![], vec![], vec![], vec![]).unwrap();
-        let witness = borsh::to_vec(&CellScriptSchedulerWitness {
+        let witness = encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
@@ -1433,12 +1494,100 @@ mod tests {
                 index: 0,
                 binding_hash: [0x4b; 32],
             }],
-        })
-        .unwrap();
+        });
 
         let error = attach_cellscript_compiled_scheduler_witness(&mut tx, Some(witness)).unwrap_err();
 
         assert!(error.to_string().contains("invalid CellScript scheduler witness"));
         assert!(tx.witnesses.is_empty());
+    }
+
+    #[test]
+    fn generator_settings_cell_and_header_deps_are_included_in_unsigned_transactions() {
+        let change_address = Address::new_std_single(Prefix::Testnet, &[0x11; 32]).unwrap();
+        let dep_group_out_point = OutPoint::new([0x42; 32], 7);
+        let ckb_lock_config = CkbSecp256k1Blake160SighashAllLockConfig::with_dep_group([0x51; 32], dep_group_out_point);
+        let expected_dep = CellDep { out_point: dep_group_out_point, dep_type: DepType::DepGroup };
+        let header_dep = [0x62; 32];
+        let settings = GeneratorSettings::try_new_with_iterator(
+            NetworkId::with_suffix(NetworkType::Testnet, 10),
+            Box::new(std::iter::empty()),
+            None,
+            change_address.clone(),
+            1,
+            PaymentDestination::Change,
+            None,
+            Fees::None,
+            None,
+            None,
+        )
+        .unwrap()
+        .with_ckb_secp256k1_blake160_sighash_all_lock_dep(&ckb_lock_config)
+        .with_header_dep(header_dep);
+        let generator = Generator::try_new(settings, None, None).unwrap();
+
+        let tx = generator.build_unsigned_cell_transaction(vec![], vec![PaymentOutput::new(change_address, 1000)], vec![]).unwrap();
+
+        assert_eq!(tx.cell_deps, vec![expected_dep]);
+        assert_eq!(tx.header_deps, vec![header_dep]);
+    }
+
+    #[test]
+    fn generator_installs_ckb_type_id_scripts_on_configured_final_outputs() {
+        let source_address = Address::new_std_single(Prefix::Testnet, &[0x12; 32]).unwrap();
+        let change_address = Address::new_std_single(Prefix::Testnet, &[0x13; 32]).unwrap();
+        let recipient = Address::new_std_single(Prefix::Testnet, &[0x14; 32]).unwrap();
+        let cell = CellEntryReference::simulated_with_address(20_000_000_000, &source_address);
+        let outputs = PaymentOutputs { outputs: vec![PaymentOutput::new(recipient, 5_000_000_000)] };
+        let settings = GeneratorSettings::try_new_with_iterator(
+            NetworkId::with_suffix(NetworkType::Testnet, 10),
+            Box::new(vec![cell].into_iter()),
+            None,
+            change_address,
+            1,
+            PaymentDestination::PaymentOutputs(outputs),
+            None,
+            Fees::SenderPays(0),
+            None,
+            None,
+        )
+        .unwrap()
+        .with_ckb_type_id_output_index(0);
+        let generator = Generator::try_new(settings, None, None).unwrap();
+
+        let pending = generator.generate_transaction().unwrap().expect("final transaction");
+        let tx = pending.transaction();
+        let type_script = tx.outputs[0].type_.as_ref().expect("CKB TYPE_ID type script");
+
+        assert_eq!(type_script.code_hash, CKB_TYPE_ID_CODE_HASH);
+        assert_eq!(type_script.hash_type, CKB_SCRIPT_HASH_TYPE_TYPE);
+        assert_eq!(type_script.args, ckb_type_id_args(&tx.inputs[0], 0).unwrap().to_vec());
+    }
+
+    #[test]
+    fn generator_rejects_invalid_ckb_type_id_output_indexes() {
+        let change_address = Address::new_std_single(Prefix::Testnet, &[0x15; 32]).unwrap();
+        let recipient = Address::new_std_single(Prefix::Testnet, &[0x16; 32]).unwrap();
+        let outputs = PaymentOutputs { outputs: vec![PaymentOutput::new(recipient, 5_000_000_000)] };
+        let settings = GeneratorSettings::try_new_with_iterator(
+            NetworkId::with_suffix(NetworkType::Testnet, 10),
+            Box::new(std::iter::empty()),
+            None,
+            change_address,
+            1,
+            PaymentDestination::PaymentOutputs(outputs),
+            None,
+            Fees::SenderPays(0),
+            None,
+            None,
+        )
+        .unwrap()
+        .with_ckb_type_id_output_indexes(vec![0, 0]);
+
+        let err = match Generator::try_new(settings, None, None) {
+            Ok(_) => panic!("duplicate CKB TYPE_ID output index must be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("duplicate CKB TYPE_ID output index"), "unexpected error: {err}");
     }
 }

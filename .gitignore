@@ -1,6 +1,7 @@
 # Compiled files
 /target/
 /target-codex/
+**/.cell/build/
 **/*.rs.bk
 *.pdb
 

@@ -9,7 +9,7 @@ mod tests {
     use crate::celltx::{CellInput, CellOutput, CellTx, OutPoint, Script};
     use crate::scripts::{load_ecdsa_signature_hash_code_hash, LOAD_ECDSA_SIGNATURE_HASH_SCRIPT};
     use crate::vm::syscalls::load_signature_hash::standard_signing_input_from_resolved_cell;
-    use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider, TransactionScriptVerifier};
+    use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider, TransactionScriptVerifier, VmSemantics};
     use spora_hashes::Hash;
     use std::sync::Arc;
 
@@ -119,5 +119,33 @@ mod tests {
             TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider)).with_version(ScriptVersion::V2).with_max_cycles(200_000);
 
         assert!(verifier.verify().is_err());
+    }
+
+    #[test]
+    fn test_load_ecdsa_signature_hash_is_not_available_under_ckb_strict_semantics() {
+        let code_hash = load_ecdsa_signature_hash_code_hash();
+        let input_out_point = OutPoint::new([0x73; 32], 0);
+        let resolved_input = build_resolved_input(code_hash);
+        let tx_without_witness = CellTx {
+            version: 0xC001,
+            inputs: vec![CellInput::new(input_out_point, 0)],
+            cell_deps: vec![],
+            header_deps: vec![],
+            outputs: vec![CellOutput { capacity: 999, lock: Script::new([0x09; 32], 0, vec![0x01]), type_: None }],
+            outputs_data: vec![vec![0x42, 0x43]],
+            witnesses: vec![vec![]],
+        };
+
+        let signing_input = standard_signing_input_from_resolved_cell(&resolved_input);
+        let expected_hash =
+            calc_standard_ecdsa_signature_hash(&tx_without_witness, 0, TestSigHashType(0x01), &signing_input, &NoCache);
+        let tx = CellTx { witnesses: vec![expected_hash.as_bytes().iter().copied().chain([0x01]).collect()], ..tx_without_witness };
+        let provider = build_provider(code_hash, input_out_point, resolved_input);
+        let verifier = TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider))
+            .with_version(ScriptVersion::V2)
+            .with_max_cycles(200_000)
+            .with_semantics(VmSemantics::CkbStrict);
+
+        assert!(verifier.verify().is_err(), "CkbStrict must not expose Spora-only signature hash syscall 3004");
     }
 }

@@ -61,7 +61,13 @@ pub const LOAD_CELL_SYSCALL_NUMBER: u64 = 2071;
 pub const LOAD_HEADER_SYSCALL_NUMBER: u64 = 2072;
 pub const LOAD_INPUT_SYSCALL_NUMBER: u64 = 2073;
 pub const LOAD_WITNESS_SYSCALL_NUMBER: u64 = 2074;
+/// Spora `LOAD_SCRIPT` syscall number.
+///
+/// Upstream CKB uses `2052` for `LOAD_SCRIPT`; Spora historically used `2075`.
+/// Keep this constant as the Spora value for existing scripts and fixtures.
 pub const LOAD_SCRIPT_SYSCALL_NUMBER: u64 = 2075;
+/// Upstream CKB `LOAD_SCRIPT` syscall number.
+pub const CKB_LOAD_SCRIPT_SYSCALL_NUMBER: u64 = 2052;
 pub const LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2081;
 pub const LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER: u64 = 2082;
 pub const LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2083;
@@ -136,19 +142,7 @@ impl Source {
             return Some(legacy);
         }
 
-        let entry = source & SOURCE_ENTRY_MASK;
-        let is_group = source & SOURCE_GROUP_MASK == SOURCE_GROUP_FLAG;
-        match (is_group, entry) {
-            (false, 0x01) => Some(Self::Input),
-            (false, 0x02) => Some(Self::Output),
-            (false, 0x03) => Some(Self::CellDep),
-            (false, 0x04) => Some(Self::HeaderDep),
-            (true, 0x01) => Some(Self::GroupInput),
-            (true, 0x02) => Some(Self::GroupOutput),
-            (true, 0x03) => Some(Self::GroupCellDep),
-            (true, 0x04) => Some(Self::GroupHeaderDep),
-            _ => None,
-        }
+        Self::parse_canonical(source)
     }
 
     pub fn parse_from_u64(source: u64) -> Result<Self, ckb_vm::Error> {
@@ -157,6 +151,43 @@ impl Source {
         }
 
         Err(ckb_vm::Error::External(format!("SourceEntry parse_from_u64 {}", source & SOURCE_ENTRY_MASK)))
+    }
+
+    pub fn parse_for_semantics(source: u64, semantics: crate::vm::VmSemantics) -> Option<Self> {
+        if semantics.allow_legacy_group_source_encoding() {
+            Self::parse(source)
+        } else {
+            Self::parse_canonical(source)
+        }
+    }
+
+    pub fn parse_from_u64_for_semantics(source: u64, semantics: crate::vm::VmSemantics) -> Result<Self, ckb_vm::Error> {
+        if let Some(parsed) = Self::parse_for_semantics(source, semantics) {
+            return Ok(parsed);
+        }
+
+        Err(ckb_vm::Error::External(format!("SourceEntry parse_from_u64 {}", source & SOURCE_ENTRY_MASK)))
+    }
+
+    fn parse_canonical(source: u64) -> Option<Self> {
+        let entry = source & SOURCE_ENTRY_MASK;
+        match source & SOURCE_GROUP_MASK {
+            0 => match entry {
+                0x01 => Some(Self::Input),
+                0x02 => Some(Self::Output),
+                0x03 => Some(Self::CellDep),
+                0x04 => Some(Self::HeaderDep),
+                _ => None,
+            },
+            SOURCE_GROUP_FLAG => match entry {
+                0x01 => Some(Self::GroupInput),
+                0x02 => Some(Self::GroupOutput),
+                0x03 => Some(Self::GroupCellDep),
+                0x04 => Some(Self::GroupHeaderDep),
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     fn parse_legacy(source: u64) -> Option<Self> {
@@ -316,6 +347,14 @@ mod tests {
         assert_eq!(Source::parse(0x0100_0000_0000_0003), Some(Source::GroupCellDep));
         assert_eq!(Source::parse(0x0100_0000_0000_0004), Some(Source::GroupHeaderDep));
         assert_eq!(Source::parse(0x99), None);
+    }
+
+    #[test]
+    fn test_source_parse_for_semantics_rejects_legacy_group_values_under_ckb_strict() {
+        assert_eq!(Source::parse_for_semantics(0x0100, crate::vm::VmSemantics::SporaExtended), Some(Source::GroupInput));
+        assert_eq!(Source::parse_for_semantics(0x0100, crate::vm::VmSemantics::CkbStrict), None);
+        assert_eq!(Source::parse_for_semantics(0x0100_0000_0000_0001, crate::vm::VmSemantics::CkbStrict), Some(Source::GroupInput));
+        assert_eq!(Source::parse_for_semantics(0x0200_0000_0000_0001, crate::vm::VmSemantics::CkbStrict), None);
     }
 
     #[test]

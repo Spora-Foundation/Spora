@@ -3,7 +3,7 @@
 //! 生成 DWARF 调试信息，支持源码级调试
 
 use crate::ast::*;
-use crate::error::{CompileError, Result, Span};
+use crate::error::Span;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -18,7 +18,7 @@ pub struct DebugInfoGenerator {
     /// 变量表
     variable_table: VariableTable,
     /// 当前地址
-    current_address: u64,
+    _current_address: u64,
 }
 
 /// 编译单元
@@ -66,44 +66,17 @@ pub struct TypeTable {
 #[derive(Debug, Clone)]
 pub enum DebugType {
     /// 基本类型
-    Base {
-        id: u64,
-        name: String,
-        encoding: TypeEncoding,
-        size: u64,
-    },
+    Base { id: u64, name: String, encoding: TypeEncoding, size: u64 },
     /// 指针类型
-    Pointer {
-        id: u64,
-        pointee: u64,
-        size: u64,
-    },
+    Pointer { id: u64, pointee: u64, size: u64 },
     /// 结构体类型
-    Struct {
-        id: u64,
-        name: String,
-        size: u64,
-        members: Vec<MemberInfo>,
-    },
+    Struct { id: u64, name: String, size: u64, members: Vec<MemberInfo> },
     /// 枚举类型
-    Enum {
-        id: u64,
-        name: String,
-        size: u64,
-        variants: Vec<(String, i64)>,
-    },
+    Enum { id: u64, name: String, size: u64, variants: Vec<(String, i64)> },
     /// 数组类型
-    Array {
-        id: u64,
-        element_type: u64,
-        count: u64,
-    },
+    Array { id: u64, element_type: u64, count: u64 },
     /// 函数类型
-    Function {
-        id: u64,
-        return_type: Option<u64>,
-        params: Vec<u64>,
-    },
+    Function { id: u64, return_type: Option<u64>, params: Vec<u64> },
 }
 
 /// 类型编码
@@ -192,19 +165,15 @@ impl DebugInfoGenerator {
             line_table: LineNumberTable::default(),
             type_table: TypeTable::default(),
             variable_table: VariableTable::default(),
-            current_address: 0,
+            _current_address: 0,
         }
     }
 
     /// 添加行号信息
     pub fn add_line_info(&mut self, address: u64, span: Span) {
-        let file_idx = self.get_or_add_file(&self.compilation_unit.source_path);
-        self.line_table.entries.push((
-            address,
-            file_idx,
-            span.start_line as u32,
-            span.start_col as u32,
-        ));
+        let source_path = self.compilation_unit.source_path.clone();
+        let file_idx = self.get_or_add_file(&source_path);
+        self.line_table.entries.push((address, file_idx, span.line as u32, span.column as u32));
     }
 
     /// 获取或添加文件
@@ -222,10 +191,10 @@ impl DebugInfoGenerator {
     pub fn register_type(&mut self, name: &str, ty: &Type) -> u64 {
         let id = self.type_table.next_id;
         self.type_table.next_id += 1;
-        
+
         let debug_type = self.convert_type(id, name, ty);
         self.type_table.types.insert(id, debug_type);
-        
+
         id
     }
 
@@ -233,39 +202,15 @@ impl DebugInfoGenerator {
     fn convert_type(&self, id: u64, name: &str, ty: &Type) -> DebugType {
         match ty {
             Type::U8 | Type::U16 | Type::U32 | Type::U64 | Type::U128 => {
-                DebugType::Base {
-                    id,
-                    name: name.to_string(),
-                    encoding: TypeEncoding::Unsigned,
-                    size: self.type_size(ty),
-                }
+                DebugType::Base { id, name: name.to_string(), encoding: TypeEncoding::Unsigned, size: self.type_size(ty) }
             }
-            Type::Bool => DebugType::Base {
-                id,
-                name: name.to_string(),
-                encoding: TypeEncoding::Boolean,
-                size: 1,
-            },
-            Type::Address | Type::Hash => DebugType::Base {
-                id,
-                name: name.to_string(),
-                encoding: TypeEncoding::Address,
-                size: 32,
-            },
-            Type::Array(elem, count) => {
+            Type::Bool => DebugType::Base { id, name: name.to_string(), encoding: TypeEncoding::Boolean, size: 1 },
+            Type::Address | Type::Hash => DebugType::Base { id, name: name.to_string(), encoding: TypeEncoding::Address, size: 32 },
+            Type::Array(_, count) => {
                 let elem_id = self.type_table.next_id;
-                DebugType::Array {
-                    id,
-                    element_type: elem_id,
-                    count: *count as u64,
-                }
+                DebugType::Array { id, element_type: elem_id, count: *count as u64 }
             }
-            _ => DebugType::Base {
-                id,
-                name: name.to_string(),
-                encoding: TypeEncoding::Unsigned,
-                size: 8,
-            }
+            _ => DebugType::Base { id, name: name.to_string(), encoding: TypeEncoding::Unsigned, size: 8 },
         }
     }
 
@@ -285,21 +230,8 @@ impl DebugInfoGenerator {
     }
 
     /// 注册变量
-    pub fn register_variable(
-        &mut self,
-        name: &str,
-        type_id: u64,
-        scope: Scope,
-        location: VariableLocation,
-        span: Span,
-    ) {
-        self.variable_table.variables.push(VariableInfo {
-            name: name.to_string(),
-            type_id,
-            scope,
-            location,
-            span,
-        });
+    pub fn register_variable(&mut self, name: &str, type_id: u64, scope: Scope, location: VariableLocation, span: Span) {
+        self.variable_table.variables.push(VariableInfo { name: name.to_string(), type_id, scope, location, span });
     }
 
     /// 生成 DWARF
@@ -311,12 +243,12 @@ impl DebugInfoGenerator {
             debug_str: Vec::new(),
             debug_frame: Vec::new(),
         };
-        
+
         self.generate_debug_info(&mut dwarf);
         self.generate_debug_line(&mut dwarf);
         self.generate_debug_abbrev(&mut dwarf);
         self.generate_debug_frame(&mut dwarf);
-        
+
         dwarf
     }
 
@@ -327,36 +259,36 @@ impl DebugInfoGenerator {
         dwarf.debug_info.extend_from_slice(&[0x04, 0x00]); // 版本 4
         dwarf.debug_info.push(0x08); // 地址大小
         dwarf.debug_info.push(0x00); // 缩写表偏移
-        
+
         // 编译单元 DIE
         dwarf.debug_info.push(0x11); // TAG_compile_unit
         dwarf.debug_info.push(0x01); // 有子项
-        
+
         // 属性: 名称
         dwarf.debug_info.push(0x03); // DW_AT_name
         self.add_string(&mut dwarf.debug_str, &self.compilation_unit.name);
-        
+
         // 属性: 生产者
         dwarf.debug_info.push(0x25); // DW_AT_producer
         self.add_string(&mut dwarf.debug_str, &self.compilation_unit.producer);
-        
+
         // 属性: 语言
         dwarf.debug_info.push(0x13); // DW_AT_language
         dwarf.debug_info.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // CellScript
-        
+
         // 子 DIE: 类型
         for (_, ty) in &self.type_table.types {
             self.generate_type_die(dwarf, ty);
         }
-        
+
         // 子 DIE: 变量
         for var in &self.variable_table.variables {
             self.generate_variable_die(dwarf, var);
         }
-        
+
         // 结束标记
         dwarf.debug_info.push(0x00);
-        
+
         // 回填长度
         let len = dwarf.debug_info.len() - 4;
         dwarf.debug_info[0..4].copy_from_slice(&(len as u32).to_le_bytes());
@@ -365,34 +297,34 @@ impl DebugInfoGenerator {
     /// 生成类型 DIE
     fn generate_type_die(&self, dwarf: &mut DwarfGenerator, ty: &DebugType) {
         match ty {
-            DebugType::Base { id, name, encoding, size } => {
+            DebugType::Base { name, encoding, size, .. } => {
                 dwarf.debug_info.push(0x24); // TAG_base_type
                 dwarf.debug_info.push(0x00); // 无子项
-                
+
                 dwarf.debug_info.push(0x03); // DW_AT_name
                 self.add_string(&mut dwarf.debug_str, name);
-                
+
                 dwarf.debug_info.push(0x0b); // DW_AT_byte_size
                 dwarf.debug_info.extend_from_slice(&size.to_le_bytes());
-                
+
                 dwarf.debug_info.push(0x3e); // DW_AT_encoding
                 dwarf.debug_info.push(*encoding as u8);
             }
-            DebugType::Struct { id, name, size, members } => {
+            DebugType::Struct { name, size, members, .. } => {
                 dwarf.debug_info.push(0x13); // TAG_structure_type
                 dwarf.debug_info.push(0x01); // 有子项
-                
+
                 dwarf.debug_info.push(0x03); // DW_AT_name
                 self.add_string(&mut dwarf.debug_str, name);
-                
+
                 dwarf.debug_info.push(0x0b); // DW_AT_byte_size
                 dwarf.debug_info.extend_from_slice(&size.to_le_bytes());
-                
+
                 // 成员
                 for member in members {
                     self.generate_member_die(dwarf, member);
                 }
-                
+
                 dwarf.debug_info.push(0x00); // 结束
             }
             _ => {}
@@ -403,13 +335,13 @@ impl DebugInfoGenerator {
     fn generate_member_die(&self, dwarf: &mut DwarfGenerator, member: &MemberInfo) {
         dwarf.debug_info.push(0x0d); // TAG_member
         dwarf.debug_info.push(0x00);
-        
+
         dwarf.debug_info.push(0x03); // DW_AT_name
         self.add_string(&mut dwarf.debug_str, &member.name);
-        
+
         dwarf.debug_info.push(0x38); // DW_AT_type
         dwarf.debug_info.extend_from_slice(&member.type_id.to_le_bytes());
-        
+
         dwarf.debug_info.push(0x09); // DW_AT_data_member_location
         dwarf.debug_info.extend_from_slice(&member.offset.to_le_bytes());
     }
@@ -418,17 +350,17 @@ impl DebugInfoGenerator {
     fn generate_variable_die(&self, dwarf: &mut DwarfGenerator, var: &VariableInfo) {
         dwarf.debug_info.push(0x34); // TAG_variable
         dwarf.debug_info.push(0x00);
-        
+
         dwarf.debug_info.push(0x03); // DW_AT_name
         self.add_string(&mut dwarf.debug_str, &var.name);
-        
+
         dwarf.debug_info.push(0x38); // DW_AT_type
         dwarf.debug_info.extend_from_slice(&var.type_id.to_le_bytes());
-        
+
         // 位置
         dwarf.debug_info.push(0x02); // DW_AT_location
         match &var.location {
-            VariableLocation::Register(reg) => {
+            VariableLocation::Register(_reg) => {
                 dwarf.debug_info.push(0x01); // DW_OP_reg
                 dwarf.debug_info.push(0x00); // 寄存器号
             }
@@ -450,7 +382,7 @@ impl DebugInfoGenerator {
         dwarf.debug_line.push(0x04); // 版本
         dwarf.debug_line.push(0x00);
         dwarf.debug_line.extend_from_slice(&[0x00; 4]); // header length backpatch slot
-        
+
         // 最小指令长度
         dwarf.debug_line.push(0x01);
         // 默认 is_stmt
@@ -465,7 +397,7 @@ impl DebugInfoGenerator {
         for _ in 0..12 {
             dwarf.debug_line.push(0x01);
         }
-        
+
         // 文件名表
         for file in &self.line_table.file_names {
             self.add_string_to_line(&mut dwarf.debug_line, &file.to_string_lossy());
@@ -474,15 +406,15 @@ impl DebugInfoGenerator {
             dwarf.debug_line.push(0x00); // 文件大小
         }
         dwarf.debug_line.push(0x00); // 结束标记
-        
+
         // 行号程序
         let mut prev_addr = 0u64;
         let mut prev_line = 1u32;
-        
-        for (addr, file, line, col) in &self.line_table.entries {
+
+        for (addr, _file, line, _col) in &self.line_table.entries {
             let addr_delta = (addr - prev_addr) as u8;
             let line_delta = (*line as i32) - (prev_line as i32);
-            
+
             if addr_delta < 64 && line_delta >= -8 && line_delta <= 7 {
                 // 特殊操作码
                 let opcode = ((line_delta + 8) as u8) + (addr_delta * 14) + 13;
@@ -493,17 +425,17 @@ impl DebugInfoGenerator {
                 dwarf.debug_line.push(0x09); // 长度
                 dwarf.debug_line.push(0x02); // DW_LNE_set_address
                 dwarf.debug_line.extend_from_slice(&addr.to_le_bytes());
-                
+
                 dwarf.debug_line.push(0x00);
                 dwarf.debug_line.push(0x05);
                 dwarf.debug_line.push(0x01); // DW_LNE_set_line
                 dwarf.debug_line.extend_from_slice(&line.to_le_bytes());
             }
-            
+
             prev_addr = *addr;
             prev_line = *line;
         }
-        
+
         // 结束序列
         dwarf.debug_line.push(0x00);
         dwarf.debug_line.push(0x01);
@@ -523,7 +455,7 @@ impl DebugInfoGenerator {
         dwarf.debug_abbrev.push(0x06); // DW_FORM_data4
         dwarf.debug_abbrev.push(0x00);
         dwarf.debug_abbrev.push(0x00);
-        
+
         // 基本类型
         dwarf.debug_abbrev.push(0x24); // TAG_base_type
         dwarf.debug_abbrev.push(0x00);
@@ -535,7 +467,7 @@ impl DebugInfoGenerator {
         dwarf.debug_abbrev.push(0x0b);
         dwarf.debug_abbrev.push(0x00);
         dwarf.debug_abbrev.push(0x00);
-        
+
         // 结束标记
         dwarf.debug_abbrev.push(0x00);
     }
@@ -549,12 +481,12 @@ impl DebugInfoGenerator {
         dwarf.debug_frame.push(0x00); // 增强字符串
         dwarf.debug_frame.push(0x01); // 地址大小
         dwarf.debug_frame.push(0x00); // 段大小
-        
+
         // CFA 定义
         dwarf.debug_frame.push(0x0c); // DW_CFA_def_cfa
         dwarf.debug_frame.push(0x02); // 寄存器 2 (sp)
         dwarf.debug_frame.push(0x00); // 偏移
-        
+
         // 返回地址
         dwarf.debug_frame.push(0x07); // DW_CFA_undefined
         dwarf.debug_frame.push(0x01); // 寄存器 1 (ra)
@@ -579,47 +511,27 @@ impl DwarfGenerator {
         // .debug_info
         let info_offset = elf.len();
         elf.extend_from_slice(&self.debug_info);
-        sections.push(ElfSection {
-            name: ".debug_info".to_string(),
-            offset: info_offset,
-            size: self.debug_info.len(),
-        });
-        
+        sections.push(ElfSection { name: ".debug_info".to_string(), offset: info_offset, size: self.debug_info.len() });
+
         // .debug_line
         let line_offset = elf.len();
         elf.extend_from_slice(&self.debug_line);
-        sections.push(ElfSection {
-            name: ".debug_line".to_string(),
-            offset: line_offset,
-            size: self.debug_line.len(),
-        });
-        
+        sections.push(ElfSection { name: ".debug_line".to_string(), offset: line_offset, size: self.debug_line.len() });
+
         // .debug_abbrev
         let abbrev_offset = elf.len();
         elf.extend_from_slice(&self.debug_abbrev);
-        sections.push(ElfSection {
-            name: ".debug_abbrev".to_string(),
-            offset: abbrev_offset,
-            size: self.debug_abbrev.len(),
-        });
-        
+        sections.push(ElfSection { name: ".debug_abbrev".to_string(), offset: abbrev_offset, size: self.debug_abbrev.len() });
+
         // .debug_str
         let str_offset = elf.len();
         elf.extend_from_slice(&self.debug_str);
-        sections.push(ElfSection {
-            name: ".debug_str".to_string(),
-            offset: str_offset,
-            size: self.debug_str.len(),
-        });
-        
+        sections.push(ElfSection { name: ".debug_str".to_string(), offset: str_offset, size: self.debug_str.len() });
+
         // .debug_frame
         let frame_offset = elf.len();
         elf.extend_from_slice(&self.debug_frame);
-        sections.push(ElfSection {
-            name: ".debug_frame".to_string(),
-            offset: frame_offset,
-            size: self.debug_frame.len(),
-        });
+        sections.push(ElfSection { name: ".debug_frame".to_string(), offset: frame_offset, size: self.debug_frame.len() });
     }
 }
 
@@ -637,48 +549,36 @@ mod tests {
 
     #[test]
     fn test_debug_info_generator() {
-        let gen = DebugInfoGenerator::new(
-            "test".to_string(),
-            PathBuf::from("test.cell"),
-        );
-        
+        let gen = DebugInfoGenerator::new("test".to_string(), PathBuf::from("test.cell"));
+
         assert_eq!(gen.compilation_unit.name, "test");
         assert_eq!(gen.compilation_unit.language, SourceLanguage::CellScript);
     }
 
     #[test]
     fn test_line_table() {
-        let mut gen = DebugInfoGenerator::new(
-            "test".to_string(),
-            PathBuf::from("test.cell"),
-        );
-        
+        let mut gen = DebugInfoGenerator::new("test".to_string(), PathBuf::from("test.cell"));
+
         gen.add_line_info(0x1000, Span::default());
         gen.add_line_info(0x1004, Span::default());
-        
+
         assert_eq!(gen.line_table.entries.len(), 2);
     }
 
     #[test]
     fn test_type_registration() {
-        let mut gen = DebugInfoGenerator::new(
-            "test".to_string(),
-            PathBuf::from("test.cell"),
-        );
-        
+        let mut gen = DebugInfoGenerator::new("test".to_string(), PathBuf::from("test.cell"));
+
         let id = gen.register_type("u64", &Type::U64);
         assert!(gen.type_table.types.contains_key(&id));
     }
 
     #[test]
     fn test_dwarf_generation() {
-        let gen = DebugInfoGenerator::new(
-            "test".to_string(),
-            PathBuf::from("test.cell"),
-        );
-        
+        let gen = DebugInfoGenerator::new("test".to_string(), PathBuf::from("test.cell"));
+
         let dwarf = gen.generate_dwarf();
-        
+
         assert!(!dwarf.debug_info.is_empty());
         assert!(!dwarf.debug_abbrev.is_empty());
     }

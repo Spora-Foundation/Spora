@@ -9,7 +9,7 @@ use crate::celltx::CellTx;
 use crate::serialization::split_vm_abi_trailer;
 use crate::vm::scheduler::{ProgramDataId, ProgramPiece, ProgramPlace, SchedulerDataSource, VmSnapshotHandle};
 use crate::vm::transferred_byte_cycles;
-use crate::vm::CellDataProvider;
+use crate::vm::{CellDataProvider, VmSemantics};
 use ckb_vm::{
     elf::parse_elf,
     memory::load_c_string_byte_by_byte,
@@ -58,16 +58,30 @@ pub struct Exec<D: CellDataProvider> {
     group_output_indices: Vec<usize>,
     snapshot2_context: Option<VmSnapshotHandle>,
     data_source: Option<SchedulerDataSource>,
+    semantics: VmSemantics,
 }
 
 impl<D: CellDataProvider> Exec<D> {
     pub fn new(tx: Arc<CellTx>, provider: Arc<D>, group_input_indices: Vec<usize>, group_output_indices: Vec<usize>) -> Self {
-        Self { tx, provider, group_input_indices, group_output_indices, snapshot2_context: None, data_source: None }
+        Self {
+            tx,
+            provider,
+            group_input_indices,
+            group_output_indices,
+            snapshot2_context: None,
+            data_source: None,
+            semantics: VmSemantics::SporaExtended,
+        }
     }
 
     pub fn with_snapshot_tracking(mut self, snapshot2_context: VmSnapshotHandle, data_source: SchedulerDataSource) -> Self {
         self.snapshot2_context = Some(snapshot2_context);
         self.data_source = Some(data_source);
+        self
+    }
+
+    pub fn with_semantics(mut self, semantics: VmSemantics) -> Self {
+        self.semantics = semantics;
         self
     }
 
@@ -160,7 +174,7 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for Exec<D> {
         }
 
         let index = machine.registers()[A0].to_u64() as usize;
-        let source = Source::parse_from_u64(machine.registers()[A1].to_u64())?;
+        let source = Source::parse_from_u64_for_semantics(machine.registers()[A1].to_u64(), self.semantics)?;
         let place = ExecPlace::parse_from_u64(machine.registers()[A2].to_u64())?;
 
         let payload = match place {

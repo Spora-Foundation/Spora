@@ -259,9 +259,10 @@ mod tests {
     use super::*;
     use spora_consensus_core::tx::TransactionOutpoint;
     use spora_exec::celltx::{
-        CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness, CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
-        CELLSCRIPT_SCHEDULER_EFFECT_MUTATING, CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY, CELLSCRIPT_SCHEDULER_OP_CREATE,
-        CELLSCRIPT_SCHEDULER_OP_READ_REF, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT, CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+        encode_cellscript_scheduler_witness_molecule, CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness,
+        CELLSCRIPT_SCHEDULER_EFFECT_CREATING, CELLSCRIPT_SCHEDULER_EFFECT_MUTATING, CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY,
+        CELLSCRIPT_SCHEDULER_OP_CREATE, CELLSCRIPT_SCHEDULER_OP_READ_REF, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+        CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
     };
     use spora_exec::{CellDep, CellInput, CellOutput, CellTx, DepType, OutPoint, Script};
     use spora_hashes::Hash;
@@ -315,7 +316,7 @@ mod tests {
         touches_shared: Vec<[u8; 32]>,
         accesses: Vec<CellScriptSchedulerAccessWitness>,
     ) -> Vec<u8> {
-        borsh::to_vec(&scheduler_witness(effect_class, touches_shared, accesses)).unwrap()
+        encode_cellscript_scheduler_witness_molecule(&scheduler_witness(effect_class, touches_shared, accesses))
     }
 
     fn scheduler_witness(
@@ -554,7 +555,7 @@ mod tests {
             binding_hash: [0x24; 32],
         };
         let trusted_summary = scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![[0x42; 32]], vec![expected_access.clone()]);
-        let witness = borsh::to_vec(&trusted_summary).unwrap();
+        let witness = encode_cellscript_scheduler_witness_molecule(&trusted_summary);
         let tx = test_tx(vec![], vec![], 1, vec![witness]);
         let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
         trusted.insert(Hash::from_bytes(tx.id()), trusted_summary);
@@ -641,7 +642,7 @@ mod tests {
             binding_hash: [0x25; 32],
         };
         let trusted_summary = scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![], vec![expected_access.clone()]);
-        let expected_witness = borsh::to_vec(&trusted_summary).unwrap();
+        let expected_witness = encode_cellscript_scheduler_witness_molecule(&trusted_summary);
         let unexpected_witness = scheduler_witness_bytes(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![], vec![unexpected_access]);
         let tx = test_tx(vec![], vec![], 1, vec![expected_witness, unexpected_witness]);
         let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
@@ -662,7 +663,7 @@ mod tests {
             binding_hash: [0x24; 32],
         };
         let trusted_summary = scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![], vec![expected_access]);
-        let expected_witness = borsh::to_vec(&trusted_summary).unwrap();
+        let expected_witness = encode_cellscript_scheduler_witness_molecule(&trusted_summary);
         let tx = test_tx(vec![], vec![], 1, vec![expected_witness.clone(), expected_witness]);
         let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
         trusted.insert(Hash::from_bytes(tx.id()), trusted_summary);

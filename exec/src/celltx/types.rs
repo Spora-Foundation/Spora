@@ -52,6 +52,8 @@ pub const CELL_TX_VERSION: u32 = 0xC001;
 pub const CELLSCRIPT_SCHEDULER_WITNESS_MAGIC: [u8; 2] = [0x11, 0xCE];
 /// CellScript scheduler witness format version accepted for transaction placement.
 pub const CELLSCRIPT_SCHEDULER_WITNESS_VERSION: u8 = 1;
+const CELLSCRIPT_SCHEDULER_WITNESS_MOLECULE_FIELDS: usize = 9;
+const CELLSCRIPT_SCHEDULER_ACCESS_MOLECULE_SIZE: usize = 38;
 /// Scheduler effect class id for pure actions.
 pub const CELLSCRIPT_SCHEDULER_EFFECT_PURE: u8 = 0;
 /// Scheduler effect class id for read-only actions.
@@ -160,9 +162,19 @@ pub fn cell_tx_estimated_serialized_size(tx: &CellTx) -> u64 {
 /// Returns true when bytes look like a CellScript scheduler witness.
 ///
 /// This is an admission guard for transaction witness placement only. The
-/// scheduler consumer must still Borsh-decode and validate the full payload
+/// scheduler consumer must still decode and validate the full payload
 /// before using it for conflict or admission decisions.
 pub fn is_cellscript_scheduler_witness_bytes(witness: &[u8]) -> bool {
+    decode_cellscript_scheduler_witness_molecule(witness).is_ok()
+}
+
+fn is_cellscript_scheduler_witness_candidate_bytes(witness: &[u8]) -> bool {
+    has_legacy_borsh_scheduler_witness_marker(witness)
+        || decode_cellscript_scheduler_witness_molecule_unchecked(witness)
+            .is_ok_and(|decoded| decoded.magic == 0xCE11 && decoded.version == CELLSCRIPT_SCHEDULER_WITNESS_VERSION)
+}
+
+fn has_legacy_borsh_scheduler_witness_marker(witness: &[u8]) -> bool {
     witness.len() >= 3
         && witness[0] == CELLSCRIPT_SCHEDULER_WITNESS_MAGIC[0]
         && witness[1] == CELLSCRIPT_SCHEDULER_WITNESS_MAGIC[1]
@@ -208,7 +220,7 @@ pub struct CellScriptSchedulerWitness {
 /// Admission error for CellScript scheduler witness bytes.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CellScriptSchedulerWitnessError {
-    /// Borsh decode failed.
+    /// Decode failed.
     #[error("failed to decode CellScript scheduler witness: {0}")]
     Decode(String),
     /// Wrong magic value.
@@ -286,14 +298,80 @@ pub enum CellScriptSchedulerWitnessError {
     },
 }
 
-/// Decode and admit self-contained CellScript scheduler witness bytes.
+/// Decode and admit self-contained Molecule CellScript scheduler witness bytes.
 ///
 /// This verifies the witness envelope, effect class, and operation/source
 /// combinations. Runtime policy must still compare the decoded accesses with
 /// transaction-derived source bounds before using the witness for scheduling.
 pub fn decode_cellscript_scheduler_witness(bytes: &[u8]) -> Result<CellScriptSchedulerWitness, CellScriptSchedulerWitnessError> {
+    decode_cellscript_scheduler_witness_molecule(bytes)
+}
+
+/// Decode the legacy Borsh CellScript scheduler witness format.
+///
+/// This is intentionally not part of witness admission. Public VM/CellScript
+/// scheduler witnesses are Molecule-only for v1; Borsh remains available only
+/// to explicit legacy migration or regression checks.
+pub fn decode_cellscript_scheduler_witness_legacy_borsh(
+    bytes: &[u8],
+) -> Result<CellScriptSchedulerWitness, CellScriptSchedulerWitnessError> {
     let witness = CellScriptSchedulerWitness::try_from_slice(bytes)
         .map_err(|error| CellScriptSchedulerWitnessError::Decode(error.to_string()))?;
+    validate_cellscript_scheduler_witness_header_and_body(witness)
+}
+
+/// Encode a CellScript scheduler witness as the launch Molecule witness schema.
+pub fn encode_cellscript_scheduler_witness_molecule(witness: &CellScriptSchedulerWitness) -> Vec<u8> {
+    scheduler_molecule_encode_table(&[
+        witness.magic.to_le_bytes().to_vec(),
+        vec![witness.version],
+        vec![witness.effect_class],
+        vec![u8::from(witness.parallelizable)],
+        witness.touches_shared_count.to_le_bytes().to_vec(),
+        scheduler_molecule_encode_fixvec_byte32(&witness.touches_shared),
+        witness.estimated_cycles.to_le_bytes().to_vec(),
+        witness.access_count.to_le_bytes().to_vec(),
+        scheduler_molecule_encode_accesses(&witness.accesses),
+    ])
+}
+
+/// Decode and admit the launch Molecule CellScript scheduler witness schema.
+pub fn decode_cellscript_scheduler_witness_molecule(
+    bytes: &[u8],
+) -> Result<CellScriptSchedulerWitness, CellScriptSchedulerWitnessError> {
+    let witness = decode_cellscript_scheduler_witness_molecule_unchecked(bytes)?;
+    validate_cellscript_scheduler_witness_header_and_body(witness)
+}
+
+fn decode_cellscript_scheduler_witness_molecule_unchecked(
+    bytes: &[u8],
+) -> Result<CellScriptSchedulerWitness, CellScriptSchedulerWitnessError> {
+    let fields = scheduler_molecule_decode_table(bytes, CELLSCRIPT_SCHEDULER_WITNESS_MOLECULE_FIELDS, "CellScriptSchedulerWitness")
+        .map_err(CellScriptSchedulerWitnessError::Decode)?;
+    Ok(CellScriptSchedulerWitness {
+        magic: scheduler_molecule_decode_u16(fields[0], "CellScriptSchedulerWitness.magic")
+            .map_err(CellScriptSchedulerWitnessError::Decode)?,
+        version: scheduler_molecule_decode_u8(fields[1], "CellScriptSchedulerWitness.version")
+            .map_err(CellScriptSchedulerWitnessError::Decode)?,
+        effect_class: scheduler_molecule_decode_u8(fields[2], "CellScriptSchedulerWitness.effect_class")
+            .map_err(CellScriptSchedulerWitnessError::Decode)?,
+        parallelizable: scheduler_molecule_decode_bool(fields[3], "CellScriptSchedulerWitness.parallelizable")
+            .map_err(CellScriptSchedulerWitnessError::Decode)?,
+        touches_shared_count: scheduler_molecule_decode_u32(fields[4], "CellScriptSchedulerWitness.touches_shared_count")
+            .map_err(CellScriptSchedulerWitnessError::Decode)?,
+        touches_shared: scheduler_molecule_decode_fixvec_byte32(fields[5], "CellScriptSchedulerWitness.touches_shared")
+            .map_err(CellScriptSchedulerWitnessError::Decode)?,
+        estimated_cycles: scheduler_molecule_decode_u64(fields[6], "CellScriptSchedulerWitness.estimated_cycles")
+            .map_err(CellScriptSchedulerWitnessError::Decode)?,
+        access_count: scheduler_molecule_decode_u32(fields[7], "CellScriptSchedulerWitness.access_count")
+            .map_err(CellScriptSchedulerWitnessError::Decode)?,
+        accesses: scheduler_molecule_decode_accesses(fields[8]).map_err(CellScriptSchedulerWitnessError::Decode)?,
+    })
+}
+
+fn validate_cellscript_scheduler_witness_header_and_body(
+    witness: CellScriptSchedulerWitness,
+) -> Result<CellScriptSchedulerWitness, CellScriptSchedulerWitnessError> {
     if witness.magic != 0xCE11 {
         return Err(CellScriptSchedulerWitnessError::InvalidMagic(witness.magic));
     }
@@ -303,6 +381,163 @@ pub fn decode_cellscript_scheduler_witness(bytes: &[u8]) -> Result<CellScriptSch
     validate_cellscript_scheduler_witness_counts(&witness)?;
     validate_cellscript_scheduler_witness_envelope(&witness)?;
     Ok(witness)
+}
+
+fn scheduler_molecule_pack_number(value: usize) -> [u8; 4] {
+    (value as u32).to_le_bytes()
+}
+
+fn scheduler_molecule_unpack_number(bytes: &[u8], ty: &'static str) -> Result<usize, String> {
+    if bytes.len() < 4 {
+        return Err(format!("{ty}: expected at least 4 bytes for number, got {}", bytes.len()));
+    }
+    Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize)
+}
+
+fn scheduler_molecule_encode_table(fields: &[Vec<u8>]) -> Vec<u8> {
+    let header_size = 4 * (fields.len() + 1);
+    let total_size = header_size + fields.iter().map(Vec::len).sum::<usize>();
+    let mut out = Vec::with_capacity(total_size);
+    out.extend_from_slice(&scheduler_molecule_pack_number(total_size));
+
+    let mut offset = header_size;
+    for field in fields {
+        out.extend_from_slice(&scheduler_molecule_pack_number(offset));
+        offset += field.len();
+    }
+    for field in fields {
+        out.extend_from_slice(field);
+    }
+    out
+}
+
+fn scheduler_molecule_decode_table<'a>(bytes: &'a [u8], expected_fields: usize, ty: &'static str) -> Result<Vec<&'a [u8]>, String> {
+    if bytes.len() < 8 {
+        return Err(format!("{ty}: table header is too short: {}", bytes.len()));
+    }
+    let total_size = scheduler_molecule_unpack_number(bytes, ty)?;
+    if total_size != bytes.len() {
+        return Err(format!("{ty}: total size mismatch: header {total_size}, actual {}", bytes.len()));
+    }
+
+    let first_offset = scheduler_molecule_unpack_number(&bytes[4..], ty)?;
+    if first_offset % 4 != 0 || first_offset < 8 || first_offset > bytes.len() {
+        return Err(format!("{ty}: invalid first field offset {first_offset}"));
+    }
+
+    let field_count = first_offset / 4 - 1;
+    if field_count != expected_fields {
+        return Err(format!("{ty}: expected {expected_fields} fields, got {field_count}"));
+    }
+
+    let mut offsets = Vec::with_capacity(field_count + 1);
+    for chunk in bytes[4..first_offset].chunks_exact(4) {
+        offsets.push(scheduler_molecule_unpack_number(chunk, ty)?);
+    }
+    offsets.push(total_size);
+
+    if offsets.windows(2).any(|pair| pair[0] > pair[1]) {
+        return Err(format!("{ty}: field offsets are not monotonic"));
+    }
+    if offsets.iter().any(|offset| *offset < first_offset || *offset > total_size) {
+        return Err(format!("{ty}: field offset is outside table payload"));
+    }
+
+    Ok(offsets.windows(2).map(|pair| &bytes[pair[0]..pair[1]]).collect())
+}
+
+fn scheduler_molecule_encode_fixvec_byte32(values: &[[u8; 32]]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(4 + values.len() * 32);
+    out.extend_from_slice(&scheduler_molecule_pack_number(values.len()));
+    for value in values {
+        out.extend_from_slice(value);
+    }
+    out
+}
+
+fn scheduler_molecule_decode_fixvec_byte32(bytes: &[u8], ty: &'static str) -> Result<Vec<[u8; 32]>, String> {
+    let count = scheduler_molecule_unpack_number(bytes, ty)?;
+    let expected = 4 + count * 32;
+    if bytes.len() != expected {
+        return Err(format!("{ty}: expected {expected} bytes for {count} hashes, got {}", bytes.len()));
+    }
+    bytes[4..]
+        .chunks_exact(32)
+        .map(|chunk| {
+            let mut hash = [0u8; 32];
+            hash.copy_from_slice(chunk);
+            Ok(hash)
+        })
+        .collect()
+}
+
+fn scheduler_molecule_encode_accesses(accesses: &[CellScriptSchedulerAccessWitness]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(4 + accesses.len() * CELLSCRIPT_SCHEDULER_ACCESS_MOLECULE_SIZE);
+    out.extend_from_slice(&scheduler_molecule_pack_number(accesses.len()));
+    for access in accesses {
+        out.push(access.operation);
+        out.push(access.source);
+        out.extend_from_slice(&access.index.to_le_bytes());
+        out.extend_from_slice(&access.binding_hash);
+    }
+    out
+}
+
+fn scheduler_molecule_decode_accesses(bytes: &[u8]) -> Result<Vec<CellScriptSchedulerAccessWitness>, String> {
+    let count = scheduler_molecule_unpack_number(bytes, "CellScriptSchedulerAccessVec")?;
+    let expected = 4 + count * CELLSCRIPT_SCHEDULER_ACCESS_MOLECULE_SIZE;
+    if bytes.len() != expected {
+        return Err(format!("CellScriptSchedulerAccessVec: expected {expected} bytes for {count} accesses, got {}", bytes.len()));
+    }
+    bytes[4..]
+        .chunks_exact(CELLSCRIPT_SCHEDULER_ACCESS_MOLECULE_SIZE)
+        .map(|chunk| {
+            let mut binding_hash = [0u8; 32];
+            binding_hash.copy_from_slice(&chunk[6..38]);
+            Ok(CellScriptSchedulerAccessWitness {
+                operation: chunk[0],
+                source: chunk[1],
+                index: u32::from_le_bytes([chunk[2], chunk[3], chunk[4], chunk[5]]),
+                binding_hash,
+            })
+        })
+        .collect()
+}
+
+fn scheduler_molecule_decode_u8(bytes: &[u8], ty: &'static str) -> Result<u8, String> {
+    if bytes.len() != 1 {
+        return Err(format!("{ty}: expected 1 byte, got {}", bytes.len()));
+    }
+    Ok(bytes[0])
+}
+
+fn scheduler_molecule_decode_bool(bytes: &[u8], ty: &'static str) -> Result<bool, String> {
+    match scheduler_molecule_decode_u8(bytes, ty)? {
+        0 => Ok(false),
+        1 => Ok(true),
+        other => Err(format!("{ty}: expected boolean byte 0 or 1, got {other}")),
+    }
+}
+
+fn scheduler_molecule_decode_u16(bytes: &[u8], ty: &'static str) -> Result<u16, String> {
+    if bytes.len() != 2 {
+        return Err(format!("{ty}: expected 2 bytes, got {}", bytes.len()));
+    }
+    Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
+}
+
+fn scheduler_molecule_decode_u32(bytes: &[u8], ty: &'static str) -> Result<u32, String> {
+    if bytes.len() != 4 {
+        return Err(format!("{ty}: expected 4 bytes, got {}", bytes.len()));
+    }
+    Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+fn scheduler_molecule_decode_u64(bytes: &[u8], ty: &'static str) -> Result<u64, String> {
+    if bytes.len() != 8 {
+        return Err(format!("{ty}: expected 8 bytes, got {}", bytes.len()));
+    }
+    Ok(u64::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]]))
 }
 
 /// Decode a CellScript scheduler witness and validate it against a concrete transaction.
@@ -792,6 +1027,17 @@ pub enum DepType {
     DepGroup = 1,
 }
 
+/// DepGroup cell-data ABI.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DepGroupDataAbi {
+    /// Spora's existing count-prefixed OutPoint list. Empty lists are accepted
+    /// for compatibility with existing Spora tests/builders.
+    Spora,
+    /// CKB Molecule `OutPointVec`. The byte layout matches the non-empty Spora
+    /// list, but CKB rejects empty DepGroup data.
+    CkbMolecule,
+}
+
 /// Parse DepGroup cell data as a list of OutPoints.
 ///
 /// Format: 4-byte LE count, then count × 36-byte entries
@@ -824,6 +1070,36 @@ pub fn encode_dep_group_data(outpoints: &[OutPoint]) -> Vec<u8> {
         data.extend_from_slice(&op.to_key());
     }
     data
+}
+
+/// Parse DepGroup cell data for an explicit target ABI.
+pub fn parse_dep_group_data_for_abi(data: &[u8], abi: DepGroupDataAbi) -> Result<Vec<OutPoint>, String> {
+    match abi {
+        DepGroupDataAbi::Spora => parse_dep_group_data(data),
+        DepGroupDataAbi::CkbMolecule => {
+            crate::serialization::molecule_compat::deserialize_ckb_outpoint_vec_molecule(data).map_err(|error| error.to_string())
+        }
+    }
+}
+
+/// Encode DepGroup cell data for an explicit target ABI.
+pub fn encode_dep_group_data_for_abi(outpoints: &[OutPoint], abi: DepGroupDataAbi) -> Result<Vec<u8>, String> {
+    match abi {
+        DepGroupDataAbi::Spora => Ok(encode_dep_group_data(outpoints)),
+        DepGroupDataAbi::CkbMolecule => {
+            crate::serialization::molecule_compat::serialize_ckb_outpoint_vec_molecule(outpoints).map_err(|error| error.to_string())
+        }
+    }
+}
+
+/// Parse CKB Molecule `OutPointVec` DepGroup cell data.
+pub fn parse_ckb_dep_group_data(data: &[u8]) -> Result<Vec<OutPoint>, String> {
+    parse_dep_group_data_for_abi(data, DepGroupDataAbi::CkbMolecule)
+}
+
+/// Encode CKB Molecule `OutPointVec` DepGroup cell data.
+pub fn encode_ckb_dep_group_data(outpoints: &[OutPoint]) -> Result<Vec<u8>, String> {
+    encode_dep_group_data_for_abi(outpoints, DepGroupDataAbi::CkbMolecule)
 }
 
 /// Cell transaction (complete structure)
@@ -926,9 +1202,12 @@ impl CellTx {
         Ok((self, trusted_summary))
     }
 
-    /// Iterate over witness slots that carry CellScript scheduler metadata.
+    /// Iterate over witness slots that appear to carry CellScript scheduler metadata.
+    ///
+    /// The iterator includes malformed scheduler candidates so policy code can
+    /// reject them explicitly instead of ignoring attacker-controlled bytes.
     pub fn cellscript_scheduler_witnesses(&self) -> impl Iterator<Item = &[u8]> {
-        self.witnesses.iter().map(Vec::as_slice).filter(|witness| is_cellscript_scheduler_witness_bytes(witness))
+        self.witnesses.iter().map(Vec::as_slice).filter(|witness| is_cellscript_scheduler_witness_candidate_bytes(witness))
     }
 
     /// Decode all CellScript scheduler witnesses carried by this transaction.
@@ -1227,7 +1506,7 @@ mod tests {
             index: 0,
             binding_hash: [0x24; 32],
         };
-        let scheduler_witness = borsh::to_vec(&CellScriptSchedulerWitness {
+        let scheduler_witness = encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
@@ -1237,8 +1516,7 @@ mod tests {
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![expected_access.clone()],
-        })
-        .unwrap();
+        });
 
         assert!(is_cellscript_scheduler_witness_bytes(&scheduler_witness));
         tx.push_cellscript_scheduler_witness(scheduler_witness.clone()).unwrap();
@@ -1260,12 +1538,92 @@ mod tests {
     }
 
     #[test]
+    fn test_cellscript_scheduler_witness_molecule_placement() {
+        let lock = Script::new([0x00; 32], 0, vec![]);
+        let outputs = vec![CellOutput { lock, type_: None, capacity: 1000 }];
+        let outputs_data = vec![vec![]];
+        let mut tx = CellTx::new(vec![], vec![], outputs, outputs_data, vec![vec![0xAA]]).unwrap();
+        let expected_access = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            index: 0,
+            binding_hash: [0x24; 32],
+        };
+        let witness = CellScriptSchedulerWitness {
+            magic: 0xCE11,
+            version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+            effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
+            parallelizable: false,
+            touches_shared_count: 1,
+            touches_shared: vec![[0x42; 32]],
+            estimated_cycles: 64,
+            access_count: 1,
+            accesses: vec![expected_access.clone()],
+        };
+        let scheduler_witness = encode_cellscript_scheduler_witness_molecule(&witness);
+
+        assert!(!scheduler_witness.starts_with(&CELLSCRIPT_SCHEDULER_WITNESS_MAGIC));
+        assert!(is_cellscript_scheduler_witness_bytes(&scheduler_witness));
+        assert_eq!(decode_cellscript_scheduler_witness_molecule(&scheduler_witness).unwrap(), witness);
+        assert_eq!(decode_cellscript_scheduler_witness(&scheduler_witness).unwrap(), witness);
+
+        tx.push_cellscript_scheduler_witness(scheduler_witness.clone()).unwrap();
+        assert_eq!(tx.witnesses.last().map(Vec::as_slice), Some(scheduler_witness.as_slice()));
+        let decoded = tx.decoded_cellscript_scheduler_witnesses().collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(decoded, vec![witness.clone()]);
+        decoded[0].validate_access_set(&[expected_access]).unwrap();
+        let admitted = tx.admitted_cellscript_scheduler_witnesses().collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(admitted, vec![witness]);
+    }
+
+    #[test]
+    fn test_cellscript_scheduler_witness_legacy_borsh_is_not_public_admission() {
+        let witness = CellScriptSchedulerWitness {
+            magic: 0xCE11,
+            version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+            effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
+            parallelizable: false,
+            touches_shared_count: 0,
+            touches_shared: vec![],
+            estimated_cycles: 64,
+            access_count: 0,
+            accesses: vec![],
+        };
+        let legacy_borsh = borsh::to_vec(&witness).unwrap();
+
+        assert!(!is_cellscript_scheduler_witness_bytes(&legacy_borsh));
+        assert!(decode_cellscript_scheduler_witness(&legacy_borsh).is_err());
+        assert_eq!(decode_cellscript_scheduler_witness_legacy_borsh(&legacy_borsh).unwrap(), witness);
+    }
+
+    #[test]
+    fn test_cellscript_scheduler_witness_molecule_decode_rejects_malformed_counts() {
+        let bytes = encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
+            magic: 0xCE11,
+            version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+            effect_class: CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY,
+            parallelizable: true,
+            touches_shared_count: 2,
+            touches_shared: vec![[0x42; 32]],
+            estimated_cycles: 32,
+            access_count: 0,
+            accesses: vec![],
+        });
+
+        assert_eq!(
+            decode_cellscript_scheduler_witness(&bytes),
+            Err(CellScriptSchedulerWitnessError::CountMismatch { field: "touches_shared", declared: 2, actual: 1 })
+        );
+        assert!(!is_cellscript_scheduler_witness_bytes(&bytes));
+    }
+
+    #[test]
     fn test_cellscript_scheduler_witness_placement_rejects_duplicate_marker() {
         let lock = Script::new([0x00; 32], 0, vec![]);
         let outputs = vec![CellOutput { lock, type_: None, capacity: 1000 }];
         let outputs_data = vec![vec![]];
         let mut tx = CellTx::new(vec![], vec![], outputs, outputs_data, vec![]).unwrap();
-        let scheduler_witness = borsh::to_vec(&CellScriptSchedulerWitness {
+        let scheduler_witness = encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
@@ -1280,8 +1638,7 @@ mod tests {
                 index: 0,
                 binding_hash: [0x24; 32],
             }],
-        })
-        .unwrap();
+        });
 
         tx.push_cellscript_scheduler_witness(scheduler_witness.clone()).unwrap();
         assert_eq!(tx.push_cellscript_scheduler_witness(scheduler_witness), Err("duplicate CellScript scheduler witness"));
@@ -1300,7 +1657,7 @@ mod tests {
             index: 0,
             binding_hash: [0x24; 32],
         };
-        let compiled_scheduler_witness = borsh::to_vec(&CellScriptSchedulerWitness {
+        let compiled_scheduler_witness = encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
@@ -1310,8 +1667,7 @@ mod tests {
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![expected_access.clone()],
-        })
-        .unwrap();
+        });
 
         let trusted_summary = tx.push_cellscript_compiled_scheduler_witness(compiled_scheduler_witness.clone()).unwrap();
 
@@ -1325,7 +1681,7 @@ mod tests {
     #[test]
     fn test_cellscript_compiled_scheduler_witness_rejects_unmatched_transaction_shape() {
         let mut tx = CellTx::new(vec![], vec![], vec![], vec![], vec![]).unwrap();
-        let compiled_scheduler_witness = borsh::to_vec(&CellScriptSchedulerWitness {
+        let compiled_scheduler_witness = encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
@@ -1340,8 +1696,7 @@ mod tests {
                 index: 0,
                 binding_hash: [0x24; 32],
             }],
-        })
-        .unwrap();
+        });
 
         let error = tx.push_cellscript_compiled_scheduler_witness(compiled_scheduler_witness).unwrap_err();
 
@@ -1362,7 +1717,7 @@ mod tests {
         let outputs = vec![CellOutput { lock, type_: None, capacity: 1000 }];
         let outputs_data = vec![vec![]];
         let mut tx = CellTx::new(vec![], vec![], outputs, outputs_data, vec![]).unwrap();
-        let compiled_scheduler_witness = borsh::to_vec(&CellScriptSchedulerWitness {
+        let compiled_scheduler_witness = encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
@@ -1377,8 +1732,7 @@ mod tests {
                 index: 0,
                 binding_hash: [0x24; 32],
             }],
-        })
-        .unwrap();
+        });
 
         tx.push_cellscript_compiled_scheduler_witness(compiled_scheduler_witness.clone()).unwrap();
         let error = tx.push_cellscript_compiled_scheduler_witness(compiled_scheduler_witness).unwrap_err();
@@ -1389,7 +1743,7 @@ mod tests {
 
     #[test]
     fn test_cellscript_scheduler_witness_decode_rejects_malformed_counts() {
-        let bytes = borsh::to_vec(&CellScriptSchedulerWitness {
+        let bytes = encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: 1,
@@ -1399,22 +1753,18 @@ mod tests {
             estimated_cycles: 32,
             access_count: 0,
             accesses: vec![],
-        })
-        .unwrap();
+        });
 
         assert_eq!(
             decode_cellscript_scheduler_witness(&bytes),
             Err(CellScriptSchedulerWitnessError::CountMismatch { field: "touches_shared", declared: 2, actual: 1 })
         );
-        assert_eq!(
-            decode_cellscript_scheduler_witness(&[0x11, 0xCE]),
-            Err(CellScriptSchedulerWitnessError::Decode("Unexpected length of input".to_string()))
-        );
+        assert!(decode_cellscript_scheduler_witness(&[0x11, 0xCE]).is_err());
     }
 
     #[test]
     fn test_cellscript_scheduler_witness_decode_rejects_invalid_access_envelope() {
-        let bytes = borsh::to_vec(&CellScriptSchedulerWitness {
+        let bytes = encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY,
@@ -1429,8 +1779,7 @@ mod tests {
                 index: 0,
                 binding_hash: [0x24; 32],
             }],
-        })
-        .unwrap();
+        });
 
         assert_eq!(
             decode_cellscript_scheduler_witness(&bytes),
@@ -1460,7 +1809,7 @@ mod tests {
                 binding_hash: [0x24; 32],
             }],
         };
-        let bytes = borsh::to_vec(&witness).unwrap();
+        let bytes = encode_cellscript_scheduler_witness_molecule(&witness);
 
         assert_eq!(
             witness.validate_against_transaction(&tx),
@@ -2036,6 +2385,8 @@ mod tests {
         assert_eq!(data, [0, 0, 0, 0]);
         let parsed = parse_dep_group_data(&data).unwrap();
         assert!(parsed.is_empty());
+        assert!(encode_ckb_dep_group_data(&[]).is_err());
+        assert!(parse_ckb_dep_group_data(&data).is_err());
     }
 
     #[test]
@@ -2043,6 +2394,17 @@ mod tests {
         assert!(parse_dep_group_data(&[]).is_err());
         assert!(parse_dep_group_data(&[1, 0, 0, 0]).is_err()); // count=1 but no data
         assert!(parse_dep_group_data(&[1, 0, 0, 0, 0]).is_err()); // count=1 but only 1 byte
+    }
+
+    #[test]
+    fn test_ckb_dep_group_abi_matches_nonempty_spora_bytes() {
+        let ops = vec![OutPoint::new([0x44; 32], 1), OutPoint::new([0x55; 32], 2)];
+        let spora_data = encode_dep_group_data_for_abi(&ops, DepGroupDataAbi::Spora).unwrap();
+        let ckb_data = encode_dep_group_data_for_abi(&ops, DepGroupDataAbi::CkbMolecule).unwrap();
+
+        assert_eq!(ckb_data, spora_data);
+        assert_eq!(parse_dep_group_data_for_abi(&ckb_data, DepGroupDataAbi::CkbMolecule).unwrap(), ops);
+        assert_eq!(parse_ckb_dep_group_data(&ckb_data).unwrap(), ops);
     }
 }
 

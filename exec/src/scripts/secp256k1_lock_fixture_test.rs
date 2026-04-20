@@ -8,6 +8,7 @@ mod tests {
     use crate::celltx::sighash::{calc_standard_ecdsa_signature_hash, StandardSigHashReusedValues, StandardSigHashType};
     use crate::celltx::{CellInput, CellOutput, CellTx, OutPoint, Script};
     use crate::scripts::{secp256k1_lock_fixture_code_hash, SECP256K1_LOCK_FIXTURE_SCRIPT};
+    use crate::serialization::VmAbiFormat;
     use crate::vm::syscalls::load_signature_hash::standard_signing_input_from_resolved_cell;
     use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider, TransactionScriptVerifier};
     use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
@@ -114,8 +115,10 @@ mod tests {
         let witness = sign_fixture_witness(&tx_without_witness, &resolved_input, 0x01, &secret_key);
         let tx = CellTx { witnesses: vec![witness], ..tx_without_witness };
         let provider = build_provider(code_hash, input_out_point, resolved_input);
-        let verifier =
-            TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider)).with_version(ScriptVersion::V2).with_max_cycles(400_000);
+        let verifier = TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider))
+            .with_abi_format(VmAbiFormat::Legacy)
+            .with_version(ScriptVersion::V2)
+            .with_max_cycles(400_000);
 
         assert!(verifier.verify().is_ok());
     }
@@ -135,8 +138,10 @@ mod tests {
         witness[0] ^= 0xFF;
         let tx = CellTx { witnesses: vec![witness], ..tx_without_witness };
         let provider = build_provider(code_hash, input_out_point, resolved_input);
-        let verifier =
-            TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider)).with_version(ScriptVersion::V2).with_max_cycles(400_000);
+        let verifier = TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider))
+            .with_abi_format(VmAbiFormat::Legacy)
+            .with_version(ScriptVersion::V2)
+            .with_max_cycles(400_000);
 
         assert!(verifier.verify().is_err());
     }

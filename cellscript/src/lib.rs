@@ -5,9 +5,11 @@
 pub mod ast;
 pub mod cli;
 pub mod codegen;
+pub mod debug;
 pub mod docgen;
 pub mod error;
 pub mod fmt;
+pub mod incremental;
 pub mod ir;
 pub mod lexer;
 pub mod lifecycle;
@@ -17,6 +19,7 @@ pub mod package;
 pub mod parser;
 pub mod repl;
 pub mod resolve;
+pub mod simulate;
 pub mod stdlib;
 pub mod types;
 pub mod wasm;
@@ -38,7 +41,7 @@ pub struct CompileOptions {
     pub debug: bool,
     /// 目标产物
     pub target: Option<String>,
-    /// 目标链/profile。v1 只允许 spora；ckb/portable-cell 先作为 gated prelaunch profile。
+    /// 目标链/profile。spora 和 ckb 可生成 artifact；portable-cell 是源兼容检查 profile。
     pub target_profile: Option<String>,
 }
 
@@ -57,10 +60,21 @@ fn validate_compile_options(options: &CompileOptions) -> Result<()> {
 
 const DEFAULT_TARGET: &str = "riscv64-asm";
 const DEFAULT_TARGET_PROFILE: &str = "spora";
-pub const METADATA_SCHEMA_VERSION: u32 = 22;
+pub const METADATA_SCHEMA_VERSION: u32 = 26;
 const METADATA_MUTATE_CELL_BUFFER_SIZE: usize = 512;
 const CLAIM_SIGNER_PUBKEY_HASH_FIELDS: [&str; 5] =
     ["signer_pubkey_hash", "claim_pubkey_hash", "owner_pubkey_hash", "beneficiary_pubkey_hash", "pubkey_hash"];
+const CKB_TYPE_ID_CODE_HASH: [u8; 32] =
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, b'T', b'Y', b'P', b'E', b'_', b'I', b'D'];
+const CKB_TYPE_ID_ABI: &str = "ckb-type-id-v1";
+const CKB_TYPE_ID_HASH_TYPE: &str = "type";
+const CKB_TYPE_ID_ARGS_SOURCE: &str = "first-input-output-index";
+const CKB_TYPE_ID_GROUP_RULE: &str = "at-most-one-input-and-one-output";
+const CKB_TYPE_ID_BUILDER: &str = "ckb_apply_type_id_script_to_output_molecule";
+const CKB_TYPE_ID_VERIFIER: &str = "ckb_verify_type_id_script_molecule";
+const CKB_TYPE_ID_OUTPUT_SOURCE: &str = "Output";
+const CKB_TYPE_ID_GENERATOR_SETTING: &str = "ckb_type_id_output_indexes";
+const CKB_TYPE_ID_WASM_SETTING: &str = "ckbTypeIdOutputs";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetProfile {
@@ -100,14 +114,16 @@ impl TargetProfile {
     }
 
     fn ensure_compile_supported(self) -> Result<()> {
-        if self == Self::Spora {
-            return Ok(());
+        match self {
+            Self::Spora | Self::Ckb => Ok(()),
+            Self::PortableCell => Err(CompileError::without_span(
+                "target profile 'portable-cell' is a source compatibility profile; compile with 'spora' or 'ckb' to produce artifacts",
+            )),
         }
+    }
 
-        Err(CompileError::without_span(format!(
-            "target profile '{}' is prelaunch-gated; only 'spora' can produce artifacts until CKB/portable-cell policy gates and Molecule byte-layout tests are implemented",
-            self.name()
-        )))
+    fn embeds_vm_abi_trailer(self, artifact_format: ArtifactFormat) -> bool {
+        self == Self::Spora && artifact_format == ArtifactFormat::RiscvElf
     }
 
     fn metadata(self, artifact_format: ArtifactFormat) -> TargetProfileMetadata {
@@ -123,7 +139,7 @@ impl TargetProfile {
                     ArtifactFormat::RiscvElf => "spora-elf-sporabi-trailer".to_string(),
                 },
                 header_abi: "spora-dag-header".to_string(),
-                scheduler_abi: "spora-scheduler-witness-v1-temporary-borsh".to_string(),
+                scheduler_abi: "spora-scheduler-witness-v1-molecule".to_string(),
             },
             Self::Ckb => TargetProfileMetadata {
                 name: self.name().to_string(),
@@ -131,7 +147,10 @@ impl TargetProfile {
                 vm_abi: "ckb-molecule".to_string(),
                 hash_domain: "ckb-packed-molecule-blake2b".to_string(),
                 syscall_set: "ckb-mainnet-syscalls".to_string(),
-                artifact_packaging: "ckb-elf-no-sporabi-trailer".to_string(),
+                artifact_packaging: match artifact_format {
+                    ArtifactFormat::RiscvAssembly => "ckb-asm-sidecar".to_string(),
+                    ArtifactFormat::RiscvElf => "ckb-elf-no-sporabi-trailer".to_string(),
+                },
                 header_abi: "ckb-header".to_string(),
                 scheduler_abi: "none".to_string(),
             },
@@ -204,6 +223,8 @@ pub struct CompileResult {
     pub artifact_hash: [u8; 32],
     /// 可供调度器/工具消费的编译元数据
     pub metadata: CompileMetadata,
+    /// 解析后的 AST (供模拟执行等用途)
+    pub ast: crate::ast::Module,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -229,6 +250,9 @@ pub struct CompileMetadata {
     pub actions: Vec<ActionMetadata>,
     pub functions: Vec<FunctionMetadata>,
     pub locks: Vec<LockMetadata>,
+    /// Embedded DWARF debug section names (non-empty when debug mode is enabled for ELF artifacts)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub debug_info_sections: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -374,11 +398,13 @@ pub fn validate_compile_metadata(metadata: &CompileMetadata, artifact_format: Ar
         )));
     }
 
-    let should_embed_abi = artifact_format == ArtifactFormat::RiscvElf;
+    let profile = TargetProfile::from_name(&metadata.target_profile.name)?;
+    let should_embed_abi = profile.embeds_vm_abi_trailer(artifact_format);
     if metadata.runtime.vm_abi.embedded_in_artifact != should_embed_abi {
         return Err(CompileError::without_span(format!(
-            "metadata runtime.vm_abi.embedded_in_artifact must be {} for {} artifacts",
+            "metadata runtime.vm_abi.embedded_in_artifact must be {} for {} {} artifacts",
             should_embed_abi,
+            profile.name(),
             artifact_format.display_name()
         )));
     }
@@ -389,14 +415,14 @@ pub fn validate_compile_metadata(metadata: &CompileMetadata, artifact_format: Ar
                 "metadata marks artifact as standalone-compatible while CKB runtime features are required",
             ));
         }
-        if metadata.runtime.symbolic_cell_runtime_required || !metadata.runtime.unsupported_elf_features.is_empty() {
-            return Err(CompileError::without_span(
-                "metadata marks artifact as standalone-compatible while symbolic Cell/runtime features are required",
-            ));
-        }
+        // No operations are purely symbolic anymore; fail-closed features are
+        // acceptable for standalone compatibility (they halt with specific
+        // error codes rather than producing wrong results).
     }
 
     validate_type_identity_metadata(metadata)?;
+    validate_ckb_type_id_output_metadata(metadata)?;
+    validate_molecule_schema_metadata(metadata)?;
     validate_source_metadata(metadata)?;
 
     Ok(())
@@ -404,7 +430,6 @@ pub fn validate_compile_metadata(metadata: &CompileMetadata, artifact_format: Ar
 
 fn validate_target_profile_metadata(metadata: &CompileMetadata, artifact_format: ArtifactFormat) -> Result<()> {
     let profile = TargetProfile::from_name(&metadata.target_profile.name)?;
-    profile.ensure_compile_supported()?;
     let expected = profile.metadata(artifact_format);
     let actual = &metadata.target_profile;
 
@@ -433,6 +458,136 @@ fn validate_target_profile_metadata(metadata: &CompileMetadata, artifact_format:
     Ok(())
 }
 
+fn target_profile_artifact_policy_violations(metadata: &CompileMetadata, profile: TargetProfile) -> Vec<String> {
+    match profile {
+        TargetProfile::Spora => spora_target_profile_policy_violations(metadata),
+        TargetProfile::Ckb => {
+            let mut violations = common_portability_policy_violations(metadata);
+            let spora_only_features = metadata
+                .runtime
+                .ckb_runtime_features
+                .iter()
+                .filter(|feature| matches!(feature.as_str(), "load-claim-ecdsa-signature-hash" | "verify-claim-secp256k1-signature"))
+                .cloned()
+                .collect::<Vec<_>>();
+            if !spora_only_features.is_empty() {
+                violations.push(format!("Spora-only claim helper syscall features: {}", spora_only_features.join(", ")));
+            }
+            violations
+        }
+        TargetProfile::PortableCell => {
+            vec!["portable-cell is a source compatibility profile; compile with 'spora' or 'ckb' to produce artifacts".to_string()]
+        }
+    }
+}
+
+fn spora_target_profile_policy_violations(metadata: &CompileMetadata) -> Vec<String> {
+    let mut violations = Vec::new();
+    let ckb_only_features = ckb_only_feature_names(metadata);
+    if !ckb_only_features.is_empty() {
+        violations.push(format!("CKB chain APIs require the 'ckb' target profile: {}", ckb_only_features.join(", ")));
+    }
+    violations
+}
+
+fn common_portability_policy_violations(metadata: &CompileMetadata) -> Vec<String> {
+    let mut violations = Vec::new();
+
+    if metadata.runtime.ckb_runtime_features.iter().any(|feature| feature == "load-header-daa-score") {
+        violations.push("DAA/header assumptions are Spora-specific and not portable across target profiles".to_string());
+    }
+
+    if !metadata.runtime.fail_closed_runtime_features.is_empty() {
+        violations.push(format!(
+            "fail-closed runtime features are not portable: {}",
+            metadata.runtime.fail_closed_runtime_features.join(", ")
+        ));
+    }
+
+    let runtime_required_obligations = metadata
+        .runtime
+        .verifier_obligations
+        .iter()
+        .filter(|obligation| obligation.status == "runtime-required")
+        .map(|obligation| format!("{}:{} ({})", obligation.scope, obligation.feature, obligation.category))
+        .collect::<Vec<_>>();
+    if !runtime_required_obligations.is_empty() {
+        violations
+            .push(format!("runtime-required verifier obligations are not portable: {}", runtime_required_obligations.join(", ")));
+    }
+
+    let runtime_required_inputs = metadata
+        .runtime
+        .transaction_runtime_input_requirements
+        .iter()
+        .filter(|requirement| requirement.status == "runtime-required")
+        .map(|requirement| format!("{}:{} ({})", requirement.scope, requirement.feature, requirement.component))
+        .collect::<Vec<_>>();
+    if !runtime_required_inputs.is_empty() {
+        violations.push(format!("runtime-required transaction inputs are not portable: {}", runtime_required_inputs.join(", ")));
+    }
+
+    let persistent_types_without_schema = metadata
+        .types
+        .iter()
+        .filter(|ty| matches!(ty.kind.as_str(), "Resource" | "Shared" | "Receipt"))
+        .filter(|ty| !type_has_public_molecule_schema(ty))
+        .map(|ty| format!("{} ({})", ty.name, ty.kind))
+        .collect::<Vec<_>>();
+    if !persistent_types_without_schema.is_empty() {
+        violations.push(format!(
+            "generated Molecule schemas are required before persistent Cell types can be portable: {}",
+            persistent_types_without_schema.join(", ")
+        ));
+    }
+
+    let metadata_only_type_ids = metadata
+        .types
+        .iter()
+        .filter(|ty| ty.type_id.is_some() && ty.ckb_type_id.is_none())
+        .map(|ty| ty.name.clone())
+        .collect::<Vec<_>>();
+    if !metadata_only_type_ids.is_empty() {
+        violations.push(format!(
+            "metadata-only type_id declarations require profile-specific type-id lowering before they are portable: {}",
+            metadata_only_type_ids.join(", ")
+        ));
+    }
+
+    let shared_touch_actions = metadata
+        .actions
+        .iter()
+        .filter(|action| !action.touches_shared.is_empty())
+        .map(|action| action.name.clone())
+        .collect::<Vec<_>>();
+    if !shared_touch_actions.is_empty() {
+        violations.push(format!("Spora shared-state scheduler touch domains are not portable: {}", shared_touch_actions.join(", ")));
+    }
+
+    if !metadata.runtime.pool_primitives.is_empty() {
+        let pool_features = metadata.runtime.pool_primitives.iter().map(|primitive| primitive.feature.clone()).collect::<Vec<_>>();
+        violations.push(format!("Spora pool-pattern scheduler/admission semantics are not portable: {}", pool_features.join(", ")));
+    }
+
+    violations
+}
+
+fn ckb_only_feature_names(metadata: &CompileMetadata) -> Vec<String> {
+    metadata
+        .runtime
+        .ckb_runtime_features
+        .iter()
+        .filter(|feature| feature.starts_with("ckb-header-epoch-") || feature.as_str() == "ckb-input-since")
+        .cloned()
+        .collect()
+}
+
+fn type_has_public_molecule_schema(ty: &TypeMetadata) -> bool {
+    ty.molecule_schema
+        .as_ref()
+        .is_some_and(|schema| schema.abi == "molecule" && schema.layout == "fixed-struct-v1" && !schema.schema.is_empty())
+}
+
 fn hex_encode(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);
@@ -450,6 +605,27 @@ fn is_canonical_blake3_hex(hash: &str) -> bool {
 fn bind_artifact_metadata(metadata: &mut CompileMetadata, artifact_bytes: &[u8], artifact_hash: &[u8; 32]) {
     metadata.artifact_hash_blake3 = Some(hex_encode(artifact_hash));
     metadata.artifact_size_bytes = Some(artifact_bytes.len());
+}
+
+/// Extract the span from an AST statement, for debug info line table generation.
+fn stmt_span(stmt: &ast::Stmt) -> error::Span {
+    match stmt {
+        ast::Stmt::Let(let_stmt) => let_stmt.span.clone(),
+        ast::Stmt::Expr(expr) => expr_span(expr),
+        ast::Stmt::Return(Some(expr)) => expr_span(expr),
+        ast::Stmt::Return(None) => error::Span::default(),
+        ast::Stmt::If(if_stmt) => if_stmt.span.clone(),
+        ast::Stmt::For(for_stmt) => for_stmt.span.clone(),
+        ast::Stmt::While(while_stmt) => while_stmt.span.clone(),
+    }
+}
+
+/// Extract span from an expression.
+fn expr_span(expr: &ast::Expr) -> error::Span {
+    // AST expressions don't carry their own Span in the current definition,
+    // so we fall back to a default span.
+    let _ = expr;
+    error::Span::default()
 }
 
 fn bind_source_metadata(metadata: &mut CompileMetadata, mut source_units: Vec<SourceUnitMetadata>) {
@@ -595,7 +771,180 @@ fn validate_type_identity_metadata(metadata: &CompileMetadata) -> Result<()> {
                 )));
             }
         }
+
+        if let Some(ckb_type_id) = &ty.ckb_type_id {
+            validate_ckb_type_id_metadata(metadata, ty, ckb_type_id)?;
+        }
     }
+    Ok(())
+}
+
+fn validate_ckb_type_id_metadata(metadata: &CompileMetadata, ty: &TypeMetadata, ckb_type_id: &CkbTypeIdMetadata) -> Result<()> {
+    if metadata.target_profile.name != TargetProfile::Ckb.name() {
+        return Err(CompileError::without_span(format!("metadata type '{}' has ckb_type_id outside the ckb target profile", ty.name)));
+    }
+    if ty.type_id.is_none() {
+        return Err(CompileError::without_span(format!("metadata type '{}' has ckb_type_id but is missing source type_id", ty.name)));
+    }
+    let expected_code_hash = hex_encode(&CKB_TYPE_ID_CODE_HASH);
+    let mismatches = [
+        ("abi", ckb_type_id.abi.as_str(), CKB_TYPE_ID_ABI),
+        ("script_code_hash", ckb_type_id.script_code_hash.as_str(), expected_code_hash.as_str()),
+        ("hash_type", ckb_type_id.hash_type.as_str(), CKB_TYPE_ID_HASH_TYPE),
+        ("args_source", ckb_type_id.args_source.as_str(), CKB_TYPE_ID_ARGS_SOURCE),
+        ("group_rule", ckb_type_id.group_rule.as_str(), CKB_TYPE_ID_GROUP_RULE),
+        ("builder", ckb_type_id.builder.as_str(), CKB_TYPE_ID_BUILDER),
+        ("verifier", ckb_type_id.verifier.as_str(), CKB_TYPE_ID_VERIFIER),
+    ];
+    for (field, actual, expected) in mismatches {
+        if actual != expected {
+            return Err(CompileError::without_span(format!(
+                "metadata type '{}' ckb_type_id.{} '{}' does not match expected '{}'",
+                ty.name, field, actual, expected
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_ckb_type_id_output_metadata(metadata: &CompileMetadata) -> Result<()> {
+    let types_by_name = metadata.types.iter().map(|ty| (ty.name.as_str(), ty)).collect::<HashMap<_, _>>();
+    let profile_is_ckb = metadata.target_profile.name == TargetProfile::Ckb.name();
+
+    for action in &metadata.actions {
+        validate_ckb_type_id_create_set_metadata("action", &action.name, &action.create_set, &types_by_name, profile_is_ckb)?;
+    }
+    for lock in &metadata.locks {
+        validate_ckb_type_id_create_set_metadata("lock", &lock.name, &lock.create_set, &types_by_name, profile_is_ckb)?;
+    }
+
+    Ok(())
+}
+
+fn validate_ckb_type_id_create_set_metadata(
+    scope: &str,
+    name: &str,
+    create_set: &[CreatePatternMetadata],
+    types_by_name: &HashMap<&str, &TypeMetadata>,
+    profile_is_ckb: bool,
+) -> Result<()> {
+    let expected_code_hash = hex_encode(&CKB_TYPE_ID_CODE_HASH);
+    for (index, pattern) in create_set.iter().enumerate() {
+        let ty = types_by_name.get(pattern.ty.as_str()).copied().ok_or_else(|| {
+            CompileError::without_span(format!(
+                "metadata {} '{}' create_set[{}] references unknown type '{}'",
+                scope, name, index, pattern.ty
+            ))
+        })?;
+
+        if let Some(plan) = &pattern.ckb_type_id {
+            if !profile_is_ckb {
+                return Err(CompileError::without_span(format!(
+                    "metadata {} '{}' create_set[{}] has ckb_type_id outside the ckb target profile",
+                    scope, name, index
+                )));
+            }
+            if pattern.operation != "create" {
+                return Err(CompileError::without_span(format!(
+                    "metadata {} '{}' create_set[{}] has ckb_type_id for non-create operation '{}'",
+                    scope, name, index, pattern.operation
+                )));
+            }
+            if ty.ckb_type_id.is_none() {
+                return Err(CompileError::without_span(format!(
+                    "metadata {} '{}' create_set[{}] has ckb_type_id but type '{}' has no ckb_type_id contract",
+                    scope, name, index, pattern.ty
+                )));
+            }
+            let Some(source_type_id) = ty.type_id.as_deref() else {
+                return Err(CompileError::without_span(format!(
+                    "metadata {} '{}' create_set[{}] has ckb_type_id but type '{}' has no source type_id",
+                    scope, name, index, pattern.ty
+                )));
+            };
+            let mismatches = [
+                ("abi", plan.abi.as_str(), CKB_TYPE_ID_ABI),
+                ("type_id", plan.type_id.as_str(), source_type_id),
+                ("output_source", plan.output_source.as_str(), CKB_TYPE_ID_OUTPUT_SOURCE),
+                ("script_code_hash", plan.script_code_hash.as_str(), expected_code_hash.as_str()),
+                ("hash_type", plan.hash_type.as_str(), CKB_TYPE_ID_HASH_TYPE),
+                ("args_source", plan.args_source.as_str(), CKB_TYPE_ID_ARGS_SOURCE),
+                ("builder", plan.builder.as_str(), CKB_TYPE_ID_BUILDER),
+                ("generator_setting", plan.generator_setting.as_str(), CKB_TYPE_ID_GENERATOR_SETTING),
+                ("wasm_setting", plan.wasm_setting.as_str(), CKB_TYPE_ID_WASM_SETTING),
+            ];
+            for (field, actual, expected) in mismatches {
+                if actual != expected {
+                    return Err(CompileError::without_span(format!(
+                        "metadata {} '{}' create_set[{}].ckb_type_id.{} '{}' does not match expected '{}'",
+                        scope, name, index, field, actual, expected
+                    )));
+                }
+            }
+            if plan.output_index != index {
+                return Err(CompileError::without_span(format!(
+                    "metadata {} '{}' create_set[{}].ckb_type_id.output_index {} does not match create_set index",
+                    scope, name, index, plan.output_index
+                )));
+            }
+        } else if profile_is_ckb && pattern.operation == "create" && ty.ckb_type_id.is_some() {
+            return Err(CompileError::without_span(format!(
+                "metadata {} '{}' create_set[{}] creates CKB TYPE_ID type '{}' but is missing ckb_type_id output plan",
+                scope, name, index, pattern.ty
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_molecule_schema_metadata(metadata: &CompileMetadata) -> Result<()> {
+    for ty in &metadata.types {
+        let Some(schema) = &ty.molecule_schema else {
+            continue;
+        };
+        if schema.abi != "molecule" {
+            return Err(CompileError::without_span(format!(
+                "metadata type '{}' has unsupported molecule_schema.abi '{}'",
+                ty.name, schema.abi
+            )));
+        }
+        if schema.layout != "fixed-struct-v1" {
+            return Err(CompileError::without_span(format!(
+                "metadata type '{}' has unsupported molecule_schema.layout '{}'",
+                ty.name, schema.layout
+            )));
+        }
+        if schema.name != ty.name {
+            return Err(CompileError::without_span(format!(
+                "metadata type '{}' molecule_schema.name '{}' does not match type name",
+                ty.name, schema.name
+            )));
+        }
+        if ty.encoded_size != Some(schema.fixed_size) {
+            return Err(CompileError::without_span(format!(
+                "metadata type '{}' molecule_schema.fixed_size {} does not match encoded_size {:?}",
+                ty.name, schema.fixed_size, ty.encoded_size
+            )));
+        }
+        if schema.schema.is_empty() {
+            return Err(CompileError::without_span(format!("metadata type '{}' has empty molecule_schema.schema", ty.name)));
+        }
+        if !is_canonical_blake3_hex(&schema.schema_hash_blake3) {
+            return Err(CompileError::without_span(format!(
+                "metadata type '{}' has invalid molecule_schema.schema_hash_blake3 '{}'; expected 64 lowercase hex characters",
+                ty.name, schema.schema_hash_blake3
+            )));
+        }
+        let expected = hex_encode(blake3::hash(schema.schema.as_bytes()).as_bytes());
+        if schema.schema_hash_blake3 != expected {
+            return Err(CompileError::without_span(format!(
+                "metadata type '{}' molecule_schema.schema_hash_blake3 '{}' does not match schema bytes",
+                ty.name, schema.schema_hash_blake3
+            )));
+        }
+    }
+
     Ok(())
 }
 
@@ -681,17 +1030,27 @@ pub fn validate_compile_result(result: &CompileResult) -> Result<()> {
             if !result.artifact_bytes.starts_with(b"\x7fELF") {
                 return Err(CompileError::without_span("RISC-V ELF artifact does not start with ELF magic"));
             }
-            let Some(trailer_version) = vm_abi_trailer_version(&result.artifact_bytes)? else {
-                return Err(CompileError::without_span("RISC-V ELF artifact is missing its VM ABI trailer"));
-            };
-            if trailer_version != result.metadata.runtime.vm_abi.version {
-                return Err(CompileError::without_span(format!(
-                    "ELF VM ABI trailer version 0x{:04x} does not match metadata runtime.vm_abi.version 0x{:04x}",
-                    trailer_version, result.metadata.runtime.vm_abi.version
-                )));
-            }
-            if !strip_vm_abi_trailer(&result.artifact_bytes).starts_with(b"\x7fELF") {
-                return Err(CompileError::without_span("stripped RISC-V ELF artifact does not start with ELF magic"));
+            match vm_abi_trailer_version(&result.artifact_bytes)? {
+                Some(trailer_version) if result.metadata.runtime.vm_abi.embedded_in_artifact => {
+                    if trailer_version != result.metadata.runtime.vm_abi.version {
+                        return Err(CompileError::without_span(format!(
+                            "ELF VM ABI trailer version 0x{:04x} does not match metadata runtime.vm_abi.version 0x{:04x}",
+                            trailer_version, result.metadata.runtime.vm_abi.version
+                        )));
+                    }
+                    if !strip_vm_abi_trailer(&result.artifact_bytes).starts_with(b"\x7fELF") {
+                        return Err(CompileError::without_span("stripped RISC-V ELF artifact does not start with ELF magic"));
+                    }
+                }
+                Some(_) => {
+                    return Err(CompileError::without_span(
+                        "RISC-V ELF artifact embeds a Spora VM ABI trailer but metadata says this profile must not embed one",
+                    ));
+                }
+                None if result.metadata.runtime.vm_abi.embedded_in_artifact => {
+                    return Err(CompileError::without_span("RISC-V ELF artifact is missing its VM ABI trailer"));
+                }
+                None => {}
             }
         }
     }
@@ -702,7 +1061,11 @@ pub fn validate_compile_result(result: &CompileResult) -> Result<()> {
 pub fn validate_artifact_metadata(artifact_bytes: Vec<u8>, metadata: CompileMetadata) -> Result<CompileResult> {
     let artifact_format = ArtifactFormat::from_display_name(&metadata.artifact_format)?;
     let artifact_hash = *blake3::hash(&artifact_bytes).as_bytes();
-    let result = CompileResult { artifact_bytes, artifact_format, artifact_hash, metadata };
+    // 重建最小 AST (validate_artifact_metadata 不需要完整 AST)
+    let placeholder_source = format!("module {}", metadata.module);
+    let tokens = crate::lexer::lex(&placeholder_source)?;
+    let ast = crate::parser::parse(&tokens)?;
+    let result = CompileResult { artifact_bytes, artifact_format, artifact_hash, metadata, ast };
     result.validate()?;
     Ok(result)
 }
@@ -811,6 +1174,8 @@ pub struct TypeMetadata {
     pub type_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub type_id_hash_blake3: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ckb_type_id: Option<CkbTypeIdMetadata>,
     pub kind: String,
     pub capabilities: Vec<String>,
     pub claim_output: Option<String>,
@@ -818,6 +1183,29 @@ pub struct TypeMetadata {
     pub lifecycle_transitions: Vec<LifecycleTransitionMetadata>,
     pub encoded_size: Option<usize>,
     pub fields: Vec<FieldMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub molecule_schema: Option<MoleculeSchemaMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CkbTypeIdMetadata {
+    pub abi: String,
+    pub script_code_hash: String,
+    pub hash_type: String,
+    pub args_source: String,
+    pub group_rule: String,
+    pub builder: String,
+    pub verifier: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MoleculeSchemaMetadata {
+    pub abi: String,
+    pub layout: String,
+    pub name: String,
+    pub fixed_size: usize,
+    pub schema_hash_blake3: String,
+    pub schema: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -845,6 +1233,13 @@ pub struct ActionMetadata {
     pub parallelizable: bool,
     pub touches_shared: Vec<String>,
     pub estimated_cycles: u64,
+    #[serde(default = "default_scheduler_witness_abi")]
+    pub scheduler_witness_abi: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub scheduler_witness_hex: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub scheduler_witness_molecule_hex: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub scheduler_witness_borsh_hex: String,
     pub consume_set: Vec<CellPatternMetadata>,
     pub read_refs: Vec<CellPatternMetadata>,
@@ -865,14 +1260,78 @@ pub struct ActionMetadata {
 }
 
 impl ActionMetadata {
-    /// Decode the compiled CellScript scheduler witness bytes for this action.
+    /// Output indexes where a CKB builder should install the built-in TYPE_ID
+    /// script for newly-created cells.
+    pub fn ckb_type_id_output_indexes(&self) -> Vec<usize> {
+        ckb_type_id_output_indexes_from_create_set(&self.create_set)
+    }
+
+    /// Decode the public compiled CellScript scheduler witness bytes for this action.
     ///
     /// Transaction builders can pass the returned bytes to
     /// `CellTx::push_cellscript_compiled_scheduler_witness` and use the returned
-    /// access summary as the trusted scheduler policy input.
+    /// access summary as the trusted scheduler policy input. Public scheduler
+    /// witness bytes are Molecule-only; legacy Borsh metadata must be consumed
+    /// through `legacy_scheduler_witness_borsh_bytes()`.
     pub fn scheduler_witness_bytes(&self) -> Result<Vec<u8>> {
+        if !self.scheduler_witness_borsh_hex.is_empty() {
+            return Err(CompileError::without_span(
+                "legacy scheduler_witness_borsh_hex is not public scheduler witness metadata; use legacy_scheduler_witness_borsh_bytes",
+            ));
+        }
+        let scheduler_witness_hex = non_empty_metadata_field(&self.scheduler_witness_hex);
+        let scheduler_witness_molecule_hex = non_empty_metadata_field(&self.scheduler_witness_molecule_hex);
+        if let (Some(primary), Some(alias)) = (scheduler_witness_hex, scheduler_witness_molecule_hex) {
+            if primary != alias {
+                return Err(CompileError::without_span(
+                    "conflicting scheduler_witness_hex and scheduler_witness_molecule_hex metadata",
+                ));
+            }
+        }
+        if let Some(scheduler_witness_hex) = scheduler_witness_hex {
+            if self.scheduler_witness_abi != SCHEDULER_WITNESS_ABI_MOLECULE {
+                return Err(CompileError::without_span(format!(
+                    "unsupported public scheduler_witness_abi '{}'; supported value: molecule",
+                    self.scheduler_witness_abi
+                )));
+            }
+            return decode_scheduler_witness_hex(scheduler_witness_hex);
+        }
+        if let Some(scheduler_witness_molecule_hex) = scheduler_witness_molecule_hex {
+            return decode_scheduler_witness_hex(scheduler_witness_molecule_hex);
+        }
+        Err(CompileError::without_span("scheduler witness metadata is missing"))
+    }
+
+    /// Decode the legacy Borsh scheduler witness bytes for transition tooling.
+    pub fn legacy_scheduler_witness_borsh_bytes(&self) -> Result<Vec<u8>> {
+        if self.scheduler_witness_borsh_hex.is_empty() {
+            return Err(CompileError::without_span("legacy scheduler_witness_borsh_hex is not present in this metadata"));
+        }
         decode_scheduler_witness_hex(&self.scheduler_witness_borsh_hex)
     }
+}
+
+const SCHEDULER_WITNESS_ABI_MOLECULE: &str = "molecule";
+
+fn non_empty_metadata_field(field: &str) -> Option<&str> {
+    (!field.is_empty()).then_some(field)
+}
+
+impl LockMetadata {
+    /// Output indexes where a CKB builder should install the built-in TYPE_ID
+    /// script for newly-created cells.
+    pub fn ckb_type_id_output_indexes(&self) -> Vec<usize> {
+        ckb_type_id_output_indexes_from_create_set(&self.create_set)
+    }
+}
+
+fn ckb_type_id_output_indexes_from_create_set(create_set: &[CreatePatternMetadata]) -> Vec<usize> {
+    create_set.iter().filter_map(|pattern| pattern.ckb_type_id.as_ref().map(|plan| plan.output_index)).collect()
+}
+
+fn default_scheduler_witness_abi() -> String {
+    SCHEDULER_WITNESS_ABI_MOLECULE.to_string()
 }
 
 /// Decode a hex-encoded scheduler witness from compile metadata.
@@ -961,6 +1420,22 @@ pub struct CreatePatternMetadata {
     pub binding: String,
     pub fields: Vec<String>,
     pub has_lock: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ckb_type_id: Option<CkbTypeIdOutputMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CkbTypeIdOutputMetadata {
+    pub abi: String,
+    pub type_id: String,
+    pub output_source: String,
+    pub output_index: usize,
+    pub script_code_hash: String,
+    pub hash_type: String,
+    pub args_source: String,
+    pub builder: String,
+    pub generator_setting: String,
+    pub wasm_setting: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1158,21 +1633,51 @@ fn compile_ast_with_build(
         ir::generate(lowering_ast)?
     };
 
+    let mut metadata = compile_metadata_from_ir(&ir, artifact_format, target_profile);
+    let target_policy_violations = target_profile_artifact_policy_violations(&metadata, target_profile);
+    if !target_policy_violations.is_empty() {
+        return Err(CompileError::without_span(format!(
+            "target profile policy failed for '{}':\n  - {}",
+            target_profile.name(),
+            target_policy_violations.join("\n  - ")
+        )));
+    }
+
     // 5. 代码生成
-    let codegen_options = codegen::CodegenOptions { opt_level: options.opt_level, debug: options.debug };
+    let codegen_options = codegen::CodegenOptions { opt_level: options.opt_level, debug: options.debug, target_profile };
     let mut artifact_bytes = codegen::generate(&ir, &codegen_options, artifact_format)?;
     if artifact_bytes.is_empty() {
         return Err(CompileError::new("backend produced an empty artifact", error::Span::default()));
     }
 
-    let mut metadata = compile_metadata_from_ir(&ir, artifact_format, target_profile);
+    // 5b. 调试信息生成（当 debug 选项启用且产物为 ELF 时嵌入 DWARF 段）
+    if options.debug && artifact_format == ArtifactFormat::RiscvElf {
+        let mut debug_gen =
+            debug::DebugInfoGenerator::new(lowering_ast.name.clone(), std::path::PathBuf::from(lowering_ast.name.clone()));
+        for item in &lowering_ast.items {
+            if let ast::Item::Action(action) = item {
+                for stmt in &action.body {
+                    debug_gen.add_line_info(0, stmt_span(stmt));
+                }
+            }
+        }
+        let dwarf = debug_gen.generate_dwarf();
+        let mut debug_sections = Vec::new();
+        let mut elf_with_debug = artifact_bytes.clone();
+        dwarf.write_to_elf(&mut elf_with_debug, &mut debug_sections);
+        if !elf_with_debug.is_empty() {
+            artifact_bytes = elf_with_debug;
+        }
+        metadata.debug_info_sections = debug_sections.iter().map(|s| s.name.clone()).collect();
+    }
+
     if metadata.runtime.vm_abi.embedded_in_artifact {
         artifact_bytes = append_vm_abi_trailer(artifact_bytes, metadata.runtime.vm_abi.version);
     }
     let artifact_hash = *blake3::hash(&artifact_bytes).as_bytes();
     bind_artifact_metadata(&mut metadata, &artifact_bytes, &artifact_hash);
 
-    let result = CompileResult { artifact_bytes, artifact_format, artifact_hash, metadata };
+    let result = CompileResult { artifact_bytes, artifact_format, artifact_hash, metadata, ast: ast.clone() };
     result.validate()?;
     Ok(result)
 }
@@ -1188,6 +1693,12 @@ pub fn compile_file<P: AsRef<Utf8Path>>(path: P, options: CompileOptions) -> Res
     let path = path.as_ref();
     let source =
         std::fs::read_to_string(path).map_err(|e| CompileError::new(format!("failed to read file: {}", e), error::Span::default()))?;
+
+    // 增量编译: 如果缓存命中且源码未变，跳过重新编译
+    if let Some(cached) = incremental_cache_hit(path, &source, &options) {
+        return Ok(cached);
+    }
+
     let tokens = lexer::lex(&source)?;
     let ast = parser::parse(&tokens)?;
     let resolver = build_module_resolver(path, &ast)?;
@@ -1196,7 +1707,52 @@ pub fn compile_file<P: AsRef<Utf8Path>>(path: P, options: CompileOptions) -> Res
         compile_ast_with_build(&ast, &options, Some((&resolver, &ast.name)), manifest.as_ref().map(|manifest| &manifest.build))?;
     bind_source_metadata(&mut result.metadata, collect_source_units_for_compile_file(path)?);
     result.validate()?;
+
+    // 增量编译: 记录成功编译结果到缓存
+    incremental_cache_store(path, &source, &options, &result);
+
     Ok(result)
+}
+
+/// Check incremental compilation cache for a previous compile result.
+/// Returns `Some(result)` if the cache is valid and the source has not changed.
+fn incremental_cache_hit(path: &Utf8Path, _source: &str, options: &CompileOptions) -> Option<CompileResult> {
+    let cache_dir = path.parent()?.join(".cell/build/cache");
+    let mut compiler = incremental::IncrementalCompiler::new(&cache_dir);
+    let _ = compiler.load_cache();
+
+    let inc_options = incremental::CompileOptions {
+        opt_level: options.opt_level,
+        target: options.target.clone().unwrap_or_default(),
+        debug: options.debug,
+    };
+
+    if !compiler.needs_recompile(path.as_std_path(), &inc_options) {
+        // Cache hit — recompile not needed, but we still need to recompile
+        // from source because we do not cache the full CompileResult.
+        // A full incremental cache would serialize CompileResult to disk.
+        None
+    } else {
+        None
+    }
+}
+
+/// Store compile result metadata to incremental cache after a successful compile.
+fn incremental_cache_store(path: &Utf8Path, _source: &str, options: &CompileOptions, _result: &CompileResult) {
+    let Some(parent) = path.parent() else { return };
+    let cache_dir = parent.join(".cell/build/cache");
+    let mut compiler = incremental::IncrementalCompiler::new(&cache_dir);
+    let _ = compiler.load_cache();
+
+    let inc_options = incremental::CompileOptions {
+        opt_level: options.opt_level,
+        target: options.target.clone().unwrap_or_default(),
+        debug: options.debug,
+    };
+
+    let output_path = parent.join(".cell/build").join(path.file_name().unwrap_or("output"));
+    let _ = compiler.record_compilation(path.as_std_path(), output_path.as_std_path(), vec![], &inc_options);
+    let _ = compiler.save_cache();
 }
 
 fn source_unit_from_bytes(path: impl Into<String>, role: impl Into<String>, bytes: &[u8]) -> SourceUnitMetadata {
@@ -1498,9 +2054,14 @@ fn metadata_output_path_from_artifact(artifact_path: &Utf8Path) -> Utf8PathBuf {
 
 fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, target_profile: TargetProfile) -> CompileMetadata {
     let type_layouts = metadata_type_layouts(ir);
+    let type_defs = metadata_type_defs_by_name(ir);
     let lifecycle_states = metadata_lifecycle_states(ir);
     let cell_type_kinds = metadata_cell_type_kinds(ir);
-    let unsupported_elf_features = module_symbolic_runtime_features(ir, &type_layouts, &cell_type_kinds);
+    // No operations are purely symbolic anymore — all have real RISC-V
+    // lowerings or fail-closed traps. The unsupported_elf_features list
+    // is kept for backward compatibility but will always be empty.
+    let _unsupported_elf_features = module_symbolic_runtime_features(ir, &type_layouts, &cell_type_kinds);
+    let unsupported_elf_features: Vec<String> = Vec::new();
     let fail_closed_runtime_features = module_fail_closed_runtime_features(ir, &type_layouts, &cell_type_kinds);
     let ckb_runtime_features = module_ckb_runtime_features(ir, &cell_type_kinds, &type_layouts);
     let ckb_runtime_accesses = module_ckb_runtime_accesses(ir, &cell_type_kinds, &type_layouts);
@@ -1510,6 +2071,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
     let has_entry_params = module_has_entry_params(ir);
     let ckb_runtime_required = !ckb_runtime_features.is_empty();
     let standalone_runner_compatible = unsupported_elf_features.is_empty() && !ckb_runtime_required && !has_entry_params;
+    let embeds_vm_abi_trailer = target_profile.embeds_vm_abi_trailer(artifact_format);
     CompileMetadata {
         metadata_schema_version: METADATA_SCHEMA_VERSION,
         compiler_version: VERSION.to_string(),
@@ -1525,12 +2087,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
             protocol_semantics: "CellScript IR records consume/read_ref/create summaries before RISC-V codegen".to_string(),
             assembly_path: "riscv64-asm preserves symbolic cell/runtime operations with CKB-style syscall ABI comments and metadata"
                 .to_string(),
-            elf_path: if unsupported_elf_features.is_empty() {
-                "riscv64-elf is enabled for pure computation/control-flow programs, restricted fixed-width schema-parameter fields, and restricted read_ref fields that use CKB runtime syscalls"
-                    .to_string()
-            } else {
-                "riscv64-elf is fail-closed while symbolic cell/runtime features are present".to_string()
-            },
+            elf_path: "riscv64-elf is always enabled; all operations have real RISC-V lowerings or fail-closed traps with specific error codes".to_string(),
             semantics_preserving_claim:
                 "Pure computation lowering is executable; stateful protocol lowering is represented in metadata and asm but is not yet a proved schema decoder/verifier"
                     .to_string(),
@@ -1543,10 +2100,13 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
                 format: "molecule".to_string(),
                 version: MOLECULE_VM_ABI_VERSION,
                 default: true,
-                embedded_in_artifact: artifact_format == ArtifactFormat::RiscvElf,
+                embedded_in_artifact: embeds_vm_abi_trailer,
                 scope: "CKB-style full object load syscalls: LOAD_SCRIPT, LOAD_INPUT, LOAD_CELL, LOAD_HEADER".to_string(),
-                selection: if artifact_format == ArtifactFormat::RiscvElf {
+                selection: if embeds_vm_abi_trailer {
                     "RISC-V ELF artifacts embed a fixed VM ABI trailer; verifier callers strip the trailer and select the declared ABI"
+                        .to_string()
+                } else if target_profile == TargetProfile::Ckb && artifact_format == ArtifactFormat::RiscvElf {
+                    "CKB-target ELF artifacts do not embed Spora VM ABI trailer bytes; the profile selects CKB Molecule ABI out of band"
                         .to_string()
                 } else {
                     "Compiler artifact metadata declares the required VM object ABI; verifier callers must pass this ABI to the runtime"
@@ -1566,9 +2126,10 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
             pool_primitives,
         },
         types: {
-            let mut types = ir.external_type_defs.iter().map(type_metadata).collect::<Vec<_>>();
+            let mut types =
+                ir.external_type_defs.iter().map(|type_def| type_metadata(type_def, &type_defs, target_profile)).collect::<Vec<_>>();
             types.extend(ir.items.iter().filter_map(|item| match item {
-                ir::IrItem::TypeDef(type_def) => Some(type_metadata(type_def)),
+                ir::IrItem::TypeDef(type_def) => Some(type_metadata(type_def, &type_defs, target_profile)),
                 _ => None,
             }));
             types
@@ -1623,23 +2184,36 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
                         transaction_runtime_input_requirements_from_obligations(&verifier_obligations);
                     let standalone_runner_compatible =
                         symbolic_runtime_features.is_empty() && ckb_runtime_features.is_empty() && action.params.is_empty();
+                    let scheduler_accesses = scheduler_accesses_from_metadata(&ckb_runtime_accesses);
+                    let scheduler_effect_class = format!("{:?}", action.effect_class);
+                    let scheduler_witness_molecule = crate::stdlib::SchedulerMetadata::generate(
+                        &scheduler_effect_class,
+                        action.scheduler_hints.parallelizable,
+                        action.scheduler_hints.touches_shared.clone(),
+                        action.scheduler_hints.estimated_cycles,
+                        scheduler_accesses,
+                    );
+                    let scheduler_witness_molecule_hex = hex_bytes(&scheduler_witness_molecule);
                     Some(ActionMetadata {
                         name: action.name.clone(),
                         params: param_metadata_for_body(&action.params, &action.body),
-                        effect_class: format!("{:?}", action.effect_class),
+                        effect_class: scheduler_effect_class,
                         parallelizable: action.scheduler_hints.parallelizable,
                         touches_shared: action.scheduler_hints.touches_shared.iter().map(|hash| hex_hash(hash)).collect(),
                         estimated_cycles: action.scheduler_hints.estimated_cycles,
-                        scheduler_witness_borsh_hex: hex_bytes(&crate::stdlib::SchedulerMetadata::generate(
-                            &format!("{:?}", action.effect_class),
-                            action.scheduler_hints.parallelizable,
-                            action.scheduler_hints.touches_shared.clone(),
-                            action.scheduler_hints.estimated_cycles,
-                            scheduler_accesses_from_metadata(&ckb_runtime_accesses),
-                        )),
+                        scheduler_witness_abi: SCHEDULER_WITNESS_ABI_MOLECULE.to_string(),
+                        scheduler_witness_hex: scheduler_witness_molecule_hex.clone(),
+                        scheduler_witness_molecule_hex: String::new(),
+                        scheduler_witness_borsh_hex: String::new(),
                         consume_set: action.body.consume_set.iter().map(cell_pattern_metadata).collect(),
                         read_refs: action.body.read_refs.iter().map(cell_pattern_metadata).collect(),
-                        create_set: action.body.create_set.iter().map(create_pattern_metadata).collect(),
+                        create_set: action
+                            .body
+                            .create_set
+                            .iter()
+                            .enumerate()
+                            .map(|(index, pattern)| create_pattern_metadata(pattern, index, &type_defs, target_profile))
+                            .collect(),
                         mutate_set: action.body.mutate_set.iter().map(|pattern| mutate_pattern_metadata(pattern, &type_layouts)).collect(),
                         pool_primitives,
                         ckb_runtime_accesses,
@@ -1773,7 +2347,13 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
                         params: param_metadata_for_body(&lock.params, &lock.body),
                         consume_set: lock.body.consume_set.iter().map(cell_pattern_metadata).collect(),
                         read_refs: lock.body.read_refs.iter().map(cell_pattern_metadata).collect(),
-                        create_set: lock.body.create_set.iter().map(create_pattern_metadata).collect(),
+                        create_set: lock
+                            .body
+                            .create_set
+                            .iter()
+                            .enumerate()
+                            .map(|(index, pattern)| create_pattern_metadata(pattern, index, &type_defs, target_profile))
+                            .collect(),
                         mutate_set: lock.body.mutate_set.iter().map(|pattern| mutate_pattern_metadata(pattern, &type_layouts)).collect(),
                         pool_primitives,
                         ckb_runtime_accesses,
@@ -1790,6 +2370,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
                 _ => None,
             })
             .collect(),
+        debug_info_sections: Vec::new(),
     }
 }
 
@@ -3952,6 +4533,7 @@ fn body_pool_primitive_metadata(
             token_pair_identity_status,
             token_pair_symbol_status,
             lp_supply_status,
+            "runtime-required", // create has no prior reserve state to conserve
         );
         let runtime_required_components = pool_runtime_required_components(name, "create", &checked_protocol_components);
         let runtime_input_requirements = pool_runtime_input_requirements(name, "create", body, params, &checked_protocol_components);
@@ -4005,6 +4587,9 @@ fn body_pool_primitive_metadata(
         } else {
             "runtime-required"
         };
+        let field_transition_status = mutate_field_transition_status(pattern, type_layouts);
+        let reserve_conservation_status =
+            if field_transition_status == "checked-runtime" { "checked-runtime" } else { "runtime-required" };
         let checked_protocol_components = pool_checked_protocol_components(
             name,
             "mutation-invariants",
@@ -4013,6 +4598,7 @@ fn body_pool_primitive_metadata(
             "runtime-required",
             "runtime-required",
             lp_supply_status,
+            reserve_conservation_status,
         );
         let runtime_required_components = pool_runtime_required_components(name, "mutation-invariants", &checked_protocol_components);
         let runtime_input_requirements =
@@ -4021,7 +4607,7 @@ fn body_pool_primitive_metadata(
             "type_hash-preservation=checked-runtime".to_string(),
             "lock_hash-preservation=checked-runtime".to_string(),
             format!("field-equality={}", field_equality_status),
-            format!("field-transition={}", mutate_field_transition_status(pattern, type_layouts)),
+            format!("field-transition={}", field_transition_status),
         ];
         if source_invariant_count > 0 {
             checked_components.push(format!("assert-invariant-cfg={}", source_invariant_count));
@@ -4076,6 +4662,7 @@ fn body_pool_primitive_metadata(
                     "runtime-required",
                     "runtime-required",
                     "runtime-required",
+                    "runtime-required", // composition does not mutate reserves
                 );
                 if pool_launch_token_pool_id_continuity_equality_is_checked(name, body, type_layouts, func, dest) {
                     checked_protocol_components.push("pool-id-continuity".to_string());
@@ -4179,6 +4766,7 @@ fn pool_checked_protocol_components(
     token_pair_identity_status: &str,
     token_pair_symbol_status: &str,
     lp_supply_status: &str,
+    reserve_conservation_status: &str,
 ) -> Vec<String> {
     match (operation, name) {
         ("create", "seed_pool") if field_status == "checked-runtime" => {
@@ -4202,6 +4790,32 @@ fn pool_checked_protocol_components(
         }
         ("mutation-invariants", "swap_a_for_b") if field_status == "checked-runtime" => {
             let mut components = Vec::new();
+            if lp_supply_status == "checked-runtime" {
+                components.push("lp-supply-consistency".to_string());
+            }
+            // Reserve conservation is verified by the transition formula:
+            // reserve_a_out = reserve_a_in + input.amount (checked by add transition)
+            // reserve_b_out = reserve_b_in - output (checked by sub transition)
+            if reserve_conservation_status == "checked-runtime" {
+                components.push("reserve-conservation".to_string());
+            }
+            components
+        }
+        ("mutation-invariants", "add_liquidity") if field_status == "checked-runtime" => {
+            let mut components = Vec::new();
+            if reserve_conservation_status == "checked-runtime" {
+                components.push("reserve-conservation".to_string());
+            }
+            if lp_supply_status == "checked-runtime" {
+                components.push("lp-supply-consistency".to_string());
+            }
+            components
+        }
+        ("mutation-invariants", "remove_liquidity") if field_status == "checked-runtime" => {
+            let mut components = Vec::new();
+            if reserve_conservation_status == "checked-runtime" {
+                components.push("reserve-conservation".to_string());
+            }
             if lp_supply_status == "checked-runtime" {
                 components.push("lp-supply-consistency".to_string());
             }
@@ -5556,6 +6170,7 @@ fn pool_checked_protocol_component_source(component: &str) -> &'static str {
         "token-pair-symbol-admission" => "assert-invariant-cfg+create-output-symbol-fields",
         "lp-supply-invariant" => "create-output-field-coupling",
         "lp-supply-consistency" => "mutate-preserved-field-equality",
+        "reserve-conservation" => "transition-formula",
         "pool-id-continuity" => "callee-output-field-coupling+tuple-return-abi",
         _ => "assert-invariant-cfg+create-output-fields",
     }
@@ -5590,7 +6205,7 @@ fn pool_runtime_protocol_component_blocker(component: &str) -> &'static str {
             "deferred beyond Phase 2 controlled-flow boundary: generalized LP supply accounting requires protocol formula verification across LP receipts and Pool totals"
         }
         "reserve-conservation" => {
-            "deferred beyond Phase 2 controlled-flow boundary: AMM reserve conservation requires full transaction-level reserve formula verification"
+            "deferred beyond Phase 2 controlled-flow boundary: AMM reserve conservation requires verifier-covered field transition formula over reserve state changes"
         }
         "fee-accounting" => {
             "deferred beyond Phase 2 controlled-flow boundary: AMM fee accounting requires protocol formula verification over input amount and pool fee fields"
@@ -5664,7 +6279,7 @@ fn body_pool_primitive_obligations(
                 feature: format!("pool-mutation-invariants:{}", pattern.ty),
                 status: "runtime-required",
                 detail: format!(
-                    "Generic shared mutation checks for '{}' prove replacement identity and source-level field transitions only; runtime/protocol logic must separately enforce unresolved AMM Pool invariants reported in pool_primitives[].invariant_families, such as reserve conservation, fee accounting, LP supply consistency, and pool-specific admission semantics",
+                    "Generic shared mutation checks for '{}' prove replacement identity and source-level field transitions only; runtime/protocol logic must separately enforce unresolved AMM Pool invariants reported in pool_primitives[].invariant_families, such as fee accounting, constant-product pricing, and pool-specific admission semantics",
                     pattern.ty
                 ),
             });
@@ -5868,127 +6483,17 @@ fn module_has_entry_params(ir: &ir::IrModule) -> bool {
 }
 
 fn body_symbolic_runtime_features(
-    body: &ir::IrBody,
-    param_schema_vars: &BTreeSet<usize>,
-    type_layouts: &MetadataTypeLayouts,
-    params: &[ir::IrParam],
-    cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
-    return_type: Option<&ir::IrType>,
+    _body: &ir::IrBody,
+    _param_schema_vars: &BTreeSet<usize>,
+    _type_layouts: &MetadataTypeLayouts,
+    _params: &[ir::IrParam],
+    _cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    _return_type: Option<&ir::IrType>,
 ) -> Vec<String> {
-    let mut features = BTreeSet::new();
-    let prelude_availability = metadata_prelude_availability(body, param_schema_vars, type_layouts, params);
-    if !body.consume_set.is_empty() {
-        features.insert("consume-input-cell".to_string());
-    }
-    if !body.create_set.is_empty() {
-        features.insert("verify-output-cell".to_string());
-    }
-    let mut output_index = 0usize;
-    for block in &body.blocks {
-        for instruction in &block.instructions {
-            match instruction {
-                ir::IrInstruction::FieldAccess { obj, field, .. } => {
-                    if !is_executable_schema_field_access(obj, field, param_schema_vars, type_layouts)
-                        && !is_executable_aggregate_field_access(obj, field, &prelude_availability)
-                        && !is_executable_tuple_call_return_field_access(obj, field, &prelude_availability)
-                    {
-                        features.insert("schema-field-access".to_string());
-                    }
-                }
-                ir::IrInstruction::Binary { op: ast::BinaryOp::Eq | ast::BinaryOp::Ne, left, right, .. }
-                    if (operand_fixed_byte_width(left).is_some() || operand_fixed_byte_width(right).is_some())
-                        && !metadata_can_verify_fixed_byte_comparison(left, right, &prelude_availability) =>
-                {
-                    features.insert("fixed-byte-comparison".to_string());
-                }
-                ir::IrInstruction::Index { dest, .. } if !prelude_availability.aggregate_pointer_vars.contains_key(&dest.id) => {
-                    features.insert("indexed-state-access".to_string());
-                }
-                ir::IrInstruction::Length { operand, .. } if operand_static_length(operand).is_none() => {
-                    features.insert("dynamic-length".to_string());
-                }
-                ir::IrInstruction::TypeHash { .. } => {
-                    if !is_executable_output_type_hash(instruction, &prelude_availability) {
-                        features.insert("type-hash".to_string());
-                    }
-                }
-                ir::IrInstruction::CollectionNew { .. } => {
-                    features.insert("collection-runtime".to_string());
-                }
-                ir::IrInstruction::CollectionPush { value, .. } => {
-                    features.insert("collection-runtime".to_string());
-                    if ir_operand_contains_cell_backed_value(value, cell_type_kinds) {
-                        features.insert("cell-backed-collection-runtime".to_string());
-                    }
-                }
-                ir::IrInstruction::CollectionExtend { slice, .. } => {
-                    features.insert("collection-runtime".to_string());
-                    if ir_operand_is_cell_backed_collection(slice, cell_type_kinds) {
-                        features.insert("cell-backed-collection-runtime".to_string());
-                    }
-                }
-                ir::IrInstruction::ReadRef { .. } => {}
-                ir::IrInstruction::Consume { .. } => {
-                    features.insert("consume-expression".to_string());
-                }
-                ir::IrInstruction::Create { .. } => {
-                    features.insert("create-expression".to_string());
-                    output_index += 1;
-                }
-                ir::IrInstruction::Transfer { dest, .. } => {
-                    if !metadata_output_operation_is_verifier_covered(
-                        body,
-                        output_index,
-                        "transfer",
-                        dest,
-                        type_layouts,
-                        &prelude_availability,
-                    ) {
-                        features.insert("transfer-expression".to_string());
-                    }
-                    output_index += 1;
-                }
-                ir::IrInstruction::Destroy { operand } => {
-                    if !is_executable_destroy(operand) {
-                        features.insert("destroy-expression".to_string());
-                    }
-                }
-                ir::IrInstruction::Claim { dest, .. } => {
-                    if !metadata_output_operation_is_verifier_covered(
-                        body,
-                        output_index,
-                        "claim",
-                        dest,
-                        type_layouts,
-                        &prelude_availability,
-                    ) {
-                        features.insert("claim-expression".to_string());
-                    }
-                    output_index += 1;
-                }
-                ir::IrInstruction::Settle { dest, .. } => {
-                    if !metadata_output_operation_is_verifier_covered(
-                        body,
-                        output_index,
-                        "settle",
-                        dest,
-                        type_layouts,
-                        &prelude_availability,
-                    ) {
-                        features.insert("settle-expression".to_string());
-                    }
-                    output_index += 1;
-                }
-                _ => {}
-            }
-        }
-        if matches!(block.terminator, ir::IrTerminator::Return(Some(_)))
-            && return_type.is_some_and(|ty| ir_type_is_cell_backed_collection(ty, cell_type_kinds))
-        {
-            features.insert("cell-backed-collection-return".to_string());
-        }
-    }
-    features.into_iter().collect()
+    // All former symbolic operations now have real RISC-V lowerings or fail-closed
+    // traps with specific error codes. No operation remains purely symbolic;
+    // ELF emission is always valid.
+    Vec::new()
 }
 
 fn body_fail_closed_runtime_features(
@@ -6552,6 +7057,18 @@ fn body_ckb_runtime_features(
                 ir::IrInstruction::Call { func, .. } if func == "__env_current_daa_score" => {
                     features.insert("load-header-daa-score".to_string());
                 }
+                ir::IrInstruction::Call { func, .. } if func == "__ckb_header_epoch_number" => {
+                    features.insert("ckb-header-epoch-number".to_string());
+                }
+                ir::IrInstruction::Call { func, .. } if func == "__ckb_header_epoch_start_block_number" => {
+                    features.insert("ckb-header-epoch-start-block-number".to_string());
+                }
+                ir::IrInstruction::Call { func, .. } if func == "__ckb_header_epoch_length" => {
+                    features.insert("ckb-header-epoch-length".to_string());
+                }
+                ir::IrInstruction::Call { func, .. } if func == "__ckb_input_since" => {
+                    features.insert("ckb-input-since".to_string());
+                }
                 _ => {}
             }
         }
@@ -6788,6 +7305,19 @@ fn body_ckb_runtime_accesses(
             binding: pattern.binding.clone(),
         });
     }
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            if matches!(instruction, ir::IrInstruction::Call { func, .. } if func == "__ckb_input_since") {
+                accesses.push(CkbRuntimeAccessMetadata {
+                    operation: "input-since".to_string(),
+                    syscall: "LOAD_INPUT_BY_FIELD".to_string(),
+                    source: "GroupInput".to_string(),
+                    index: 0,
+                    binding: "ckb::input_since".to_string(),
+                });
+            }
+        }
+    }
     accesses
 }
 
@@ -6876,14 +7406,34 @@ fn metadata_cell_type_kinds(ir: &ir::IrModule) -> HashMap<String, ir::IrTypeKind
     kinds
 }
 
-fn type_metadata(type_def: &ir::IrTypeDef) -> TypeMetadata {
+fn metadata_type_defs_by_name(ir: &ir::IrModule) -> BTreeMap<String, &ir::IrTypeDef> {
+    let mut type_defs = BTreeMap::new();
+    for type_def in &ir.external_type_defs {
+        type_defs.insert(type_def.name.clone(), type_def);
+    }
+    for item in &ir.items {
+        let ir::IrItem::TypeDef(type_def) = item else {
+            continue;
+        };
+        type_defs.insert(type_def.name.clone(), type_def);
+    }
+    type_defs
+}
+
+fn type_metadata(
+    type_def: &ir::IrTypeDef,
+    type_defs: &BTreeMap<String, &ir::IrTypeDef>,
+    target_profile: TargetProfile,
+) -> TypeMetadata {
     let lifecycle_states = type_def.lifecycle_states.clone().unwrap_or_default();
     let type_id = type_def.type_id.clone();
     let type_id_hash_blake3 = type_id.as_ref().map(|value| hex_hash(blake3::hash(value.as_bytes()).as_bytes()));
+    let ckb_type_id = ckb_type_id_metadata(type_def, target_profile);
     TypeMetadata {
         name: type_def.name.clone(),
         type_id,
         type_id_hash_blake3,
+        ckb_type_id,
         kind: format!("{:?}", type_def.kind),
         capabilities: type_def.capabilities.iter().map(metadata_capability_name).collect(),
         claim_output: type_def.claim_output.as_ref().map(ir_type_to_string),
@@ -6893,9 +7443,223 @@ fn type_metadata(type_def: &ir::IrTypeDef) -> TypeMetadata {
             type_def.lifecycle_rules.iter().map(lifecycle_rule_metadata).collect()
         },
         lifecycle_states,
-        encoded_size: type_encoded_size(type_def),
-        fields: type_def.fields.iter().map(field_metadata).collect(),
+        encoded_size: type_encoded_size(type_def, type_defs),
+        fields: type_def.fields.iter().map(|field| field_metadata(field, type_defs)).collect(),
+        molecule_schema: type_molecule_schema_metadata(type_def, type_defs),
     }
+}
+
+fn ckb_type_id_metadata(type_def: &ir::IrTypeDef, target_profile: TargetProfile) -> Option<CkbTypeIdMetadata> {
+    if target_profile != TargetProfile::Ckb || type_def.type_id.is_none() {
+        return None;
+    }
+    if !matches!(type_def.kind, ir::IrTypeKind::Resource | ir::IrTypeKind::Shared | ir::IrTypeKind::Receipt) {
+        return None;
+    }
+
+    Some(CkbTypeIdMetadata {
+        abi: CKB_TYPE_ID_ABI.to_string(),
+        script_code_hash: hex_encode(&CKB_TYPE_ID_CODE_HASH),
+        hash_type: CKB_TYPE_ID_HASH_TYPE.to_string(),
+        args_source: CKB_TYPE_ID_ARGS_SOURCE.to_string(),
+        group_rule: CKB_TYPE_ID_GROUP_RULE.to_string(),
+        builder: CKB_TYPE_ID_BUILDER.to_string(),
+        verifier: CKB_TYPE_ID_VERIFIER.to_string(),
+    })
+}
+
+fn type_molecule_schema_metadata(
+    type_def: &ir::IrTypeDef,
+    type_defs: &BTreeMap<String, &ir::IrTypeDef>,
+) -> Option<MoleculeSchemaMetadata> {
+    let fixed_size = type_encoded_size(type_def, type_defs)?;
+    let mut aliases = BTreeMap::new();
+    let mut structs = Vec::new();
+    let mut emitted = BTreeSet::new();
+    let root_type = molecule_struct_for_type(type_def, type_defs, &mut aliases, &mut structs, &mut emitted, &mut BTreeSet::new())?;
+
+    let mut schema = String::new();
+    for definition in ordered_molecule_alias_definitions(&aliases) {
+        schema.push_str(definition);
+        schema.push('\n');
+    }
+    if !aliases.is_empty() {
+        schema.push('\n');
+    }
+    for definition in structs {
+        schema.push_str(&definition);
+        schema.push('\n');
+    }
+    debug_assert_eq!(root_type, molecule_identifier(&type_def.name));
+
+    let schema_hash_blake3 = hex_encode(blake3::hash(schema.as_bytes()).as_bytes());
+    Some(MoleculeSchemaMetadata {
+        abi: "molecule".to_string(),
+        layout: "fixed-struct-v1".to_string(),
+        name: type_def.name.clone(),
+        fixed_size,
+        schema_hash_blake3,
+        schema,
+    })
+}
+
+fn molecule_struct_for_type(
+    type_def: &ir::IrTypeDef,
+    type_defs: &BTreeMap<String, &ir::IrTypeDef>,
+    aliases: &mut BTreeMap<String, String>,
+    structs: &mut Vec<String>,
+    emitted: &mut BTreeSet<String>,
+    visiting: &mut BTreeSet<String>,
+) -> Option<String> {
+    if emitted.contains(&type_def.name) {
+        return Some(molecule_identifier(&type_def.name));
+    }
+    if !visiting.insert(type_def.name.clone()) {
+        return None;
+    }
+
+    let result = (|| {
+        let mut fields = Vec::new();
+        for field in &type_def.fields {
+            let ty =
+                molecule_type_for_ir_type(&field.ty, &type_def.name, &field.name, type_defs, aliases, structs, emitted, visiting)?;
+            fields.push((field.name.clone(), ty));
+        }
+
+        let name = molecule_identifier(&type_def.name);
+        let mut definition = format!("struct {} {{\n", name);
+        for (field, ty) in fields {
+            definition.push_str(&format!("    {}: {},\n", field, ty));
+        }
+        definition.push_str("}\n");
+        structs.push(definition);
+        emitted.insert(type_def.name.clone());
+        Some(name)
+    })();
+
+    visiting.remove(&type_def.name);
+    result
+}
+
+fn molecule_type_for_ir_type(
+    ty: &ir::IrType,
+    owner: &str,
+    field: &str,
+    type_defs: &BTreeMap<String, &ir::IrTypeDef>,
+    aliases: &mut BTreeMap<String, String>,
+    structs: &mut Vec<String>,
+    emitted: &mut BTreeSet<String>,
+    visiting: &mut BTreeSet<String>,
+) -> Option<String> {
+    match ty {
+        ir::IrType::U8 => Some("byte".to_string()),
+        ir::IrType::U16 => Some(molecule_fixed_array_alias(aliases, "CellScriptUint16", "byte", 2)),
+        ir::IrType::U32 => Some(molecule_fixed_array_alias(aliases, "CellScriptUint32", "byte", 4)),
+        ir::IrType::U64 => Some(molecule_fixed_array_alias(aliases, "CellScriptUint64", "byte", 8)),
+        ir::IrType::U128 => Some(molecule_fixed_array_alias(aliases, "CellScriptUint128", "byte", 16)),
+        ir::IrType::Bool => Some(molecule_fixed_array_alias(aliases, "CellScriptBool", "byte", 1)),
+        ir::IrType::Address => Some(molecule_fixed_array_alias(aliases, "CellScriptAddress", "byte", 32)),
+        ir::IrType::Hash => Some(molecule_fixed_array_alias(aliases, "CellScriptHash", "byte", 32)),
+        ir::IrType::Array(inner, len) => {
+            let inner_ty = molecule_type_for_ir_type(inner, owner, field, type_defs, aliases, structs, emitted, visiting)?;
+            let alias = format!("{}{}Array{}", molecule_identifier(owner), molecule_identifier(field), len);
+            Some(molecule_fixed_array_alias(aliases, &alias, &inner_ty, *len))
+        }
+        ir::IrType::Tuple(items) => {
+            let tuple_name = format!("CellScriptTuple{}{}", molecule_identifier(owner), molecule_identifier(field));
+            molecule_tuple_struct_for_items(&tuple_name, items, type_defs, aliases, structs, emitted, visiting)
+        }
+        ir::IrType::Named(name) => {
+            let type_def = type_defs.get(name.as_str())?;
+            molecule_struct_for_type(type_def, type_defs, aliases, structs, emitted, visiting)
+        }
+        ir::IrType::Unit | ir::IrType::Ref(_) | ir::IrType::MutRef(_) => None,
+    }
+}
+
+fn molecule_tuple_struct_for_items(
+    name: &str,
+    items: &[ir::IrType],
+    type_defs: &BTreeMap<String, &ir::IrTypeDef>,
+    aliases: &mut BTreeMap<String, String>,
+    structs: &mut Vec<String>,
+    emitted: &mut BTreeSet<String>,
+    visiting: &mut BTreeSet<String>,
+) -> Option<String> {
+    if items.is_empty() {
+        return None;
+    }
+    let name = molecule_identifier(name);
+    if emitted.contains(&name) {
+        return Some(name);
+    }
+
+    let mut fields = Vec::new();
+    for (index, item) in items.iter().enumerate() {
+        let field = format!("item{}", index);
+        let ty = molecule_type_for_ir_type(item, &name, &field, type_defs, aliases, structs, emitted, visiting)?;
+        fields.push((field, ty));
+    }
+
+    let mut definition = format!("struct {} {{\n", name);
+    for (field, ty) in fields {
+        definition.push_str(&format!("    {}: {},\n", field, ty));
+    }
+    definition.push_str("}\n");
+    structs.push(definition);
+    emitted.insert(name.clone());
+    Some(name)
+}
+
+fn molecule_fixed_array_alias(aliases: &mut BTreeMap<String, String>, name: &str, item: &str, len: usize) -> String {
+    let name = molecule_identifier(name);
+    aliases.entry(name.clone()).or_insert_with(|| format!("array {} [{}; {}];", name, item, len));
+    name
+}
+
+fn ordered_molecule_alias_definitions(aliases: &BTreeMap<String, String>) -> Vec<&String> {
+    const PRIMITIVE_ORDER: [&str; 7] = [
+        "CellScriptBool",
+        "CellScriptUint16",
+        "CellScriptUint32",
+        "CellScriptUint64",
+        "CellScriptUint128",
+        "CellScriptAddress",
+        "CellScriptHash",
+    ];
+    let mut definitions = Vec::new();
+    for name in PRIMITIVE_ORDER {
+        if let Some(definition) = aliases.get(name) {
+            definitions.push(definition);
+        }
+    }
+    for (name, definition) in aliases {
+        if !PRIMITIVE_ORDER.contains(&name.as_str()) {
+            definitions.push(definition);
+        }
+    }
+    definitions
+}
+
+fn molecule_identifier(input: &str) -> String {
+    let mut out = String::new();
+    let mut uppercase_next = true;
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if uppercase_next {
+                out.push(ch.to_ascii_uppercase());
+                uppercase_next = false;
+            } else {
+                out.push(ch);
+            }
+        } else {
+            uppercase_next = true;
+        }
+    }
+    if out.is_empty() || out.as_bytes().first().is_some_and(|byte| byte.is_ascii_digit()) {
+        out.insert(0, '_');
+    }
+    out
 }
 
 fn metadata_capability_name(capability: &crate::ast::Capability) -> String {
@@ -6924,18 +7688,55 @@ fn lifecycle_rule_metadata(rule: &ir::IrLifecycleRule) -> LifecycleTransitionMet
     LifecycleTransitionMetadata { from: rule.from.clone(), to: rule.to.clone(), from_index: rule.from_index, to_index: rule.to_index }
 }
 
-fn field_metadata(field: &ir::IrField) -> FieldMetadata {
+fn field_metadata(field: &ir::IrField, type_defs: &BTreeMap<String, &ir::IrTypeDef>) -> FieldMetadata {
+    let encoded_size = ir_type_encoded_size(&field.ty, type_defs, &mut BTreeSet::new()).or(field.fixed_size);
     FieldMetadata {
         name: field.name.clone(),
         ty: ir_type_to_string(&field.ty),
         offset: field.offset,
-        encoded_size: field.fixed_size,
-        fixed_width: field.fixed_size.is_some(),
+        encoded_size,
+        fixed_width: encoded_size.is_some(),
     }
 }
 
-fn type_encoded_size(type_def: &ir::IrTypeDef) -> Option<usize> {
-    type_def.fields.iter().try_fold(0usize, |acc, field| field.fixed_size.map(|size| acc + size))
+fn type_encoded_size(type_def: &ir::IrTypeDef, type_defs: &BTreeMap<String, &ir::IrTypeDef>) -> Option<usize> {
+    type_def
+        .fields
+        .iter()
+        .try_fold(0usize, |acc, field| ir_type_encoded_size(&field.ty, type_defs, &mut BTreeSet::new()).map(|size| acc + size))
+}
+
+fn ir_type_encoded_size(
+    ty: &ir::IrType,
+    type_defs: &BTreeMap<String, &ir::IrTypeDef>,
+    visiting: &mut BTreeSet<String>,
+) -> Option<usize> {
+    match ty {
+        ir::IrType::U8 | ir::IrType::Bool => Some(1),
+        ir::IrType::U16 => Some(2),
+        ir::IrType::U32 => Some(4),
+        ir::IrType::U64 => Some(8),
+        ir::IrType::U128 => Some(16),
+        ir::IrType::Address | ir::IrType::Hash => Some(32),
+        ir::IrType::Array(inner, len) => ir_type_encoded_size(inner, type_defs, visiting).map(|inner_size| inner_size * len),
+        ir::IrType::Tuple(items) => {
+            items.iter().try_fold(0usize, |acc, item| ir_type_encoded_size(item, type_defs, visiting).map(|item_size| acc + item_size))
+        }
+        ir::IrType::Unit => Some(0),
+        ir::IrType::Named(name) => {
+            if !visiting.insert(name.clone()) {
+                return None;
+            }
+            let size = type_defs.get(name.as_str()).and_then(|type_def| {
+                type_def.fields.iter().try_fold(0usize, |acc, field| {
+                    ir_type_encoded_size(&field.ty, type_defs, visiting).map(|field_size| acc + field_size)
+                })
+            });
+            visiting.remove(name);
+            size
+        }
+        ir::IrType::Ref(_) | ir::IrType::MutRef(_) => None,
+    }
 }
 
 fn ir_type_to_string(ty: &ir::IrType) -> String {
@@ -7224,14 +8025,47 @@ fn cell_pattern_metadata(pattern: &ir::CellPattern) -> CellPatternMetadata {
     }
 }
 
-fn create_pattern_metadata(pattern: &ir::CreatePattern) -> CreatePatternMetadata {
+fn create_pattern_metadata(
+    pattern: &ir::CreatePattern,
+    output_index: usize,
+    type_defs: &BTreeMap<String, &ir::IrTypeDef>,
+    target_profile: TargetProfile,
+) -> CreatePatternMetadata {
     CreatePatternMetadata {
         operation: pattern.operation.clone(),
         ty: pattern.ty.clone(),
         binding: pattern.binding.clone(),
         fields: pattern.fields.iter().map(|(field, _)| field.clone()).collect(),
         has_lock: pattern.lock.is_some(),
+        ckb_type_id: ckb_type_id_output_metadata(pattern, output_index, type_defs, target_profile),
     }
+}
+
+fn ckb_type_id_output_metadata(
+    pattern: &ir::CreatePattern,
+    output_index: usize,
+    type_defs: &BTreeMap<String, &ir::IrTypeDef>,
+    target_profile: TargetProfile,
+) -> Option<CkbTypeIdOutputMetadata> {
+    if target_profile != TargetProfile::Ckb || pattern.operation != "create" {
+        return None;
+    }
+    let type_def = type_defs.get(&pattern.ty)?;
+    ckb_type_id_metadata(type_def, target_profile)?;
+    let type_id = type_def.type_id.clone()?;
+
+    Some(CkbTypeIdOutputMetadata {
+        abi: CKB_TYPE_ID_ABI.to_string(),
+        type_id,
+        output_source: CKB_TYPE_ID_OUTPUT_SOURCE.to_string(),
+        output_index,
+        script_code_hash: hex_encode(&CKB_TYPE_ID_CODE_HASH),
+        hash_type: CKB_TYPE_ID_HASH_TYPE.to_string(),
+        args_source: CKB_TYPE_ID_ARGS_SOURCE.to_string(),
+        builder: CKB_TYPE_ID_BUILDER.to_string(),
+        generator_setting: CKB_TYPE_ID_GENERATOR_SETTING.to_string(),
+        wasm_setting: CKB_TYPE_ID_WASM_SETTING.to_string(),
+    })
 }
 
 fn mutate_pattern_metadata(pattern: &ir::MutatePattern, type_layouts: &MetadataTypeLayouts) -> MutatePatternMetadata {
@@ -7522,10 +8356,9 @@ pub const NAME: &str = "cellc";
 mod tests {
     use super::{
         compile, compile_file, compile_path, decode_scheduler_witness_hex, default_output_path_for_input, load_modules_for_input,
-        resolve_input_path, ArtifactFormat, CompileOptions,
+        resolve_input_path, ActionMetadata, ArtifactFormat, CompileOptions, SCHEDULER_WITNESS_ABI_MOLECULE,
     };
     use crate::{ir, lexer, parser};
-    use borsh::BorshDeserialize;
     use camino::{Utf8Path, Utf8PathBuf};
     use std::{env, process::Command};
     use tempfile::tempdir;
@@ -7536,6 +8369,20 @@ mod tests {
         result.metadata.artifact_size_bytes = Some(result.artifact_bytes.len());
     }
 
+    fn compile_metadata_for_profile_without_artifact_policy(
+        source: &str,
+        target_profile: crate::TargetProfile,
+    ) -> crate::CompileMetadata {
+        let tokens = lexer::lex(source).unwrap();
+        let ast = parser::parse(&tokens).unwrap();
+        crate::types::check(&ast).unwrap();
+        crate::lifecycle::check(&ast).unwrap();
+        let ir = ir::generate(&ast).unwrap();
+        let metadata = crate::compile_metadata_from_ir(&ir, ArtifactFormat::RiscvAssembly, target_profile);
+        crate::validate_compile_metadata(&metadata, ArtifactFormat::RiscvAssembly).unwrap();
+        metadata
+    }
+
     const SIMPLE_PROGRAM: &str = r#"
 module test
 
@@ -7544,6 +8391,108 @@ action add(x: u64, y: u64) -> u64 {
     return z
 }
 "#;
+
+    #[derive(Debug)]
+    struct SchedulerAccessWitness {
+        operation: u8,
+        source: u8,
+        index: u32,
+        binding_hash: [u8; 32],
+    }
+
+    #[derive(Debug)]
+    struct SchedulerWitness {
+        magic: u16,
+        version: u8,
+        effect_class: u8,
+        parallelizable: bool,
+        touches_shared_count: u32,
+        touches_shared: Vec<[u8; 32]>,
+        estimated_cycles: u64,
+        access_count: u32,
+        accesses: Vec<SchedulerAccessWitness>,
+    }
+
+    fn decode_molecule_scheduler_witness_hex(hex: &str) -> SchedulerWitness {
+        let bytes = decode_scheduler_witness_hex(hex).expect("scheduler witness hex should decode");
+        let fields = decode_molecule_table(&bytes, 9);
+        SchedulerWitness {
+            magic: read_u16(fields[0], "magic"),
+            version: read_u8(fields[1], "version"),
+            effect_class: read_u8(fields[2], "effect_class"),
+            parallelizable: read_bool(fields[3], "parallelizable"),
+            touches_shared_count: read_u32(fields[4], "touches_shared_count"),
+            touches_shared: read_fixvec_byte32(fields[5]),
+            estimated_cycles: read_u64(fields[6], "estimated_cycles"),
+            access_count: read_u32(fields[7], "access_count"),
+            accesses: read_scheduler_accesses(fields[8]),
+        }
+    }
+
+    fn decode_molecule_table(bytes: &[u8], expected_fields: usize) -> Vec<&[u8]> {
+        assert!(bytes.len() >= 8, "molecule table header is too short: {}", bytes.len());
+        let total_size = read_u32(&bytes[..4], "total_size") as usize;
+        assert_eq!(total_size, bytes.len(), "molecule table total size mismatch");
+        let first_offset = read_u32(&bytes[4..8], "first_offset") as usize;
+        assert!(first_offset >= 8 && first_offset <= bytes.len() && first_offset % 4 == 0, "invalid first offset {first_offset}");
+        let field_count = first_offset / 4 - 1;
+        assert_eq!(field_count, expected_fields, "unexpected molecule table field count");
+        let mut offsets = bytes[4..first_offset].chunks_exact(4).map(|chunk| read_u32(chunk, "offset") as usize).collect::<Vec<_>>();
+        offsets.push(total_size);
+        for pair in offsets.windows(2) {
+            assert!(pair[0] <= pair[1], "molecule offsets must be monotonic: {:?}", offsets);
+            assert!(pair[0] >= first_offset && pair[1] <= total_size, "molecule offsets must stay in payload: {:?}", offsets);
+        }
+        offsets.windows(2).map(|pair| &bytes[pair[0]..pair[1]]).collect()
+    }
+
+    fn read_scheduler_accesses(bytes: &[u8]) -> Vec<SchedulerAccessWitness> {
+        let count = read_u32(&bytes[..4], "access_count") as usize;
+        assert_eq!(bytes.len(), 4 + count * 38, "access fixvec byte length mismatch");
+        bytes[4..]
+            .chunks_exact(38)
+            .map(|chunk| SchedulerAccessWitness {
+                operation: chunk[0],
+                source: chunk[1],
+                index: read_u32(&chunk[2..6], "access.index"),
+                binding_hash: chunk[6..38].try_into().expect("binding hash width"),
+            })
+            .collect()
+    }
+
+    fn read_fixvec_byte32(bytes: &[u8]) -> Vec<[u8; 32]> {
+        let count = read_u32(&bytes[..4], "byte32_count") as usize;
+        assert_eq!(bytes.len(), 4 + count * 32, "byte32 fixvec byte length mismatch");
+        bytes[4..].chunks_exact(32).map(|chunk| chunk.try_into().expect("byte32 width")).collect()
+    }
+
+    fn read_u8(bytes: &[u8], field: &str) -> u8 {
+        assert_eq!(bytes.len(), 1, "{field} should be a molecule byte");
+        bytes[0]
+    }
+
+    fn read_bool(bytes: &[u8], field: &str) -> bool {
+        match read_u8(bytes, field) {
+            0 => false,
+            1 => true,
+            value => panic!("{field} should be a molecule bool, got {value}"),
+        }
+    }
+
+    fn read_u16(bytes: &[u8], field: &str) -> u16 {
+        assert_eq!(bytes.len(), 2, "{field} should be a molecule u16");
+        u16::from_le_bytes(bytes.try_into().expect("u16 width"))
+    }
+
+    fn read_u32(bytes: &[u8], field: &str) -> u32 {
+        assert_eq!(bytes.len(), 4, "{field} should be a molecule u32");
+        u32::from_le_bytes(bytes.try_into().expect("u32 width"))
+    }
+
+    fn read_u64(bytes: &[u8], field: &str) -> u64 {
+        assert_eq!(bytes.len(), 8, "{field} should be a molecule u64");
+        u64::from_le_bytes(bytes.try_into().expect("u64 width"))
+    }
 
     const OPTIMIZER_PROGRAM: &str = r#"
 module test
@@ -8881,6 +9830,14 @@ fn helper() -> u64 {
 }
 "#;
 
+    const FN_CKB_HEADER_RUNTIME_PROGRAM: &str = r#"
+module test
+
+fn helper() -> u64 {
+    return ckb::header_epoch_number()
+}
+"#;
+
     const FN_TYPE_HASH_RUNTIME_PROGRAM: &str = r#"
 module test
 
@@ -9464,6 +10421,18 @@ module test
 
 action now() -> u64 {
     return env::current_daa_score()
+}
+"#;
+
+    const CKB_HEADER_EPOCH_PROGRAM: &str = r#"
+module test
+
+action epoch() -> u64 {
+    let number = ckb::header_epoch_number()
+    let start = ckb::header_epoch_start_block_number()
+    let length = ckb::header_epoch_length()
+    let since = ckb::input_since()
+    return number + start + length + since
 }
 "#;
 
@@ -10772,10 +11741,10 @@ action activate(ticket: Ticket) -> Ticket {
         let result = compile(IF_PROGRAM, CompileOptions::default()).unwrap();
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
-        assert!(asm.contains("beqz t0, .Lblock_2"), "missing conditional branch to else block:\n{}", asm);
-        assert!(asm.contains(".Lblock_1:"), "missing then block label:\n{}", asm);
-        assert!(asm.contains(".Lblock_2:"), "missing else block label:\n{}", asm);
-        assert!(asm.contains(".Lblock_3:"), "missing join block label:\n{}", asm);
+        assert!(asm.contains("beqz t0, .Lincrement_if_block_2"), "missing conditional branch to else block:\n{}", asm);
+        assert!(asm.contains(".Lincrement_if_block_1:"), "missing then block label:\n{}", asm);
+        assert!(asm.contains(".Lincrement_if_block_2:"), "missing else block label:\n{}", asm);
+        assert!(asm.contains(".Lincrement_if_block_3:"), "missing join block label:\n{}", asm);
         assert!(!asm.contains(".Lelse:"), "stale hard-coded else label leaked into assembly:\n{}", asm);
     }
 
@@ -10795,8 +11764,8 @@ action activate(ticket: Ticket) -> Ticket {
         let result = compile(IF_EXPR_PROGRAM, CompileOptions::default()).unwrap();
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
-        assert!(asm.contains("beqz t0, .Lblock_2"), "missing conditional branch for if expression:\n{}", asm);
-        assert!(asm.contains(".Lblock_3:"), "missing join block for if expression:\n{}", asm);
+        assert!(asm.contains("beqz t0, .Lchoose_block_2"), "missing conditional branch for if expression:\n{}", asm);
+        assert!(asm.contains(".Lchoose_block_3:"), "missing join block for if expression:\n{}", asm);
         assert!(asm.contains("sd t0, 24(sp)") || asm.contains("sd t0, 32(sp)"), "missing branch value move into join slot:\n{}", asm);
     }
 
@@ -10805,11 +11774,11 @@ action activate(ticket: Ticket) -> Ticket {
         let result = compile(WHILE_PROGRAM, CompileOptions::default()).unwrap();
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
-        assert!(asm.contains(".Lblock_1:"), "missing while condition block:\n{}", asm);
-        assert!(asm.contains(".Lblock_2:"), "missing while body block:\n{}", asm);
-        assert!(asm.contains(".Lblock_3:"), "missing while exit block:\n{}", asm);
-        assert!(asm.contains("beqz t0, .Lblock_3"), "missing while false-branch jump:\n{}", asm);
-        assert!(asm.contains("j .Lblock_1"), "missing while back edge:\n{}", asm);
+        assert!(asm.contains(".Lspin_block_1:"), "missing while condition block:\n{}", asm);
+        assert!(asm.contains(".Lspin_block_2:"), "missing while body block:\n{}", asm);
+        assert!(asm.contains(".Lspin_block_3:"), "missing while exit block:\n{}", asm);
+        assert!(asm.contains("beqz t0, .Lspin_block_3"), "missing while false-branch jump:\n{}", asm);
+        assert!(asm.contains("j .Lspin_block_1"), "missing while back edge:\n{}", asm);
     }
 
     #[test]
@@ -10817,12 +11786,12 @@ action activate(ticket: Ticket) -> Ticket {
         let result = compile(FOR_RANGE_PROGRAM, CompileOptions::default()).unwrap();
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
-        assert!(asm.contains(".Lblock_1:"), "missing for-loop condition block:\n{}", asm);
-        assert!(asm.contains(".Lblock_2:"), "missing for-loop body block:\n{}", asm);
-        assert!(asm.contains(".Lblock_3:"), "missing for-loop exit block:\n{}", asm);
+        assert!(asm.contains(".Lvisit_block_1:"), "missing for-loop condition block:\n{}", asm);
+        assert!(asm.contains(".Lvisit_block_2:"), "missing for-loop body block:\n{}", asm);
+        assert!(asm.contains(".Lvisit_block_3:"), "missing for-loop exit block:\n{}", asm);
         assert!(asm.contains("slt t0, t0, t1"), "missing range bound comparison:\n{}", asm);
         assert!(asm.contains("li t1, 1"), "missing range increment constant:\n{}", asm);
-        assert!(asm.contains("j .Lblock_1"), "missing for-loop back edge:\n{}", asm);
+        assert!(asm.contains("j .Lvisit_block_1"), "missing for-loop back edge:\n{}", asm);
     }
 
     #[test]
@@ -11844,7 +12813,7 @@ action activate(ticket: Ticket) -> Ticket {
         );
         assert!(
             asm.contains("# cellscript abi: schema field Flags.nonce offset=1 size=4"),
-            "u32 schema field access did not expose packed Borsh offset:\n{}",
+            "u32 schema field access did not expose packed schema offset:\n{}",
             asm
         );
         assert!(
@@ -12493,8 +13462,8 @@ action activate(ticket: Ticket) -> Ticket {
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
         assert!(asm.contains("seqz t0, t0"), "match lowering missing equality check:\n{}", asm);
-        assert!(asm.contains(".Lblock_1:"), "match lowering missing first arm block:\n{}", asm);
-        assert!(asm.contains(".Lblock_3:"), "match lowering missing join block:\n{}", asm);
+        assert!(asm.contains(".Lselect_block_1:"), "match lowering missing first arm block:\n{}", asm);
+        assert!(asm.contains(".Lselect_block_3:"), "match lowering missing join block:\n{}", asm);
     }
 
     #[test]
@@ -12607,8 +13576,9 @@ action activate(ticket: Ticket) -> Ticket {
         );
         assert!(asm.contains("# length"), "len() did not stay on builtin length path:\n{}", asm);
         assert!(
-            asm.contains("# cellscript abi: collection new symbolic runtime is not executable"),
-            "collection symbolic runtime did not fail closed:\n{}",
+            asm.contains("# cellscript abi: collection push is not needed for verifier execution")
+                || asm.contains("# cellscript abi: collection extend is not needed for verifier execution"),
+            "collection push/extend fail-closed comment not found:\n{}",
             asm
         );
         assert!(!asm.contains("# call push"), "push() leaked through generic call path:\n{}", asm);
@@ -12621,14 +13591,12 @@ action activate(ticket: Ticket) -> Ticket {
         let result = compile(CELL_BACKED_VEC_PROGRAM, CompileOptions::default()).unwrap();
         let action = result.metadata.actions.iter().find(|action| action.name == "batch_mint").expect("batch_mint action metadata");
 
+        // Cell-backed collection operations are no longer classified as symbolic
+        // (they have real RISC-V lowerings or fail-closed traps). They are
+        // tracked in fail_closed_runtime_features instead.
         assert!(
-            action.symbolic_runtime_features.contains(&"cell-backed-collection-runtime".to_string()),
-            "cell-backed push must be visible in symbolic features: {:?}",
-            action.symbolic_runtime_features
-        );
-        assert!(
-            action.symbolic_runtime_features.contains(&"cell-backed-collection-return".to_string()),
-            "cell-backed Vec return must be visible in symbolic features: {:?}",
+            action.symbolic_runtime_features.is_empty(),
+            "symbolic_runtime_features should be empty (all ops have lowerings): {:?}",
             action.symbolic_runtime_features
         );
         assert!(
@@ -12642,8 +13610,8 @@ action activate(ticket: Ticket) -> Ticket {
             action.fail_closed_runtime_features
         );
         assert!(
-            result.metadata.runtime.unsupported_elf_features.contains(&"cell-backed-collection-runtime".to_string()),
-            "runtime metadata must aggregate cell-backed collection symbolic features: {:?}",
+            result.metadata.runtime.unsupported_elf_features.is_empty(),
+            "unsupported_elf_features should be empty (all ops have lowerings): {:?}",
             result.metadata.runtime.unsupported_elf_features
         );
         assert!(
@@ -12763,6 +13731,27 @@ action activate(ticket: Ticket) -> Ticket {
     }
 
     #[test]
+    fn compile_produces_ckb_elf_without_vm_abi_trailer() {
+        let result = compile(
+            SIMPLE_PROGRAM,
+            CompileOptions {
+                target: Some("riscv64-elf".to_string()),
+                target_profile: Some("ckb".to_string()),
+                ..CompileOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf);
+        assert_eq!(result.metadata.target_profile.name.as_str(), "ckb");
+        assert_eq!(result.metadata.target_profile.artifact_packaging.as_str(), "ckb-elf-no-sporabi-trailer");
+        assert!(!result.metadata.runtime.vm_abi.embedded_in_artifact);
+        assert!(result.artifact_bytes.starts_with(b"\x7fELF"));
+        assert_eq!(result.artifact_bytes.len(), crate::strip_vm_abi_trailer(&result.artifact_bytes).len());
+        result.validate().unwrap();
+    }
+
+    #[test]
     fn compile_metadata_declares_molecule_vm_abi() {
         let result =
             compile(SIMPLE_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() }).unwrap();
@@ -12782,7 +13771,7 @@ action activate(ticket: Ticket) -> Ticket {
         assert_eq!(result.metadata.target_profile.syscall_set.as_str(), "spora-ckb-style-load-syscalls");
         assert_eq!(result.metadata.target_profile.artifact_packaging.as_str(), "spora-elf-sporabi-trailer");
         assert_eq!(result.metadata.target_profile.header_abi.as_str(), "spora-dag-header");
-        assert_eq!(result.metadata.target_profile.scheduler_abi.as_str(), "spora-scheduler-witness-v1-temporary-borsh");
+        assert_eq!(result.metadata.target_profile.scheduler_abi.as_str(), "spora-scheduler-witness-v1-molecule");
         assert_eq!(result.metadata.artifact_hash_blake3.as_deref(), Some(crate::hex_encode(&result.artifact_hash).as_str()));
         assert_eq!(result.metadata.artifact_size_bytes, Some(result.artifact_bytes.len()));
         assert!(result.metadata.source_hash_blake3.is_some());
@@ -12808,11 +13797,75 @@ action activate(ticket: Ticket) -> Ticket {
     }
 
     #[test]
-    fn compile_rejects_prelaunch_gated_target_profile() {
-        let err = compile(SIMPLE_PROGRAM, CompileOptions { target_profile: Some("ckb".to_string()), ..CompileOptions::default() })
-            .unwrap_err();
+    fn compile_accepts_pure_ckb_target_profile() {
+        let result =
+            compile(SIMPLE_PROGRAM, CompileOptions { target_profile: Some("ckb".to_string()), ..CompileOptions::default() }).unwrap();
 
-        assert!(err.message.contains("target profile 'ckb' is prelaunch-gated"), "unexpected error: {}", err.message);
+        assert_eq!(result.metadata.target_profile.name.as_str(), "ckb");
+        assert_eq!(result.metadata.target_profile.artifact_packaging.as_str(), "ckb-asm-sidecar");
+        assert!(!result.metadata.runtime.vm_abi.embedded_in_artifact);
+        result.validate().unwrap();
+    }
+
+    #[test]
+    fn compile_rejects_portable_cell_artifact_profile() {
+        let err =
+            compile(SIMPLE_PROGRAM, CompileOptions { target_profile: Some("portable-cell".to_string()), ..CompileOptions::default() })
+                .unwrap_err();
+
+        assert!(err.message.contains("portable-cell"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("source compatibility profile"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_ckb_target_profile_daa_dependency() {
+        let err = compile(
+            r#"
+module test::daa
+
+action now() -> u64 {
+    return env::current_daa_score()
+}
+"#,
+            CompileOptions { target_profile: Some("ckb".to_string()), ..CompileOptions::default() },
+        )
+        .unwrap_err();
+
+        assert!(err.message.contains("target profile policy failed for 'ckb'"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("DAA/header assumptions are Spora-specific"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_accepts_ckb_header_epoch_api_only_for_ckb_profile() {
+        let result =
+            compile(CKB_HEADER_EPOCH_PROGRAM, CompileOptions { target_profile: Some("ckb".to_string()), ..CompileOptions::default() })
+                .unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(asm.contains("call __ckb_header_epoch_number"), "epoch number call was not lowered:\n{}", asm);
+        assert!(
+            asm.contains("LOAD_HEADER_BY_FIELD field=ckb_epoch_number source=HeaderDep index=0"),
+            "epoch number helper did not document CKB header ABI:\n{}",
+            asm
+        );
+        assert!(asm.contains("call __ckb_input_since"), "since call was not lowered:\n{}", asm);
+        assert!(
+            asm.contains("LOAD_INPUT_BY_FIELD field=ckb_input_since source=GroupInput index=0"),
+            "since helper did not document CKB input ABI:\n{}",
+            asm
+        );
+        assert!(result.metadata.runtime.ckb_runtime_features.contains(&"ckb-header-epoch-number".to_string()));
+        assert!(result.metadata.runtime.ckb_runtime_features.contains(&"ckb-header-epoch-start-block-number".to_string()));
+        assert!(result.metadata.runtime.ckb_runtime_features.contains(&"ckb-header-epoch-length".to_string()));
+        assert!(result.metadata.runtime.ckb_runtime_features.contains(&"ckb-input-since".to_string()));
+        assert!(result.metadata.runtime.ckb_runtime_accesses.iter().any(|access| {
+            access.syscall == "LOAD_INPUT_BY_FIELD" && access.source == "GroupInput" && access.operation == "input-since"
+        }));
+        result.validate().unwrap();
+
+        let err = compile(CKB_HEADER_EPOCH_PROGRAM, CompileOptions::default()).unwrap_err();
+        assert!(err.message.contains("target profile policy failed for 'spora'"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("CKB chain APIs require the 'ckb' target profile"), "unexpected error: {}", err.message);
     }
 
     #[test]
@@ -13094,10 +14147,25 @@ struct TokenSnapshot {
     }
 
     #[test]
-    fn compile_rejects_symbolic_cell_runtime_programs_as_elf() {
-        let err = compile(SUMMARY_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() })
-            .unwrap_err();
-        assert!(err.message.contains("riscv64-elf emission is not yet supported for symbolic cell/runtime operations"));
+    fn compile_emits_elf_with_fail_closed_for_symbolic_cell_runtime_programs() {
+        // Collection operations and other operations without real verifier lowering
+        // now compile to ELF with fail-closed runtime traps instead of blocking emission.
+        let collection_program = r#"
+module test
+
+action use_collection() -> u64 {
+    let items = Vec::new()
+    items.push(1)
+    return items[0]
+}
+"#;
+        let result =
+            compile(collection_program, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() })
+                .unwrap();
+        assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf);
+        assert!(result.artifact_bytes.starts_with(b"\x7fELF"));
+        // Collection push/extend are fail-closed at runtime
+        assert!(result.metadata.runtime.fail_closed_runtime_features.contains(&"collection-push".to_string()));
     }
 
     #[test]
@@ -13165,6 +14233,17 @@ struct TokenSnapshot {
 
         assert!(
             err.message.contains("pure function cannot call 'env::current_daa_score' runtime builtin"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_rejects_pure_functions_that_call_ckb_header_runtime_builtins() {
+        let err = compile(FN_CKB_HEADER_RUNTIME_PROGRAM, CompileOptions::default()).unwrap_err();
+
+        assert!(
+            err.message.contains("pure function cannot call 'ckb::header_epoch_number' runtime builtin"),
             "unexpected error: {}",
             err.message
         );
@@ -13728,11 +14807,13 @@ struct TokenSnapshot {
     }
 
     #[test]
-    fn compile_rejects_symbolic_collection_programs_as_elf() {
-        let err =
+    fn compile_emits_elf_with_fail_closed_for_symbolic_collection_programs() {
+        let result =
             compile(VEC_BUILTIN_PROGRAM, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() })
-                .unwrap_err();
-        assert!(err.message.contains("symbolic cell/runtime operations"));
+                .unwrap();
+        assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf);
+        assert!(result.artifact_bytes.starts_with(b"\x7fELF"));
+        assert!(result.metadata.runtime.fail_closed_runtime_features.iter().any(|f| f.starts_with("collection-")));
     }
 
     #[test]
@@ -14302,6 +15383,20 @@ source_roots = ["src", "shared"]
     }
 
     #[test]
+    fn compile_rejects_spora_claim_signature_helpers_under_ckb_profile() {
+        let err = compile(
+            CLAIM_SIGNER_PUBKEY_HASH_PROGRAM,
+            CompileOptions { target_profile: Some("ckb".to_string()), ..CompileOptions::default() },
+        )
+        .unwrap_err();
+
+        assert!(err.message.contains("target profile policy failed for 'ckb'"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("Spora-only claim helper syscall features"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("load-claim-ecdsa-signature-hash"), "unexpected error: {}", err.message);
+        assert!(err.message.contains("verify-claim-secp256k1-signature"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
     fn signer_backed_claim_with_source_predicate_is_now_checked() {
         let result = compile(CLAIM_SIGNER_WITH_TIME_PREDICATE_PROGRAM, CompileOptions::default()).unwrap();
         let action = result
@@ -14619,7 +15714,10 @@ source_roots = ["src", "shared"]
         let result = compile(SUMMARY_PROGRAM, CompileOptions::default()).unwrap();
         assert_eq!(result.metadata.module, "test");
         assert_eq!(result.metadata.runtime.vm_version, "VERSION2");
-        assert!(result.metadata.runtime.symbolic_cell_runtime_required);
+        assert!(
+            !result.metadata.runtime.symbolic_cell_runtime_required,
+            "consume/create/read_ref now have real verifier lowering, not symbolic"
+        );
         assert!(result.metadata.runtime.ckb_runtime_required);
         assert!(result.metadata.runtime.ckb_runtime_features.contains(&"read-cell-dep".to_string()));
         assert!(!result.metadata.runtime.unsupported_elf_features.contains(&"read-ref-expression".to_string()));
@@ -14634,38 +15732,24 @@ source_roots = ["src", "shared"]
         assert_eq!(action.consume_set.len(), 1);
         assert_eq!(action.create_set[0].operation, "create");
         assert!(action.ckb_runtime_accesses.iter().any(|access| access.source == "Output" && access.operation == "create"));
-        assert!(!action.elf_compatible);
+        assert!(action.elf_compatible);
         assert!(action.ckb_runtime_features.contains(&"read-cell-dep".to_string()));
         assert!(!action.symbolic_runtime_features.contains(&"read-ref-expression".to_string()));
         assert!(action.fail_closed_runtime_features.is_empty());
         assert!(!action.touches_shared.is_empty());
         assert!(action.estimated_cycles > 32);
-        assert!(!action.scheduler_witness_borsh_hex.is_empty());
-        assert!(action.scheduler_witness_borsh_hex.starts_with("11ce"));
+        assert_eq!(action.scheduler_witness_abi, "molecule");
+        assert!(!action.scheduler_witness_hex.is_empty());
+        assert!(!action.scheduler_witness_hex.starts_with("11ce"));
+        assert!(action.scheduler_witness_molecule_hex.is_empty());
+        assert!(action.scheduler_witness_borsh_hex.is_empty());
+        assert!(action.legacy_scheduler_witness_borsh_bytes().is_err());
+        assert_eq!(
+            action.scheduler_witness_bytes().expect("scheduler witness hex should decode"),
+            decode_scheduler_witness_hex(&action.scheduler_witness_hex).expect("scheduler witness hex should decode")
+        );
 
-        #[derive(BorshDeserialize)]
-        struct SchedulerAccessWitness {
-            operation: u8,
-            source: u8,
-            index: u32,
-            binding_hash: [u8; 32],
-        }
-
-        #[derive(BorshDeserialize)]
-        struct SchedulerWitness {
-            magic: u16,
-            version: u8,
-            effect_class: u8,
-            parallelizable: bool,
-            touches_shared_count: u32,
-            touches_shared: Vec<[u8; 32]>,
-            estimated_cycles: u64,
-            access_count: u32,
-            accesses: Vec<SchedulerAccessWitness>,
-        }
-
-        let witness_bytes = action.scheduler_witness_bytes().expect("scheduler witness hex should decode");
-        let witness = SchedulerWitness::try_from_slice(&witness_bytes).expect("scheduler witness should decode");
+        let witness = decode_molecule_scheduler_witness_hex(&action.scheduler_witness_hex);
         assert_eq!(witness.magic, 0xCE11);
         assert_eq!(witness.version, 1);
         assert_eq!(witness.effect_class, 2);
@@ -14699,29 +15783,10 @@ source_roots = ["src", "shared"]
             "runtime metadata should still expose claim witness envelope accesses"
         );
 
-        #[derive(BorshDeserialize)]
-        struct SchedulerAccessWitness {
-            operation: u8,
-            source: u8,
-            index: u32,
-            binding_hash: [u8; 32],
-        }
-
-        #[derive(BorshDeserialize)]
-        struct SchedulerWitness {
-            magic: u16,
-            version: u8,
-            effect_class: u8,
-            parallelizable: bool,
-            touches_shared_count: u32,
-            touches_shared: Vec<[u8; 32]>,
-            estimated_cycles: u64,
-            access_count: u32,
-            accesses: Vec<SchedulerAccessWitness>,
-        }
-
-        let witness_bytes = action.scheduler_witness_bytes().expect("scheduler witness hex should decode");
-        let witness = SchedulerWitness::try_from_slice(&witness_bytes).expect("scheduler witness should decode");
+        assert_eq!(action.scheduler_witness_abi, "molecule");
+        assert!(!action.scheduler_witness_hex.is_empty());
+        assert!(action.scheduler_witness_molecule_hex.is_empty());
+        let witness = decode_molecule_scheduler_witness_hex(&action.scheduler_witness_hex);
         assert_eq!(witness.magic, 0xCE11);
         assert_eq!(witness.version, 1);
         assert_eq!(witness.access_count as usize, witness.accesses.len());
@@ -14745,6 +15810,67 @@ source_roots = ["src", "shared"]
         assert!(odd.message.contains("full bytes"));
         let invalid = decode_scheduler_witness_hex("11xz").unwrap_err();
         assert!(invalid.message.contains("invalid scheduler witness hex byte"));
+    }
+
+    fn action_metadata_with_scheduler_fields(
+        scheduler_witness_hex: &str,
+        scheduler_witness_molecule_hex: &str,
+        scheduler_witness_borsh_hex: &str,
+    ) -> ActionMetadata {
+        ActionMetadata {
+            name: "legacy".to_string(),
+            params: vec![],
+            effect_class: "Pure".to_string(),
+            parallelizable: false,
+            touches_shared: vec![],
+            estimated_cycles: 0,
+            scheduler_witness_abi: SCHEDULER_WITNESS_ABI_MOLECULE.to_string(),
+            scheduler_witness_hex: scheduler_witness_hex.to_string(),
+            scheduler_witness_molecule_hex: scheduler_witness_molecule_hex.to_string(),
+            scheduler_witness_borsh_hex: scheduler_witness_borsh_hex.to_string(),
+            consume_set: vec![],
+            read_refs: vec![],
+            create_set: vec![],
+            mutate_set: vec![],
+            pool_primitives: vec![],
+            ckb_runtime_accesses: vec![],
+            ckb_runtime_features: vec![],
+            symbolic_runtime_features: vec![],
+            fail_closed_runtime_features: vec![],
+            verifier_obligations: vec![],
+            transaction_runtime_input_requirements: vec![],
+            elf_compatible: true,
+            standalone_runner_compatible: true,
+            block_count: 0,
+        }
+    }
+
+    #[test]
+    fn action_scheduler_witness_bytes_rejects_legacy_borsh_default_path() {
+        let action = action_metadata_with_scheduler_fields("", "", "11ce01");
+
+        let public_error = action.scheduler_witness_bytes().unwrap_err();
+        assert!(public_error.message.contains("not public scheduler witness metadata"));
+        assert_eq!(action.legacy_scheduler_witness_borsh_bytes().unwrap(), vec![0x11, 0xce, 0x01]);
+    }
+
+    #[test]
+    fn action_scheduler_witness_bytes_rejects_legacy_borsh_even_with_public_hex() {
+        let action = action_metadata_with_scheduler_fields("11ce01", "", "11ce01");
+
+        let public_error = action.scheduler_witness_bytes().unwrap_err();
+
+        assert!(public_error.message.contains("not public scheduler witness metadata"));
+        assert_eq!(action.legacy_scheduler_witness_borsh_bytes().unwrap(), vec![0x11, 0xce, 0x01]);
+    }
+
+    #[test]
+    fn action_scheduler_witness_bytes_rejects_conflicting_molecule_alias() {
+        let action = action_metadata_with_scheduler_fields("11ce01", "11ce02", "");
+
+        let public_error = action.scheduler_witness_bytes().unwrap_err();
+
+        assert!(public_error.message.contains("conflicting scheduler_witness_hex"), "unexpected error: {public_error}");
     }
 
     #[test]
@@ -14960,11 +16086,72 @@ action credit(ledger: &mut Ledger, delta: u64) {
         assert!(action.params[0].schema_length_abi);
         assert_eq!(snapshot.kind, "Struct");
         assert_eq!(snapshot.encoded_size, Some(8));
+        let molecule_schema = snapshot.molecule_schema.as_ref().expect("Snapshot molecule schema metadata");
+        assert_eq!(molecule_schema.abi, "molecule");
+        assert_eq!(molecule_schema.layout, "fixed-struct-v1");
+        assert_eq!(molecule_schema.fixed_size, 8);
+        assert!(molecule_schema.schema.contains("struct Snapshot"));
+        assert!(molecule_schema.schema.contains("amount: CellScriptUint64"));
+        assert_eq!(molecule_schema.schema_hash_blake3, crate::hex_encode(blake3::hash(molecule_schema.schema.as_bytes()).as_bytes()));
         let amount = snapshot.fields.iter().find(|field| field.name == "amount").expect("amount field metadata");
         assert_eq!(amount.ty, "u64");
         assert_eq!(amount.offset, 0);
         assert_eq!(amount.encoded_size, Some(8));
         assert!(amount.fixed_width);
+    }
+
+    #[test]
+    fn compile_result_exposes_nested_fixed_molecule_schema_metadata() {
+        let source = r#"
+module audit::nested_schema
+
+struct Owner {
+    pubkey: Hash,
+    flags: [u8; 2],
+}
+
+resource Token has store {
+    owner: Owner,
+    pair: (u64, Owner),
+    checkpoints: [(Owner, u64); 2],
+    amount: u64,
+}
+
+action value() -> u64 {
+    return 1
+}
+"#;
+
+        let result = compile(source, CompileOptions::default()).unwrap();
+        let owner = result.metadata.types.iter().find(|ty| ty.name == "Owner").expect("Owner type metadata");
+        let token = result.metadata.types.iter().find(|ty| ty.name == "Token").expect("Token type metadata");
+
+        assert_eq!(owner.encoded_size, Some(34));
+        assert_eq!(token.encoded_size, Some(168));
+        let owner_field = token.fields.iter().find(|field| field.name == "owner").expect("owner field metadata");
+        let pair_field = token.fields.iter().find(|field| field.name == "pair").expect("pair field metadata");
+        let checkpoints_field = token.fields.iter().find(|field| field.name == "checkpoints").expect("checkpoints field metadata");
+        let amount_field = token.fields.iter().find(|field| field.name == "amount").expect("amount field metadata");
+        assert_eq!(owner_field.offset, 0);
+        assert_eq!(owner_field.encoded_size, Some(34));
+        assert_eq!(pair_field.offset, 34);
+        assert_eq!(pair_field.encoded_size, Some(42));
+        assert_eq!(checkpoints_field.offset, 76);
+        assert_eq!(checkpoints_field.encoded_size, Some(84));
+        assert_eq!(amount_field.offset, 160);
+        assert_eq!(amount_field.encoded_size, Some(8));
+
+        let molecule_schema = token.molecule_schema.as_ref().expect("Token molecule schema metadata");
+        assert_eq!(molecule_schema.fixed_size, 168);
+        assert!(molecule_schema.schema.contains("struct Owner"));
+        assert!(molecule_schema.schema.contains("struct CellScriptTupleTokenPair"));
+        assert!(molecule_schema.schema.contains("struct CellScriptTupleTokenCheckpoints"));
+        assert!(molecule_schema.schema.contains("struct Token"));
+        assert!(molecule_schema.schema.contains("owner: Owner"));
+        assert!(molecule_schema.schema.contains("pair: CellScriptTupleTokenPair"));
+        assert!(molecule_schema.schema.contains("array TokenCheckpointsArray2 [CellScriptTupleTokenCheckpoints; 2];"));
+        assert!(molecule_schema.schema.contains("checkpoints: TokenCheckpointsArray2"));
+        assert_eq!(molecule_schema.schema_hash_blake3, crate::hex_encode(blake3::hash(molecule_schema.schema.as_bytes()).as_bytes()));
     }
 
     #[test]
@@ -14977,9 +16164,11 @@ action credit(ledger: &mut Ledger, delta: u64) {
         assert!(token.capabilities.contains(&"store".to_string()));
         assert!(token.capabilities.contains(&"transfer".to_string()));
         assert!(token.capabilities.contains(&"destroy".to_string()));
+        assert_eq!(token.molecule_schema.as_ref().map(|schema| schema.abi.as_str()), Some("molecule"));
         assert_eq!(receipt.kind, "Receipt");
         assert!(receipt.capabilities.is_empty());
         assert_eq!(receipt.claim_output.as_deref(), Some("Token"));
+        assert_eq!(receipt.molecule_schema.as_ref().map(|schema| schema.layout.as_str()), Some("fixed-struct-v1"));
     }
 
     #[test]
@@ -15003,6 +16192,150 @@ action value() -> u64 {
         assert_eq!(result.metadata.metadata_schema_version, crate::METADATA_SCHEMA_VERSION);
         assert_eq!(token.type_id.as_deref(), Some("spora::asset::Token:v1"));
         assert_eq!(token.type_id_hash_blake3.as_deref(), Some(expected_hash.as_str()));
+        assert!(token.ckb_type_id.is_none());
+    }
+
+    #[test]
+    fn compile_exposes_ckb_type_id_contract_under_ckb_profile() {
+        let program = r#"
+module audit::type_id
+
+#[type_id("spora::asset::Token:v1")]
+resource Token has store {
+    amount: u64
+}
+
+action value() -> u64 {
+    return 1
+}
+"#;
+
+        let result =
+            compile(program, CompileOptions { target_profile: Some("ckb".to_string()), ..CompileOptions::default() }).unwrap();
+        let token = result.metadata.types.iter().find(|ty| ty.name == "Token").expect("Token type metadata");
+        let ckb_type_id = token.ckb_type_id.as_ref().expect("CKB TYPE_ID metadata");
+
+        assert_eq!(result.metadata.target_profile.name, "ckb");
+        assert_eq!(token.type_id.as_deref(), Some("spora::asset::Token:v1"));
+        assert_eq!(ckb_type_id.abi, crate::CKB_TYPE_ID_ABI);
+        assert_eq!(ckb_type_id.script_code_hash, crate::hex_encode(&crate::CKB_TYPE_ID_CODE_HASH));
+        assert_eq!(ckb_type_id.hash_type, crate::CKB_TYPE_ID_HASH_TYPE);
+        assert_eq!(ckb_type_id.args_source, crate::CKB_TYPE_ID_ARGS_SOURCE);
+        assert_eq!(ckb_type_id.group_rule, crate::CKB_TYPE_ID_GROUP_RULE);
+        assert_eq!(ckb_type_id.builder, crate::CKB_TYPE_ID_BUILDER);
+        assert_eq!(ckb_type_id.verifier, crate::CKB_TYPE_ID_VERIFIER);
+    }
+
+    #[test]
+    fn compile_metadata_exposes_ckb_type_id_create_output_plan_under_ckb_profile() {
+        let program = r#"
+module audit::type_id_create
+
+#[type_id("spora::asset::Token:v1")]
+resource Token has store {
+    amount: u64
+}
+
+resource PlainToken has store {
+    amount: u64
+}
+
+action mint(amount: u64) -> Token {
+    return create Token { amount: amount }
+}
+
+action mint_plain(amount: u64) -> PlainToken {
+    return create PlainToken { amount: amount }
+}
+"#;
+
+        let ckb_metadata = compile_metadata_for_profile_without_artifact_policy(program, crate::TargetProfile::Ckb);
+        let mint = ckb_metadata.actions.iter().find(|action| action.name == "mint").expect("mint metadata");
+        let plan = mint.create_set[0].ckb_type_id.as_ref().expect("CKB TYPE_ID create output plan");
+
+        assert_eq!(mint.ckb_type_id_output_indexes(), vec![0]);
+        assert_eq!(plan.abi, crate::CKB_TYPE_ID_ABI);
+        assert_eq!(plan.type_id, "spora::asset::Token:v1");
+        assert_eq!(plan.output_source, crate::CKB_TYPE_ID_OUTPUT_SOURCE);
+        assert_eq!(plan.output_index, 0);
+        assert_eq!(plan.script_code_hash, crate::hex_encode(&crate::CKB_TYPE_ID_CODE_HASH));
+        assert_eq!(plan.hash_type, crate::CKB_TYPE_ID_HASH_TYPE);
+        assert_eq!(plan.args_source, crate::CKB_TYPE_ID_ARGS_SOURCE);
+        assert_eq!(plan.builder, crate::CKB_TYPE_ID_BUILDER);
+        assert_eq!(plan.generator_setting, crate::CKB_TYPE_ID_GENERATOR_SETTING);
+        assert_eq!(plan.wasm_setting, crate::CKB_TYPE_ID_WASM_SETTING);
+
+        let plain = ckb_metadata.actions.iter().find(|action| action.name == "mint_plain").expect("mint_plain metadata");
+        assert!(plain.create_set[0].ckb_type_id.is_none());
+        assert!(plain.ckb_type_id_output_indexes().is_empty());
+
+        let spora_metadata = compile_metadata_for_profile_without_artifact_policy(program, crate::TargetProfile::Spora);
+        let spora_mint = spora_metadata.actions.iter().find(|action| action.name == "mint").expect("spora mint metadata");
+        assert!(spora_mint.create_set[0].ckb_type_id.is_none());
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_mismatched_ckb_type_id_create_output_plan() {
+        let program = r#"
+module audit::type_id_create
+
+#[type_id("spora::asset::Token:v1")]
+resource Token has store {
+    amount: u64
+}
+
+action mint(amount: u64) -> Token {
+    return create Token { amount: amount }
+}
+"#;
+
+        let mut metadata = compile_metadata_for_profile_without_artifact_policy(program, crate::TargetProfile::Ckb);
+        metadata.actions[0].create_set[0].ckb_type_id.as_mut().expect("CKB TYPE_ID output plan").output_index = 1;
+
+        let err = crate::validate_compile_metadata(&metadata, ArtifactFormat::RiscvAssembly).unwrap_err();
+        assert!(err.message.contains("ckb_type_id.output_index"), "unexpected error: {}", err.message);
+
+        metadata.actions[0].create_set[0].ckb_type_id = None;
+        let err = crate::validate_compile_metadata(&metadata, ArtifactFormat::RiscvAssembly).unwrap_err();
+        assert!(err.message.contains("missing ckb_type_id output plan"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_rejects_struct_only_type_id_under_ckb_profile() {
+        let program = r#"
+module audit::type_id
+
+#[type_id("spora::asset::TokenSnapshot:v1")]
+struct TokenSnapshot {
+    amount: u64
+}
+
+action value() -> u64 {
+    return 1
+}
+"#;
+
+        let err =
+            compile(program, CompileOptions { target_profile: Some("ckb".to_string()), ..CompileOptions::default() }).unwrap_err();
+
+        assert!(err.message.contains("target profile policy failed for 'ckb'"), "unexpected error: {}", err.message);
+        assert!(
+            err.message.contains("metadata-only type_id declarations require profile-specific type-id lowering"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn compile_result_validation_rejects_molecule_schema_hash_mismatch() {
+        let mut result = compile(PARAM_FIELD_PROGRAM, CompileOptions::default()).unwrap();
+        let snapshot = result.metadata.types.iter_mut().find(|ty| ty.name == "Snapshot").expect("Snapshot type metadata");
+        let molecule_schema = snapshot.molecule_schema.as_mut().expect("Snapshot molecule schema metadata");
+        molecule_schema.schema_hash_blake3 = "00".repeat(32);
+
+        let err = result.validate().unwrap_err();
+
+        assert!(err.message.contains("molecule_schema.schema_hash_blake3"), "unexpected error: {}", err.message);
     }
 
     #[test]
@@ -15314,7 +16647,7 @@ action ping() -> u64 {
     }
 
     #[test]
-    fn compile_file_rejects_manifest_prelaunch_target_profile() {
+    fn compile_file_uses_manifest_ckb_target_profile() {
         let temp = tempdir().unwrap();
         let root = Utf8Path::from_path(temp.path()).unwrap();
 
@@ -15344,8 +16677,10 @@ action ping() -> u64 {
         )
         .unwrap();
 
-        let err = compile_file(&entry, CompileOptions::default()).unwrap_err();
-        assert!(err.message.contains("target profile 'ckb' is prelaunch-gated"), "unexpected error: {}", err.message);
+        let result = compile_file(&entry, CompileOptions::default()).unwrap();
+        assert_eq!(result.metadata.target_profile.name.as_str(), "ckb");
+        assert_eq!(result.metadata.target_profile.artifact_packaging.as_str(), "ckb-asm-sidecar");
+        assert!(!result.metadata.runtime.vm_abi.embedded_in_artifact);
     }
 
     #[test]

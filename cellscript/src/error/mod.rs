@@ -81,6 +81,12 @@ impl From<toml::ser::Error> for CompileError {
     }
 }
 
+impl From<serde_json::Error> for CompileError {
+    fn from(value: serde_json::Error) -> Self {
+        Self::without_span(value.to_string())
+    }
+}
+
 /// 编译结果类型
 pub type Result<T> = std::result::Result<T, CompileError>;
 

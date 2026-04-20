@@ -12,8 +12,8 @@
 //!    - Borsh 仅用于内部通信和存储，不参与共识
 //!
 //! 2. **VM-facing ABI 必须经过显式格式边界**
-//!    - legacy default 仍保留 Borsh/custom v1，避免破坏现有脚本
-//!    - Molecule v1 (`0x8001`) 已作为 canonical VM ABI 可用
+//!    - Molecule v1 (`0x8001`) 是 launch/public VM ABI
+//!    - Borsh/custom v1 只保留为显式 legacy 兼容路径
 //!
 //! 3. **VM ABI 是独立抽象层**
 //!    - 通过 `VmSerializable` trait 抽象序列化实现
@@ -23,7 +23,7 @@
 //!
 //! - Layer 1 (共识): 自定义流式哈希，完全绕过 Borsh
 //! - Layer 2 (存储): Borsh + VersionedEnvelope
-//! - Layer 3 (VM ABI): Borsh v1 for legacy defaults, Molecule v1 as the CKB-style canonical ABI
+//! - Layer 3 (VM ABI): Molecule v1 for public script-visible data, Borsh/custom v1 only for explicit legacy paths
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -214,7 +214,7 @@ pub enum VmAbiError {
 /// VM 可见数据的序列化抽象
 ///
 /// 此 trait 隔离 VM ABI 与具体序列化实现，
-/// 允许未来从 Borsh 切换到 Molecule 而不影响业务逻辑。
+/// 公共脚本可见 ABI 现在以 Molecule 为准；legacy 实现仅用于显式兼容路径。
 pub trait VmSerializable: Sized {
     /// 序列化为 VM 可见字节
     fn to_vm_bytes(&self) -> Vec<u8>;
@@ -235,9 +235,9 @@ pub trait VmSerializable: Sized {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VmAbiFormat {
     /// Legacy Spora VM ABI: Borsh for aggregate VM objects and historical custom encoders for CKB-style values.
-    #[default]
     Legacy,
-    /// Canonical Molecule VM ABI.
+    /// Canonical Molecule VM ABI for launch/public script-visible data.
+    #[default]
     Molecule,
 }
 
@@ -306,9 +306,9 @@ pub fn split_vm_abi_trailer(bytes: &[u8]) -> Result<(&[u8], Option<VmAbiFormat>)
 pub struct VmAbiNegotiator;
 
 impl VmAbiNegotiator {
-    /// Borsh-based ABI v1 版本号
+    /// Borsh/custom ABI v1 版本号，仅用于显式 legacy 兼容。
     pub const ABI_VERSION_BORSH_V1: u16 = 0x0001;
-    /// Molecule-based ABI v1 版本号
+    /// Molecule-based ABI v1 版本号，launch/public VM ABI。
     pub const ABI_VERSION_MOLECULE_V1: u16 = 0x8001;
 
     /// 协商脚本和 VM 之间的 ABI 版本
@@ -328,21 +328,12 @@ impl VmAbiNegotiator {
             }
         }
 
-        // 尝试版本回退
-        if script_version >= 0x8000 {
-            // 脚本要求 Molecule，但 VM 不支持，尝试 Borsh
-            let borsh_fallback = script_version & 0x00FF;
-            if vm_capabilities.contains(&borsh_fallback) {
-                return Ok(borsh_fallback);
-            }
-        }
-
         Err(VmAbiError::VersionMismatch { expected: script_version, actual: vm_capabilities.first().copied().unwrap_or(0) })
     }
 
     /// 获取 VM 默认支持的 ABI 版本列表
     pub fn default_capabilities() -> Vec<u16> {
-        vec![Self::ABI_VERSION_BORSH_V1, Self::ABI_VERSION_MOLECULE_V1]
+        vec![Self::ABI_VERSION_MOLECULE_V1, Self::ABI_VERSION_BORSH_V1]
     }
 }
 
@@ -442,12 +433,16 @@ mod tests {
     }
 
     #[test]
-    fn test_vm_abi_negotiation_fallback() {
-        // VM 只支持 Borsh，但脚本要求 Molecule
+    fn test_vm_abi_negotiation_rejects_implicit_molecule_to_borsh_downgrade() {
         let caps = vec![VmAbiNegotiator::ABI_VERSION_BORSH_V1];
         let result = VmAbiNegotiator::negotiate(VmAbiNegotiator::ABI_VERSION_MOLECULE_V1, &caps);
-        // 应该回退到 Borsh v1
-        assert_eq!(result.unwrap(), VmAbiNegotiator::ABI_VERSION_BORSH_V1);
+        assert!(matches!(
+            result,
+            Err(VmAbiError::VersionMismatch {
+                expected: VmAbiNegotiator::ABI_VERSION_MOLECULE_V1,
+                actual: VmAbiNegotiator::ABI_VERSION_BORSH_V1,
+            })
+        ));
     }
 
     #[test]
@@ -460,6 +455,7 @@ mod tests {
     #[test]
     fn test_default_capabilities() {
         let caps = VmAbiNegotiator::default_capabilities();
+        assert_eq!(caps.first(), Some(&VmAbiNegotiator::ABI_VERSION_MOLECULE_V1));
         assert!(caps.contains(&VmAbiNegotiator::ABI_VERSION_BORSH_V1));
         assert!(caps.contains(&VmAbiNegotiator::ABI_VERSION_MOLECULE_V1));
     }
@@ -651,8 +647,7 @@ mod tests {
         let result = VmAbiNegotiator::negotiate(0x0002, &caps).unwrap();
         assert_eq!(result, 0x0002);
 
-        // Should fall back from Molecule to Borsh
-        let result = VmAbiNegotiator::negotiate(0x8002, &caps).unwrap();
-        assert_eq!(result, 0x0002);
+        let result = VmAbiNegotiator::negotiate(0x8002, &caps);
+        assert!(matches!(result, Err(VmAbiError::VersionMismatch { expected: 0x8002, actual: 0x0001 })));
     }
 }

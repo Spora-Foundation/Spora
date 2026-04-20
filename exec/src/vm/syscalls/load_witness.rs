@@ -7,7 +7,7 @@ use super::utils::{store_data, INDEX_OUT_OF_BOUND};
 use super::Source;
 use super::LOAD_WITNESS_SYSCALL_NUMBER;
 use crate::celltx::CellTx;
-use crate::vm::transferred_byte_cycles;
+use crate::vm::{transferred_byte_cycles, VmSemantics};
 use ckb_vm::{
     registers::{A0, A3, A4, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -21,11 +21,17 @@ pub struct LoadWitness {
     tx: Arc<CellTx>,
     group_input_indices: Vec<usize>,
     group_output_indices: Vec<usize>,
+    semantics: VmSemantics,
 }
 
 impl LoadWitness {
     pub fn new(tx: Arc<CellTx>, group_input_indices: Vec<usize>, group_output_indices: Vec<usize>) -> Self {
-        Self { tx, group_input_indices, group_output_indices }
+        Self { tx, group_input_indices, group_output_indices, semantics: VmSemantics::SporaExtended }
+    }
+
+    pub fn with_semantics(mut self, semantics: VmSemantics) -> Self {
+        self.semantics = semantics;
+        self
     }
 
     fn source_witness_index(&self, source: Source, index: usize) -> Option<usize> {
@@ -65,7 +71,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadWitness {
         }
 
         let index = machine.registers()[A3].to_u64() as usize;
-        let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
+        let source = Source::parse_from_u64_for_semantics(machine.registers()[A4].to_u64(), self.semantics)?;
 
         // Get witness data
         let witness = match self.get_witness(source, index) {

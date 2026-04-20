@@ -19,7 +19,13 @@ Full release gate:
 ./scripts/cellscript_phase4_release_gate.sh full
 ```
 
-Both commands accept `CARGO_TARGET_DIR`, `CARGO_INCREMENTAL`, and `CARGO_BUILD_JOBS` from the environment. The default target directory is `/tmp/spora-cellscript-release-gate-target` so the gate does not contend with an interactive development build.
+V1 tag gate:
+
+```bash
+./scripts/cellscript_phase4_release_gate.sh v1
+```
+
+All gate commands accept `CARGO_TARGET_DIR`, `CARGO_INCREMENTAL`, and `CARGO_BUILD_JOBS` from the environment. The default target directory is `/tmp/spora-cellscript-release-gate-target` so the gate does not contend with an interactive development build.
 
 ## Required Evidence Before Phase 4 Close
 
@@ -34,14 +40,18 @@ Both commands accept `CARGO_TARGET_DIR`, `CARGO_INCREMENTAL`, and `CARGO_BUILD_J
 - [x] Scheduler witness/admission adversarial tests pass in `spora-exec`.
 - [x] Scheduler witness trusted-summary tamper tests pass in `spora-exec` and `spora-consensus`.
 - [x] Strict template scheduler policy tests pass in `spora-consensus`.
+- [x] Wallet CellScript generator tests pass for action metadata, checked raw Molecule scheduler witness configuration, CKB TYPE_ID output plans, and explicit CKB deps/header deps.
 - [x] Mining scheduler sidecar lifecycle tests pass in `spora-mining`.
+- [x] `docs/CELLSCRIPT_V1_RELEASE_SCOPE.md` records the product, SDK, and post-v1 boundaries.
+- [x] `docs/CELLSCRIPT_V1_FEATURE_COMPLETENESS_AUDIT.md` records the feature-first completeness verdict and overclaim boundaries.
+- [x] Public README / CellScript README claims are gated against CKB/full-Molecule/Borsh overclaims.
 
 Latest local evidence, 2026-04-18:
 
 - `CARGO_TARGET_DIR=/tmp/spora-cellscript-tools-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 ./scripts/cellscript_phase4_release_gate.sh quick`
 - `CARGO_TARGET_DIR=/tmp/spora-phase4-full-gate-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 ./scripts/cellscript_phase4_release_gate.sh full`
 
-The full local gate passed with `cargo fmt --all --check`, `cargo check --workspace --all-targets`, full `cellscript` tests, `spora-adaptor` tests and executable examples, `spora-exec` scheduler witness access-set/summary/property tests, `spora-consensus` strict trusted-summary and template scheduler policy tests, `spora-mining` scheduler sidecar lifecycle tests, `git diff --check`, and targeted trailing-whitespace checks.
+The full local gate passed with `cargo fmt --all --check`, `cargo check --workspace --all-targets`, full `cellscript` tests, `spora-adaptor` tests and executable examples, `spora-exec` scheduler witness access-set/summary/property tests, `spora-consensus` strict trusted-summary and template scheduler policy tests, `spora-mining` scheduler sidecar lifecycle tests, `git diff --check`, and targeted trailing-whitespace checks. As of 2026-04-19, the gate script also includes focused wallet CellScript generator tests for profile-aware action metadata, checked raw Molecule scheduler witness configuration, CKB TYPE_ID output plans, explicit CKB deps/header deps, and v1 scope/feature/CKB/status/public-doc boundary checks; use the `v1` gate before a final tag because it validates the release promise before running the full gate.
 
 Latest SDK example evidence, 2026-04-18:
 
@@ -50,6 +60,19 @@ Latest SDK example evidence, 2026-04-18:
 - `CARGO_TARGET_DIR=/tmp/spora-cellscript-tools-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 ./scripts/cellscript_phase4_release_gate.sh quick`
 
 The quick gate now runs both SDK examples. `adaptor_roundtrip` covers the successful proof, partial-signature, completion, recovery, and secret-verification path. `adaptor_reject_noncanonical` covers fail-closed public API behavior for non-canonical secp256k1 scalar byte inputs. The full gate has been rerun after both SDK examples, scheduler-summary security additions, and stale-summary policy hardening; repeat it again before a final release tag if more Phase 4 changes land.
+
+Latest v1 scope evidence, 2026-04-19:
+
+- `docs/CELLSCRIPT_V1_RELEASE_SCOPE.md`
+- `docs/CELLSCRIPT_V1_FEATURE_COMPLETENESS_AUDIT.md`
+- `docs/CELLSCRIPT_CKB_COMPATIBILITY_DECISION.md`
+- `CARGO_TARGET_DIR=/tmp/spora-v1-release-gate-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 ./scripts/cellscript_phase4_release_gate.sh v1`
+- `CARGO_TARGET_DIR=/tmp/spora-v1-release-gate-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 ./scripts/cellscript_phase4_release_gate.sh quick`
+- `CARGO_TARGET_DIR=/tmp/spora-codex-target cargo test --locked -p spora-wallet-core cellscript -- --nocapture`
+- `CARGO_TARGET_DIR=/tmp/spora-codex-target cargo test --locked -p spora-wallet-core ckb_type_id -- --nocapture`
+- `CARGO_TARGET_DIR=/tmp/spora-codex-target cargo test --locked -p spora-wallet-core generator_settings_cell_and_header_deps_are_included_in_unsigned_transactions -- --nocapture`
+
+The v1 release scope document fixes the public promise boundary, the feature completeness audit checks the same boundary from user-visible functionality backwards, and the CKB compatibility decision records that the original CKB P0 blockers are closed for the v1 admitted subset by implementation or fail-closed policy. Core Cell lifecycle semantics are closed through checked/runtime/fail-closed classifications, while first-class launch/pool, registry distribution, executable Wasm, generalized AMM economics, generalized conservation, automatic higher-level transaction-builder orchestration, and full arbitrary CKB contract compatibility remain outside the v1 promise. The updated v1 gate passed after validating those scope boundaries, the feature matrix, the CKB compatibility decision, status-doc boundaries, and public README/CellScript README wording against known CKB/full-Molecule/Borsh overclaims, then running the full gate with wallet generator coverage for CellScript metadata, checked raw Molecule scheduler witness configuration, CKB TYPE_ID output plans, and explicit CKB deps/header deps.
 
 Latest scheduler trusted-summary security evidence, 2026-04-18:
 
@@ -91,13 +114,14 @@ Latest artifact and metadata schema security evidence, 2026-04-18:
 - `CARGO_TARGET_DIR=/tmp/spora-cellscript-tools-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 cargo test -p cellscript cellc_verify_artifact_rejects_metadata_schema_downgrade -- --nocapture --test-threads=1`
 - `CARGO_TARGET_DIR=/tmp/spora-cellscript-tools-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 cargo test -p cellscript cellc_verify_artifact_rejects_noncanonical_source_unit_hash -- --nocapture --test-threads=1`
 - `CARGO_TARGET_DIR=/tmp/spora-cellscript-tools-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 cargo test -p cellscript cellc_verify_artifact_enforces_expected_hashes -- --nocapture --test-threads=1`
+- `CARGO_TARGET_DIR=/tmp/spora-cellscript-tools-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 cargo test -p cellscript --test cli cellc_build_accepts_pure_ckb_target_profile_without_sporabi_trailer -- --nocapture`
 
-The metadata validator rejects both future and older schema versions instead of downgrading, rejects mismatched compiler versions, enforces artifact hash/size/format binding, enforces VM ABI trailer consistency, and now requires source-unit hashes and caller-supplied expected hashes to use canonical lowercase BLAKE3 hex.
+The metadata validator rejects both future and older schema versions instead of downgrading, rejects mismatched compiler versions, enforces artifact hash/size/format/profile binding, enforces VM ABI trailer consistency, and now requires source-unit hashes and caller-supplied expected hashes to use canonical lowercase BLAKE3 hex. `cellc verify-artifact --expect-target-profile` additionally lets release/CI jobs pin Spora-vs-CKB intent and reject profile mixups.
 
 ## Security Review Items
 
 - [x] Review CellScript metadata schema compatibility and downgrade behavior.
-- [x] Review scheduler witness decoding, operation/source admission, index bounds, full trusted-summary comparison, and shared-touch/effect tamper handling.
+- [x] Review scheduler witness decoding, Molecule-only public admission, `ActionMetadata` default API rejection of legacy Borsh fields, wallet action metadata validation, conflicting Molecule alias rejection, legacy Borsh rejection, operation/source admission, index bounds, full trusted-summary comparison, and shared-touch/effect tamper handling.
 - [x] Review mempool/template policy handling for missing, malformed, mismatched, and stale scheduler summaries.
 - [x] Review wallet and mining producer paths that attach compiled scheduler witnesses or store trusted summaries.
 - [x] Review `cellc verify-artifact` artifact/metadata/source binding checks.
@@ -114,6 +138,7 @@ The following are not blockers for a Phase 4 operational close if they remain ex
 - Registry package install/publish/update.
 - Executable Wasm backend for CellScript actions or locks.
 - External RPC trusted-summary submission, unless RPC-side builders are admitted into strict template policy.
+- Higher-level automatic CellScript transaction-builder orchestration; v1 wallet generator integration remains explicit/profile-aware.
 
 The following remain blockers until checked or explicitly deferred with an issue and owner:
 

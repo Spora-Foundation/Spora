@@ -1,4 +1,3 @@
-use borsh::BorshDeserialize;
 use camino::Utf8PathBuf;
 use cellscript::{compile_file, ArtifactFormat, CompileOptions, PoolPrimitiveMetadata};
 
@@ -9,7 +8,6 @@ fn example_path(name: &str) -> Utf8PathBuf {
     Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples").join(name)
 }
 
-#[derive(BorshDeserialize)]
 #[allow(dead_code)]
 struct SchedulerAccessWitness {
     operation: u8,
@@ -18,7 +16,6 @@ struct SchedulerAccessWitness {
     binding_hash: [u8; 32],
 }
 
-#[derive(BorshDeserialize)]
 #[allow(dead_code)]
 struct SchedulerWitness {
     magic: u16,
@@ -39,10 +36,90 @@ fn decode_hex_bytes(hex: &str) -> Vec<u8> {
 
 fn scheduler_witness_operation_ids(hex: &str) -> Vec<u8> {
     let bytes = decode_hex_bytes(hex);
-    let witness = SchedulerWitness::try_from_slice(&bytes).expect("scheduler witness should decode");
+    let witness = decode_molecule_scheduler_witness(&bytes);
     assert_eq!(witness.magic, 0xCE11);
     assert_eq!(witness.access_count as usize, witness.accesses.len());
     witness.accesses.into_iter().map(|access| access.operation).collect()
+}
+
+fn decode_molecule_scheduler_witness(bytes: &[u8]) -> SchedulerWitness {
+    let fields = decode_molecule_table(bytes, 9);
+    SchedulerWitness {
+        magic: read_u16(fields[0], "magic"),
+        version: read_u8(fields[1], "version"),
+        effect_class: read_u8(fields[2], "effect_class"),
+        parallelizable: read_bool(fields[3], "parallelizable"),
+        touches_shared_count: read_u32(fields[4], "touches_shared_count"),
+        touches_shared: read_fixvec_byte32(fields[5]),
+        estimated_cycles: read_u64(fields[6], "estimated_cycles"),
+        access_count: read_u32(fields[7], "access_count"),
+        accesses: read_scheduler_accesses(fields[8]),
+    }
+}
+
+fn decode_molecule_table(bytes: &[u8], expected_fields: usize) -> Vec<&[u8]> {
+    assert!(bytes.len() >= 8, "molecule table header is too short: {}", bytes.len());
+    let total_size = read_u32(&bytes[..4], "total_size") as usize;
+    assert_eq!(total_size, bytes.len(), "molecule table total size mismatch");
+    let first_offset = read_u32(&bytes[4..8], "first_offset") as usize;
+    assert!(first_offset >= 8 && first_offset <= bytes.len() && first_offset % 4 == 0, "invalid first offset {first_offset}");
+    let field_count = first_offset / 4 - 1;
+    assert_eq!(field_count, expected_fields, "unexpected molecule table field count");
+    let mut offsets = bytes[4..first_offset].chunks_exact(4).map(|chunk| read_u32(chunk, "offset") as usize).collect::<Vec<_>>();
+    offsets.push(total_size);
+    for pair in offsets.windows(2) {
+        assert!(pair[0] <= pair[1], "molecule offsets must be monotonic: {:?}", offsets);
+        assert!(pair[0] >= first_offset && pair[1] <= total_size, "molecule offsets must stay in payload: {:?}", offsets);
+    }
+    offsets.windows(2).map(|pair| &bytes[pair[0]..pair[1]]).collect()
+}
+
+fn read_scheduler_accesses(bytes: &[u8]) -> Vec<SchedulerAccessWitness> {
+    let count = read_u32(&bytes[..4], "access_count") as usize;
+    assert_eq!(bytes.len(), 4 + count * 38, "access fixvec byte length mismatch");
+    bytes[4..]
+        .chunks_exact(38)
+        .map(|chunk| SchedulerAccessWitness {
+            operation: chunk[0],
+            source: chunk[1],
+            index: read_u32(&chunk[2..6], "access.index"),
+            binding_hash: chunk[6..38].try_into().expect("binding hash width"),
+        })
+        .collect()
+}
+
+fn read_fixvec_byte32(bytes: &[u8]) -> Vec<[u8; 32]> {
+    let count = read_u32(&bytes[..4], "byte32_count") as usize;
+    assert_eq!(bytes.len(), 4 + count * 32, "byte32 fixvec byte length mismatch");
+    bytes[4..].chunks_exact(32).map(|chunk| chunk.try_into().expect("byte32 width")).collect()
+}
+
+fn read_u8(bytes: &[u8], field: &str) -> u8 {
+    assert_eq!(bytes.len(), 1, "{field} should be a molecule byte");
+    bytes[0]
+}
+
+fn read_bool(bytes: &[u8], field: &str) -> bool {
+    match read_u8(bytes, field) {
+        0 => false,
+        1 => true,
+        value => panic!("{field} should be a molecule bool, got {value}"),
+    }
+}
+
+fn read_u16(bytes: &[u8], field: &str) -> u16 {
+    assert_eq!(bytes.len(), 2, "{field} should be a molecule u16");
+    u16::from_le_bytes(bytes.try_into().expect("u16 width"))
+}
+
+fn read_u32(bytes: &[u8], field: &str) -> u32 {
+    assert_eq!(bytes.len(), 4, "{field} should be a molecule u32");
+    u32::from_le_bytes(bytes.try_into().expect("u32 width"))
+}
+
+fn read_u64(bytes: &[u8], field: &str) -> u64 {
+    assert_eq!(bytes.len(), 8, "{field} should be a molecule u64");
+    u64::from_le_bytes(bytes.try_into().expect("u64 width"))
 }
 
 fn assert_pool_component(primitive: &PoolPrimitiveMetadata, component: &str, context: &str) {
@@ -142,28 +219,28 @@ fn bundled_examples_compile_to_non_empty_assembly() {
         assert!(result.metadata.artifact_size_bytes.is_some(), "missing artifact size metadata for {}", example);
         assert!(!result.metadata.actions.is_empty(), "missing action metadata for {}", example);
         assert!(
-            result.metadata.actions.iter().all(|action| action.scheduler_witness_borsh_hex.starts_with("11ce")),
-            "missing scheduler witness magic for {}",
+            result.metadata.actions.iter().all(|action| {
+                action.scheduler_witness_abi == "molecule"
+                    && !action.scheduler_witness_hex.is_empty()
+                    && !action.scheduler_witness_hex.starts_with("11ce")
+                    && action.scheduler_witness_molecule_hex.is_empty()
+            }),
+            "missing launch Molecule scheduler witness for {}",
             example
         );
     }
 }
 
 #[test]
-fn bundled_examples_have_explicit_phase1_elf_boundary() {
+fn bundled_examples_compile_to_elf() {
     for example in BUNDLED_EXAMPLES {
-        let err = compile_file(
+        let result = compile_file(
             example_path(example),
             CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() },
         )
-        .expect_err("stateful bundled examples should remain explicit expected-fail ELF cases in Phase 1");
+        .unwrap_or_else(|e| panic!("{} should compile to ELF: {}", example, e.message));
 
-        assert!(
-            err.message.contains("riscv64-elf emission is not yet supported for symbolic cell/runtime operations"),
-            "unexpected ELF boundary error for {}: {}",
-            example,
-            err.message
-        );
+        assert!(!result.artifact_bytes.is_empty(), "ELF artifact for {} should be non-empty", example);
     }
 }
 
@@ -391,7 +468,7 @@ fn token_mint_authority_mutation_is_explicit() {
     assert!(mint.ckb_runtime_accesses.iter().any(|access| {
         access.operation == "mutate-output" && access.source == "Output" && access.index == 1 && access.binding == "auth"
     }));
-    let scheduler_ops = scheduler_witness_operation_ids(&mint.scheduler_witness_borsh_hex);
+    let scheduler_ops = scheduler_witness_operation_ids(&mint.scheduler_witness_hex);
     assert!(scheduler_ops.contains(&8), "mint scheduler witness should encode mutate-input access");
     assert!(scheduler_ops.contains(&9), "mint scheduler witness should encode mutate-output access");
     assert!(
@@ -681,7 +758,7 @@ fn amm_pool_mutable_shared_params_are_scheduler_visible() {
                 && access.index == expected_output_index
                 && access.binding == "pool"
         }));
-        let scheduler_ops = scheduler_witness_operation_ids(&action.scheduler_witness_borsh_hex);
+        let scheduler_ops = scheduler_witness_operation_ids(&action.scheduler_witness_hex);
         assert!(scheduler_ops.contains(&8), "{} scheduler witness should encode mutate-input access", action_name);
         assert!(scheduler_ops.contains(&9), "{} scheduler witness should encode mutate-output access", action_name);
         assert!(
@@ -774,7 +851,7 @@ fn amm_pool_mutable_shared_params_are_scheduler_visible() {
                     && obligation.feature == "pool-mutation-invariants:Pool"
                     && obligation.status == "runtime-required"
                     && obligation.detail.contains("Generic shared mutation checks")
-                    && obligation.detail.contains("LP supply consistency")
+                    && obligation.detail.contains("pool_primitives[].invariant_families")
             }),
             "{} should keep pool-pattern invariant/admission semantics separate from checked shared mutation: {:?}",
             action_name,
@@ -815,24 +892,12 @@ fn amm_pool_mutable_shared_params_are_scheduler_visible() {
         };
         assert_pool_invariant_blocker_class(pool_primitive, expected_runtime_family, expected_runtime_blocker_class, action_name);
         assert_pool_runtime_input_blocker_class(pool_primitive, expected_runtime_family, expected_runtime_blocker_class, action_name);
-        assert_pool_invariant_family(
-            pool_primitive,
-            "reserve-conservation",
-            "runtime-required",
-            "pool-reserve-conservation-abi",
+        assert_pool_invariant_family(pool_primitive, "reserve-conservation", "checked-runtime", "transition-formula", action_name);
+        assert!(
+            !pool_primitive.runtime_required_components.iter().any(|component| component == "reserve-conservation"),
+            "{} should discharge reserve conservation through checked field transition formula: {:?}",
             action_name,
-        );
-        assert_pool_invariant_blocker_class(
-            pool_primitive,
-            "reserve-conservation",
-            "phase2-deferred-amm-reserve-conservation",
-            action_name,
-        );
-        assert_pool_runtime_input_blocker_class(
-            pool_primitive,
-            "reserve-conservation",
-            "phase2-deferred-amm-reserve-conservation",
-            action_name,
+            pool_primitive.runtime_required_components
         );
         assert_pool_invariant_family(
             pool_primitive,
@@ -848,30 +913,6 @@ fn amm_pool_mutable_shared_params_are_scheduler_visible() {
             "phase2-deferred-pool-admission",
             action_name,
         );
-        for field in ["reserve_a", "reserve_b"] {
-            assert_pool_runtime_input_requirement(
-                pool_primitive,
-                "reserve-conservation",
-                "Input",
-                expected_input_index,
-                "pool",
-                Some(field),
-                "mutate-input-field-u64",
-                8,
-                action_name,
-            );
-            assert_pool_runtime_input_requirement(
-                pool_primitive,
-                "reserve-conservation",
-                "Output",
-                expected_output_index,
-                "pool",
-                Some(field),
-                "mutate-output-field-u64",
-                8,
-                action_name,
-            );
-        }
         for field in ["token_a_symbol", "token_b_symbol"] {
             assert_pool_runtime_input_requirement(
                 pool_primitive,
@@ -928,27 +969,12 @@ fn amm_pool_mutable_shared_params_are_scheduler_visible() {
                 action_name,
                 pool_primitive.runtime_input_requirements
             );
-            assert_pool_runtime_input_requirement(
-                pool_primitive,
-                "reserve-conservation",
-                "Input",
-                0,
-                "input",
-                Some("amount"),
-                "input-cell-field-u64",
-                8,
+            assert_pool_component(pool_primitive, "pool-protocol:reserve-conservation=checked-runtime", action_name);
+            assert!(
+                pool_primitive.runtime_input_requirements.iter().all(|requirement| requirement.component != "reserve-conservation"),
+                "{} checked reserve conservation should not retain runtime inputs: {:?}",
                 action_name,
-            );
-            assert_pool_runtime_input_requirement(
-                pool_primitive,
-                "reserve-conservation",
-                "Output",
-                0,
-                "create_Token",
-                Some("amount"),
-                "create-output-field-u64",
-                8,
-                action_name,
+                pool_primitive.runtime_input_requirements
             );
             assert_pool_invariant_family(pool_primitive, "fee-accounting", "runtime-required", "swap-fee-accounting-abi", action_name);
             assert_pool_invariant_blocker_class(pool_primitive, "fee-accounting", "phase2-deferred-pool-fee-policy", action_name);
@@ -1054,28 +1080,6 @@ fn amm_pool_mutable_shared_params_are_scheduler_visible() {
                 Some("pool_id"),
                 "create-output-field-hash-32",
                 32,
-                action_name,
-            );
-            assert_pool_runtime_input_requirement(
-                pool_primitive,
-                "reserve-conservation",
-                "Input",
-                0,
-                "token_a",
-                Some("amount"),
-                "input-cell-field-u64",
-                8,
-                action_name,
-            );
-            assert_pool_runtime_input_requirement(
-                pool_primitive,
-                "reserve-conservation",
-                "Input",
-                1,
-                "token_b",
-                Some("amount"),
-                "input-cell-field-u64",
-                8,
                 action_name,
             );
             assert_pool_runtime_input_requirement(
@@ -1201,19 +1205,6 @@ fn amm_pool_mutable_shared_params_are_scheduler_visible() {
                     "create_Token",
                     Some("symbol"),
                     "create-output-field-bytes-8",
-                    8,
-                    action_name,
-                );
-            }
-            for index in [0, 1] {
-                assert_pool_runtime_input_requirement(
-                    pool_primitive,
-                    "reserve-conservation",
-                    "Output",
-                    index,
-                    "create_Token",
-                    Some("amount"),
-                    "create-output-field-u64",
                     8,
                     action_name,
                 );

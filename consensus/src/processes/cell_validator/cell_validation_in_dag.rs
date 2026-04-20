@@ -6,7 +6,7 @@
 use super::cell_validation_in_context::CellStateProvider;
 use super::errors::CellValidationError;
 use spora_consensus_core::cell_metadata::CellMetadata;
-use spora_exec::{parse_dep_group_data, CellTx, DepType, OutPoint};
+use spora_exec::{parse_dep_group_data_for_abi, CellTx, DepGroupDataAbi, DepType, OutPoint};
 use spora_hashes::Hash;
 
 /// Extended state provider for DAG validation
@@ -55,6 +55,16 @@ pub fn validate_cellbase_maturity<P: DagCellProvider>(
 ///
 /// Ensures all referenced Cells exist in the state snapshot defined by `pov`.
 pub fn validate_cell_existence<P: DagCellProvider>(tx: &CellTx, pov: Hash, provider: &P) -> Result<(), CellValidationError> {
+    validate_cell_existence_for_dep_group_abi(tx, pov, provider, DepGroupDataAbi::Spora)
+}
+
+/// Validate Cell existence using an explicit DepGroup cell-data ABI.
+pub fn validate_cell_existence_for_dep_group_abi<P: DagCellProvider>(
+    tx: &CellTx,
+    pov: Hash,
+    provider: &P,
+    dep_group_data_abi: DepGroupDataAbi,
+) -> Result<(), CellValidationError> {
     // Check all inputs exist
     for input in &tx.inputs {
         let available = provider.is_cell_available(&input.previous_output, pov).map_err(|e| CellValidationError::InvalidFormat(e))?;
@@ -81,7 +91,7 @@ pub fn validate_cell_existence<P: DagCellProvider>(tx: &CellTx, pov: Hash, provi
             let data = meta.data.ok_or_else(|| {
                 CellValidationError::InvalidFormat(format!("DepGroup cell data not available for {}", dep.out_point))
             })?;
-            let outpoints = parse_dep_group_data(&data).map_err(CellValidationError::InvalidFormat)?;
+            let outpoints = parse_dep_group_data_for_abi(&data, dep_group_data_abi).map_err(CellValidationError::InvalidFormat)?;
             for op in &outpoints {
                 let ok = provider.is_cell_available(op, pov).map_err(|e| CellValidationError::InvalidFormat(e))?;
                 if !ok {
@@ -149,7 +159,18 @@ pub fn validate_in_reorg_context<P: DagCellProvider>(
     block_daa: u64,
     provider: &P,
 ) -> Result<(), CellValidationError> {
-    validate_cell_existence(tx, pov, provider)?;
+    validate_in_reorg_context_for_dep_group_abi(tx, pov, block_daa, provider, DepGroupDataAbi::Spora)
+}
+
+/// Validate transaction in reorg context using an explicit DepGroup cell-data ABI.
+pub fn validate_in_reorg_context_for_dep_group_abi<P: DagCellProvider>(
+    tx: &CellTx,
+    pov: Hash,
+    block_daa: u64,
+    provider: &P,
+    dep_group_data_abi: DepGroupDataAbi,
+) -> Result<(), CellValidationError> {
+    validate_cell_existence_for_dep_group_abi(tx, pov, provider, dep_group_data_abi)?;
 
     for input in &tx.inputs {
         let meta = provider

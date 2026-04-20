@@ -1,6 +1,6 @@
 # CellScript: Spora 区块链的领域特定语言
 
-**状态**: 实现中 (Phase 1 编译器 MVP 已收尾，Phase 2 资产生命周期/共享状态 operational exit gate 已关闭，Phase 3 节点/调度器集成 operational exit gate 已关闭，Phase 4 生产强化已开始；文档已按当前代码状态收紧)
+**状态**: 实现中 (Phase 1 编译器 MVP 已收尾，Phase 2 资产生命周期/共享状态 operational exit gate 已关闭，Phase 3 节点/调度器集成 operational exit gate 已关闭，Phase 4 生产强化 operational gate 已关闭；v1 仍是有边界 release promise)
 **日期**: 2026-04-13  
 **作者**: Spora 核心团队  
 **类别**: 语言设计 / 协议工程  
@@ -31,7 +31,7 @@
 | CLI 编译器 | 🟡 主编译入口可用 | `cellscript/src/main.rs` |
 | 标准库 | 🟡 基础运行时支持已接通，非完整标准库 | `cellscript/src/stdlib/` |
 | REPL 交互式解释器 | 🟡 基础可用 | `cellscript/src/repl.rs` |
-| 调度器元数据生成 | 🟡 metadata / `scheduler_witness_borsh_hex` 可用，`spora-exec` 可 admission，MPE `BlockAccessSummary` 已开始消费 shared touch 冲突域 | `cellscript/src/stdlib/mod.rs` |
+| 调度器元数据生成 | 🟡 metadata / `scheduler_witness_hex` + `scheduler_witness_abi = "molecule"` 为 launch 路径，新 metadata 不再发布 `scheduler_witness_molecule_hex` 或 legacy `scheduler_witness_borsh_hex`，`spora-exec` 可 admission，MPE `BlockAccessSummary` 已消费 shared touch 冲突域 | `cellscript/src/stdlib/mod.rs` |
 | 模块系统/名称解析 | 🟡 本地包 / path 依赖可用 | `cellscript/src/resolve/` |
 | 生命周期验证 | 🟡 部分集成到主编译路径/LSP，完整运行时转换验证未完成 | `cellscript/src/lifecycle/` |
 | 优化器 | 🟡 保守 AST 优化已接入 `opt_level > 0` 主编译链，非完整优化器 | `cellscript/src/optimize/` |
@@ -45,7 +45,7 @@
 | CLI 子命令 | 🟡 本地工作流已接主入口，registry/runtime 命令仍 fail-closed/feature-gated | `cellscript/src/cli/` |
 | 集合类型 | 🚧 基础定义 | `cellscript/src/stdlib/collections.rs` |
 | 调试信息 | 🚧 原型级 | `cellscript/src/debug/` |
-| 测试套件 | ✅ 默认特性 `cargo test -p cellscript` 当前 353 项全部通过 | `cellscript/src/`, `cellscript/tests/` |
+| 测试套件 | ✅ 默认特性 `cargo test -p cellscript` 当前 357 项全部通过 | `cellscript/src/`, `cellscript/tests/` |
 
 **编译器项目路径**: `/Users/arthur/RustroverProjects/Spora/cellscript/`  
 
@@ -270,7 +270,7 @@ CellScript **不**引入新的 VM。它编译为在 ckbvm 上执行的标准 RIS
 | `BLAKE3` (Spora 扩展) | TBD | 被 `hash()` 内置函数使用 |
 
 编译器将薄 CellScript 标准库链接到每个 ELF 二进制文件中。该标准库提供：
-- Cell 数据的 Borsh 序列化/反序列化
+- Cell 数据的 Molecule/schema 编码与解码
 - 具有安全 Rust 风格 API 的系统调用包装器
 - 运行时的线性强制（调试模式）和编译时的线性强制（始终）
 - 调度器元数据序列化
@@ -348,7 +348,7 @@ resource FungibleToken {
 
 映射到：
 - `CellOutput.type_` = 指向 FungibleToken 类型脚本的脚本
-- `outputs_data[i]` = Borsh 序列化的 `{ amount: u64, symbol: [u8; 8] }`
+- `outputs_data[i]` = Molecule/schema 编码的 `{ amount: u64, symbol: [u8; 8] }`
 - `CellOutput.capacity` = 此数据布局所需的最低容量
 - `CellOutput.lock` = 所有者的锁定脚本（由 `transfer` 目标设置）
 
@@ -420,7 +420,7 @@ resource FungibleToken {
 
 **如何映射到 Spora**：池是一个共享 Cell，其中：
 - `CellOutput.type_` = 池类型脚本（强制执行 AMM 不变量）
-- `outputs_data[i]` = Borsh 序列化的池状态：`{ reserve_a: u64, reserve_b: u64, total_lp: u64, fee_rate: u16 }`
+- `outputs_data[i]` = Molecule/schema 编码的池状态：`{ reserve_a: u64, reserve_b: u64, total_lp: u64, fee_rate: u16 }`
 - 交换交易消费池 Cell 并创建具有更新储备的新池 Cell
 - LP 添加/删除交易修改储备并创建/消费 LP 收据 Cell
 
@@ -554,7 +554,7 @@ shared Registry has store {
 }
 ```
 
-当前实现说明：`#[type_id("...")]` 是 type definition 级属性，可用于 `resource` / `shared` / `receipt` / `struct`。编译器会解析它、拒绝同模块重复值、在 IR 中保留，并在 metadata schema v22 中输出 `types[].type_id` 和 `types[].type_id_hash_blake3`。这还不是完整的 CKB type_id lineage verifier；验证 Cell 的 OutPoint 链追溯到创世交易仍属于后续可执行 verifier / transaction-builder 语义。
+当前实现说明：`#[type_id("...")]` 是 type definition 级属性，可用于 `resource` / `shared` / `receipt` / `struct`。编译器会解析它、拒绝同模块重复值、在 IR 中保留，并在 metadata schema v26 中输出 `types[].type_id` 和 `types[].type_id_hash_blake3`。在 `ckb` profile 下，persistent Cell 类型还会输出 `types[].ckb_type_id`，声明 CKB 内置 TYPE_ID 脚本 contract；这些类型的直接 `create` Output 还会输出 `create_set[].ckb_type_id` plan，包含具体 Output index。wallet builder 现在可以按 final output index 显式安装 TYPE_ID 脚本，native/WASM generator settings 也能按 CellScript action metadata 做 profile-aware 消费：Spora metadata 附加 Molecule scheduler witness，CKB metadata 安装 TYPE_ID 脚本；native/WASM generator settings 也能显式携带 CKB deps/header deps。更高层 CellScript transaction builder 自动传入 metadata/action/deps 仍是后续工作。
 
 ### 5.6 共享对象表示
 
@@ -1184,7 +1184,7 @@ RISC-V 代码生成器：
 
 - 生成 RISC-V 汇编代码
 - 支持 ckbvm 系统调用 (syscall 2071, 2073 等)
-- Borsh 序列化/反序列化支持
+- Molecule/schema 编码与解码支持
 - 类型描述符生成
 - 运行时支持函数
 
@@ -1192,10 +1192,10 @@ RISC-V 代码生成器：
 
 标准库提供以下功能：
 
-**Borsh 序列化/反序列化**：
-- `borsh_serialize_u8/u16/u32/u64/u128`
-- `borsh_serialize_bool/address/hash`
-- `borsh_deserialize_u64`
+**Molecule/schema 编码与解码**：
+- 固定宽度标量、`Address`、`Hash` 和 `[u8; N]` 的 schema 布局 helper
+- scheduler witness 的 Molecule table 编码
+- legacy Borsh helper 仅允许作为私有迁移/调试路径
 
 **ckbvm 系统调用包装器**：
 - `syscall_load_tx_hash` (2061)
@@ -1254,12 +1254,13 @@ cellc> action mint() { create Token { amount: 100 } }
 
 ### A.9 调度器元数据
 
-编译器自动生成调度器元数据 (SchedulerWitness)。当前实现将其暴露在编译元数据的
-`actions[].scheduler_witness_borsh_hex` 字段中；`spora-exec` 的 `CellTx`
-已有按 `0xCE11` magic/version 放置、发现并解码 CellScript scheduler witness 的低层 helper，
+编译器自动生成调度器元数据 (SchedulerWitness)。当前实现将 launch/public 路径暴露为
+`actions[].scheduler_witness_hex` + `actions[].scheduler_witness_abi = "molecule"`；新 metadata 不再发布
+`scheduler_witness_molecule_hex` 或 `scheduler_witness_borsh_hex`。公开默认读取路径会拒绝 legacy Borsh 字段和冲突的 Molecule alias；旧 `scheduler_witness_molecule_hex` 只在 launch 字段缺失时作为迁移读取路径保留，legacy Borsh 只能通过显式迁移/回归 helper 读取。`spora-exec` 的 `CellTx`
+已有按 Molecule table 放置、发现并解码/admit CellScript scheduler witness 的低层 helper，
 并能在 admission 时拒绝非法 effect/operation/source、越界 Input/CellDep/Output index，以及与可信摘要不一致的 operation/source/index/binding_hash multiset。共识侧 MPE `BlockAccessSummary`
 现在会消费 transaction-admitted witness，把 Input/CellDep/Output access 合并进块访问摘要，并把 `touches_shared` 分成 shared read/write 争用域；write/read 和 write/write 会序列化 DAG，read/read 仍可并行。
-Mempool validation 和 template prefilter 现在会在接收/选择前拒绝 malformed CellScript scheduler metadata；template policy 的 strict 测试路径也覆盖 missing / mismatched trusted summary。编译元数据可通过 `ActionMetadata::scheduler_witness_bytes()` 输出 witness bytes；`CellTx::push_cellscript_compiled_scheduler_witness(...)` 会把这些 bytes 对具体交易做 admission、写入 witness，并返回 strict policy 使用的 trusted access summary。Mining 的 mempool-entry / candidate snapshot / template selector 已能保存并传递 producer-backed trusted summary，包括可信空 summary；wallet transaction generator 已能把 compiled scheduler witness 附加到最终交易，并在 `PendingTransaction` 上暴露 trusted access summary；focused mining 测试已经证明 producer-returned summary 能通过 sidecar insertion 进入 selector exposure。剩余缺口是 selector-provided builder summary 进入 strict template prefilter 的测试，以及 RPC/外部提交路径是否需要显式携带 trusted summary。`read_ref`、`&mut shared` 参数以及返回值中含 `shared`
+Mempool validation 和 template prefilter 现在会在接收/选择前拒绝 malformed CellScript scheduler metadata；template policy 的 strict 测试路径也覆盖 missing / mismatched trusted summary。编译元数据可通过 `ActionMetadata::scheduler_witness_bytes()` 输出 witness bytes；`CellTx::push_cellscript_compiled_scheduler_witness(...)` 会把这些 bytes 对具体交易做 admission、写入 witness，并返回 strict policy 使用的 trusted access summary。Mining 的 mempool-entry / candidate snapshot / template selector 已能保存并传递 producer-backed trusted summary，包括可信空 summary；wallet transaction generator 已能把 compiled scheduler witness 附加到最终交易，并在 `PendingTransaction` 上暴露 trusted access summary；focused mining 测试已经证明 producer-returned summary 能通过 sidecar insertion 进入 selector exposure，focused consensus 测试也证明 selector-provided builder summary 会被 strict template prefilter 接收或拒绝。剩余缺口是 RPC/外部提交路径是否需要显式携带 trusted summary。`read_ref`、`&mut shared` 参数以及返回值中含 `shared`
 类型的组合调用现在会进入
 `touches_shared` 推断；它已进入第一条 MPE 调度消费路径，但仍不是完整的 v1 共识声明契约。
 
@@ -1547,7 +1548,7 @@ CellScript v1 核心语言**不允许**以下动态容器进入共识执行路�
        │
        ├──── 锁定脚本 ELF（授权逻辑）
        ├──── 类型脚本 ELF（状态转换验证）
-       ├──── 类型化数据布局（Cell 数据的 Borsh 模式）
+       ├──── 类型化数据布局（Cell 数据的 Molecule/schema 模式）
        └──── 调度器元数据（见证编码的提示）
 ```
 
@@ -1661,7 +1662,7 @@ CellScript 在现有 ckbvm 之上运行。"运行时"是链接到每个编译的
 │              ckbvm (RISC-V)             │
 │  ┌───────────────────────────────────┐  │
 │  │  CellScript 标准库（链接在内）    │  │
-│  │  - Borsh 序列化/反序列化          │  │
+│  │  - Molecule/schema 编码与解码     │  │
 │  │  - 系统调用包装器                 │  │
 │  │  - 线性运行时检查                 │  │
 │  │  - 不变量断言支持                 │  │
@@ -1692,16 +1693,17 @@ CellScript 产生两种脚本：
 ### 8.3 调度器感知
 
 设计目标是让编译器在指定的见证字段中发出调度器元数据。当前实现已经生成
-`scheduler_witness_borsh_hex` metadata sidecar；`spora-exec` 已有 CellTx witness
-放置/发现/解码/admission helper；共识 MPE `BlockAccessSummary` 已开始消费 transaction-admitted witness。
+`scheduler_witness_hex` + `scheduler_witness_abi = "molecule"` metadata sidecar；`spora-exec` 已有 CellTx witness
+放置/发现/解码/admission helper，公开 admission 只接受 Molecule，legacy Borsh 只保留为显式迁移/回归 helper；共识 MPE `BlockAccessSummary` 已消费 transaction-admitted witness。
 当前 `touches_shared` 会覆盖 `read_ref`、`&mut shared` 参数触点，以及返回值中含 `shared`
-类型的组合调用。MPE DAG 会把 `Pure` / `ReadOnly` 的 shared touch 视为 shared read，把其它 effect 的 shared touch 视为 shared write；read/read overlap 可并行，write/read 或 write/write overlap 会形成 DAG 依赖。共识 MPE 现在也有 strict trusted-access-set 路径：当交易构建器或编译元数据提供可信 operation/source/index/binding_hash multiset 时，缺失或不匹配会在 merge 前失败。Mempool validation 和 template prefilter 已经消费 admission policy：malformed CellScript scheduler metadata 会在接收/选择前失败，template strict policy fixtures 也覆盖 missing / mismatched trusted summary。低层 producer helper 已能从 compiled metadata witness bytes 生成并附加 witness，同时返回 trusted summary；Mining 的 mempool-entry / candidate snapshot / template selector 已能保存并传递这个 summary；wallet transaction generator 已能把 compiled scheduler witness 附加到最终交易并把 trusted summary 暴露给调用方；focused mining 测试证明 producer-returned summary 能通过 sidecar insertion 进入 selector exposure；focused consensus 测试证明 selector-provided builder summary 会被 strict template prefilter 接收或拒绝。剩余未闭合的是外部提交路径的 trusted summary 认证/传递策略，以及更完整的 producer-backed 恶意元数据测试。
+类型的组合调用。MPE DAG 会把 `Pure` / `ReadOnly` 的 shared touch 视为 shared read，把其它 effect 的 shared touch 视为 shared write；read/read overlap 可并行，write/read 或 write/write overlap 会形成 DAG 依赖。共识 MPE 现在也有 strict trusted-access-set 路径：当交易构建器或编译元数据提供可信 operation/source/index/binding_hash multiset 时，缺失或不匹配会在 merge 前失败。Mempool validation 和 template prefilter 已经消费 admission policy：malformed CellScript scheduler metadata 会在接收/选择前失败，template strict policy fixtures 也覆盖 missing / mismatched trusted summary。低层 producer helper 已能从 compiled metadata witness bytes 生成并附加 witness，同时返回 trusted summary；Mining 的 mempool-entry / candidate snapshot / template selector 已能保存并传递这个 summary；wallet transaction generator 已能把 compiled scheduler witness 附加到最终交易并把 trusted summary 暴露给调用方；focused mining 测试证明 producer-returned summary 能通过 sidecar insertion 进入 selector exposure；focused consensus 测试证明 selector-provided builder summary 会被 strict template prefilter 接收或拒绝。剩余 post-v1 未闭合的是外部提交路径的 trusted summary 认证/传递策略，以及更完整的 producer-backed 恶意元数据测试。
 元数据格式：
 
 ```
 // 用于调度器元数据的 Witness[N]（设计目标：按约定最后一个见证条目）
-// 当前代码路径：作为 CompileMetadata.actions[].scheduler_witness_borsh_hex 暴露
-// Payload 使用 Borsh 编码：
+// 当前 launch 路径：CompileMetadata.actions[].scheduler_witness_hex
+// ABI 标记：CompileMetadata.actions[].scheduler_witness_abi = "molecule"
+// Payload 使用 Molecule table 编码：
 struct SchedulerWitness {
     magic: u16,                 // 0xCE11
     version: u8,                // 1
@@ -2140,6 +2142,8 @@ Slice 106 更新：`transfer` / `destroy` / `claim` / `settle` 消费侧 Input �
 
 Slice 107 更新：verifier scratch/cell buffer 从 256 字节扩展到 512 字节，metadata schema 升级到 v22。`fixed_byte_width` 现在认识 `u128`（16 字节），使 u128 字段的 preserved field equality 从 `runtime-required` 升级为 `checked-runtime`（逐字节比较路径）。`fixed_register_width` 保持 ≤8 字节限制，确保 transition formula 验证只在 64 位寄存器可容纳的标量字段上执行。u128 transition 公式现在也通过 128 位 add/sub with carry 实现（`emit_mutate_replacement_u128_transition_checks`）：低 64 位和高 64 位分别加载，delta 始终是 u64，加法用 `sltu` 检测进位，减法用 `sltu` 检测借位。`METADATA_MUTATE_CELL_BUFFER_SIZE` 同步从 256 → 512。`receipt_claim_flow_checked_condition_guards` 通用化：任何使用 `env::current_daa_score()` + `assert_invariant` 的 receipt claim 都会自动识别 `daa-cliff-reached=checked-runtime`，不再限于 `claim_vested` + `VestingGrant` 硬编码。`claim_conditions_are_checked` 不再无条件拒绝有 source predicates 的 claim；当所有 source predicates 都有对应 checked guard（`daa-cliff-reached` / `source-invariant`）且签名验证也 checked 时，claim conditions 整体升级为 `checked-runtime`。这关闭了 `time-context-predicate-gap` 和 `claim-source-predicate-gap` 对 DAA cliff 路径的阻断，以及 `state-transition-formula-gap` 对 u128 字段的阻断。
 
+Slice 108 更新：AMM `reserve-conservation` 现在从 `runtime-required` 升级为 `checked-runtime`。当 `field_transition_status` 为 `checked-runtime` 时，`pool_checked_protocol_components` 会把 `reserve-conservation` 加入 checked 组件，因为储备守恒等价于可验证的字段 transition 公式：`reserve_a_out = reserve_a_in + input.amount`（add transition）和 `reserve_b_out = reserve_b_in - output`（sub transition）。`swap_a_for_b`、`add_liquidity` 和 `remove_liquidity` 的 reserve conservation 都因此关闭，invariant family source 标为 `transition-formula`，不再在 `runtime_required_components` 或 `runtime_input_requirements` 中保留 reserve-conservation 组件。剩余 AMM 经济不变量（constant-product-pricing、fee-accounting、proportional-liquidity/withdrawal-accounting）仍保持 `runtime-required`，因为这些需要 u128 乘法（`reserve_a * reserve_b` 可能溢出 u64）和不等式比较（`k_in <= k_out`），超出当前 verifier transition formula 的执行能力。
+
 目标：
 - 在后端工作扩展之前冻结最小语言核心。
 
@@ -2194,7 +2198,7 @@ Slice 107 更新：verifier scratch/cell buffer 从 256 字节扩展到 512 字�
 
 退出标准：
 - IR 模式版本 `v0`
-- 从源示例到 IR JSON 或 Borsh 形式的往返 fixtures
+- 从源示例到 IR JSON 或规范二进制形式的往返 fixtures
 - 共识相关 IR 与建议性调度器元数据之间的清晰区分
 
 #### 工作流 C — 编译器前端
@@ -2342,7 +2346,9 @@ Slice 107 更新：verifier scratch/cell buffer 从 256 字节扩展到 512 字�
 
 ### 阶段 2 — 资产生命周期和共享状态核心
 
-当前执行状态（2026-04-19）：Phase 2 和 Phase 3 operational exit gate 已关闭，Phase 4 生产强化已开始。`vesting.cell` 是当前受控目标；`read_ref` 参数调度器可见，schema-backed `Address` / `Hash` / `[u8; N]` 输出字段保存已进入 verifier 覆盖；create 的固定字节常量、`[u8; N<=8]` 参数、32 字节 `Address` / `Hash` 指针+长度参数输出验证已落地；一进一出、同类型、直接字段别名的 resource conservation、单字段 `amount: u64` 资源的多 Input 加法合并，以及单 Input `amount - split_terms` 拆分到多个同类型 Output 且每个扣减项都有 sibling Output 精确匹配的受限拆分，现在都通过 `resource-conservation:<T>` 标为 `checked-runtime`，并生成 checked `resource-conservation-proof` transaction input component；已有 duplicate amount leaf、missing consumed input leaf、duplicate/unmatched split output、extra field 负向测试防止误标；不匹配扣费/净额、额外字段和更广义跨 Cell 守恒仍是 `runtime-required`，并通过 transaction runtime input metadata 暴露 `resource-conservation-proof-gap` blocker class；可覆盖的 transfer 输出关系现在会把 `transfer-output-relation` 标为 `checked-runtime`，不可覆盖的 generalized transfer 输出关系则通过 `transfer-output-relation-gap` blocker class 显式暴露；可覆盖的 claim/settle 输出关系现在也会生成 checked `claim-output-relation` / `settle-output-relation` transaction input component，不可覆盖输出形状通过 `claim-output-relation-gap` / `settle-output-relation-gap` 显式暴露；不可覆盖的 mutable state transition / preserved-field equality 现在通过 `state-transition-formula-gap` / `state-field-equality-gap` blocker class 显式暴露，u128 字段的 `+/- u64` transition 已由 128 位 carry/borrow verifier 覆盖；带显式 20-byte signer 字段且源谓词已由 checked guard 覆盖的原生 receipt claim 现在能把 `claim-conditions:<Receipt>` 顶层标为 `checked-runtime`，而没有该 signer ABI 或缺少源谓词 checked guard 的 generalized claim 仍是 `runtime-required`，其中未覆盖源级谓词缺口通过 `claim-source-predicate-gap` blocker class 单独暴露；受限 lifecycle settle final-state + output admission 现在能把 `settle-finalization:<T>` 顶层标为 `checked-runtime`，而 generalized finalization 仍是 `runtime-required`；固定宽度 aggregate 参数（例如 `[u64; N]`、`[(Address, u64); N]`）现在也有指针+长度 ABI、exact-size/bounds check、静态 foreach 展开、固定索引 lowering 和 tuple field projection；已知 tuple 返回类型的调用现在可通过真实 RISC-V 返回寄存器 ABI 返回并投影 `.0` 到 `.7`；受控 `launch_token -> seed_pool` 的 `pool-id-continuity` 已标为 `checked-runtime`；受控 `swap_a_for_b` 的 LP supply 不变式已通过 preserved `Pool.total_lp` equality 标为 `checked-runtime`；新建 Output 的 `type_hash()` 现在可通过 `LOAD_CELL_BY_FIELD Source::Output field=5` 读取实例 TypeHash，并作为固定字节 verifier source；命名 schema 参数的 `type_hash()` 现在要求可信的 32 字节指针+长度 ABI，而不是把 Pool 实例身份简化为编译期类型名 hash；可证明的 `with_lock(...)` 绑定现在会通过 `LOAD_CELL_BY_FIELD` 读取输出 `LockHash` 并做 32 字节比较；命名 cell-backed `destroy` 现在会通过 `LOAD_CELL_BY_FIELD Source::GroupOutput field=5` 扫描 grouped outputs，区分 `INDEX_OUT_OF_BOUND` 扫描结束和 `ITEM_MISSING` 无 type script，并把 destroy output absence / group boundary 标为 `checked-runtime`。剩余真实差距集中在 post-v1 launch builder、更广义的池特化 admission/经济不变量、launch-pool 原子性，以及 generalized `claim` 授权策略和 `settle` 生命周期/最终化验证；其中 generalized transfer relation、generalized claim/settle output relation、generalized mutable state formulas、generalized claim/settle conditions/finalization 和 generalized resource conservation 已通过 transaction runtime input blocker class 表示，Pool/launch 剩余义务已通过 schema v22 `pool_primitives[]` blocker class 表示。池仍是 shared-state 协议模式，不是 v1 语言原语。Phase 3 已完成 CellTx witness placement helper、Borsh envelope decode/admission、effect/operation/source class 校验、transaction Input/CellDep/Output index bounds 校验、trusted operation/source/index/binding_hash access-set multiset 对比、compiled-metadata producer helper、wallet transaction generator witness 自动附加与 `PendingTransaction` trusted summary 暴露、producer-returned summary 通过 mining sidecar insertion 进入 selector exposure、selector-provided builder summary 的 strict template prefilter 接收/拒绝测试、consensus MPE access-summary consumption、mempool/template admission policy gate、mempool-entry/template selector producer sidecar 保存与传递，以及 malformed/illegal/out-of-bounds/underreported/forged/missing/mismatched/transaction-shape-incompatible witness summary、malformed/missing/mismatched policy metadata 和 selector sidecar 传递的第一批对抗测试；schema v22 还会把 claim witness/signature 这类 runtime-only 访问从 scheduler witness 中过滤出去。Phase 4 当前差距是外部提交路径 trusted summary 认证/传递策略、更完整的调度器/状态转换 adversarial/property 测试，以及 release-grade 格式化/检查/审计门禁。
+当前执行状态（2026-04-19）：Phase 2 和 Phase 3 operational exit gate 已关闭，Phase 4 生产强化 operational gate 已关闭。`vesting.cell` 是当前受控目标；`read_ref` 参数调度器可见，schema-backed `Address` / `Hash` / `[u8; N]` 输出字段保存已进入 verifier 覆盖；create 的固定字节常量、`[u8; N<=8]` 参数、32 字节 `Address` / `Hash` 指针+长度参数输出验证已落地；一进一出、同类型、直接字段别名的 resource conservation、单字段 `amount: u64` 资源的多 Input 加法合并，以及单 Input `amount - split_terms` 拆分到多个同类型 Output 且每个扣减项都有 sibling Output 精确匹配的受限拆分，现在都通过 `resource-conservation:<T>` 标为 `checked-runtime`，并生成 checked `resource-conservation-proof` transaction input component；已有 duplicate amount leaf、missing consumed input leaf、duplicate/unmatched split output、extra field 负向测试防止误标；不匹配扣费/净额、额外字段和更广义跨 Cell 守恒仍是 `runtime-required`，并通过 transaction runtime input metadata 暴露 `resource-conservation-proof-gap` blocker class；可覆盖的 transfer 输出关系现在会把 `transfer-output-relation` 标为 `checked-runtime`，不可覆盖的 generalized transfer 输出关系则通过 `transfer-output-relation-gap` blocker class 显式暴露；可覆盖的 claim/settle 输出关系现在也会生成 checked `claim-output-relation` / `settle-output-relation` transaction input component，不可覆盖输出形状通过 `claim-output-relation-gap` / `settle-output-relation-gap` 显式暴露；不可覆盖的 mutable state transition / preserved-field equality 现在通过 `state-transition-formula-gap` / `state-field-equality-gap` blocker class 显式暴露，u128 字段的 `+/- u64` transition 已由 128 位 carry/borrow verifier 覆盖；带显式 20-byte signer 字段且源谓词已由 checked guard 覆盖的原生 receipt claim 现在能把 `claim-conditions:<Receipt>` 顶层标为 `checked-runtime`，而没有该 signer ABI 或缺少源谓词 checked guard 的 generalized claim 仍是 `runtime-required`，其中未覆盖源级谓词缺口通过 `claim-source-predicate-gap` blocker class 单独暴露；受限 lifecycle settle final-state + output admission 现在能把 `settle-finalization:<T>` 顶层标为 `checked-runtime`，而 generalized finalization 仍是 `runtime-required`；固定宽度 aggregate 参数（例如 `[u64; N]`、`[(Address, u64); N]`）现在也有指针+长度 ABI、exact-size/bounds check、静态 foreach 展开、固定索引 lowering 和 tuple field projection；已知 tuple 返回类型的调用现在可通过真实 RISC-V 返回寄存器 ABI 返回并投影 `.0` 到 `.7`；受控 `launch_token -> seed_pool` 的 `pool-id-continuity` 已标为 `checked-runtime`；受控 `swap_a_for_b` 的 LP supply 不变式已通过 preserved `Pool.total_lp` equality 标为 `checked-runtime`；新建 Output 的 `type_hash()` 现在可通过 `LOAD_CELL_BY_FIELD Source::Output field=5` 读取实例 TypeHash，并作为固定字节 verifier source；命名 schema 参数的 `type_hash()` 现在要求可信的 32 字节指针+长度 ABI，而不是把 Pool 实例身份简化为编译期类型名 hash；可证明的 `with_lock(...)` 绑定现在会通过 `LOAD_CELL_BY_FIELD` 读取输出 `LockHash` 并做 32 字节比较；命名 cell-backed `destroy` 现在会通过 `LOAD_CELL_BY_FIELD Source::GroupOutput field=5` 扫描 grouped outputs，区分 `INDEX_OUT_OF_BOUND` 扫描结束和 `ITEM_MISSING` 无 type script，并把 destroy output absence / group boundary 标为 `checked-runtime`。剩余真实差距集中在 post-v1 launch builder、更广义的池特化 admission/经济不变量、launch-pool 原子性，以及 generalized `claim` 授权策略和 `settle` 生命周期/最终化验证；其中 generalized transfer relation、generalized claim/settle output relation、generalized mutable state formulas、generalized claim/settle conditions/finalization 和 generalized resource conservation 已通过 transaction runtime input blocker class 表示，Pool/launch 剩余义务已通过 schema v26 `pool_primitives[]` blocker class 表示。池仍是 shared-state 协议模式，不是 v1 语言原语。Phase 3 已完成 CellTx witness placement helper、public Molecule witness decode/admission、legacy Borsh 显式迁移/回归 decode helper、effect/operation/source class 校验、transaction Input/CellDep/Output index bounds 校验、trusted operation/source/index/binding_hash access-set multiset 对比、compiled-metadata producer helper、wallet transaction generator witness 自动附加与 `PendingTransaction` trusted summary 暴露、producer-returned summary 通过 mining sidecar insertion 进入 selector exposure、selector-provided builder summary 的 strict template prefilter 接收/拒绝测试、consensus MPE access-summary consumption、mempool/template admission policy gate、mempool-entry/template selector producer sidecar 保存与传递，以及 malformed/illegal/out-of-bounds/underreported/forged/missing/mismatched/transaction-shape-incompatible witness summary、malformed/missing/mismatched policy metadata 和 selector sidecar 传递的第一批对抗测试；schema v26 还会把 claim witness/signature 这类 runtime-only 访问从 scheduler witness 中过滤出去，并把 public scheduler witness 暴露为 `scheduler_witness_hex` + `scheduler_witness_abi = "molecule"`。v1 剩余差距是 post-v1 范围：外部提交路径 trusted summary 认证/传递策略、更完整的调度器/状态转换 adversarial/property 测试，以及 generalized stateful protocol semantics。
+
+更新口径：上段中的 legacy Borsh 仅指显式迁移/回归 decoder 仍保留；公开 admission、`ActionMetadata::scheduler_witness_bytes()` 默认路径、native/WASM wallet metadata path 都只接受 Molecule，并拒绝 legacy Borsh 字段。
 
 目标：
 - 使语言对真正的 Spora 原生协议有用。
@@ -2413,7 +2419,7 @@ Slice 107 更新：verifier scratch/cell buffer 从 256 字节扩展到 512 字�
 | 关注点 | 属于哪里 | 注释 |
 |---|---|---|
 | 交易线结构 | `CellTx` 信封（保持不变） | 保持不变 |
-| 对象负载模式 | 对象模型 + 编译器输出 | Borsh 编码的类型化负载 |
+| 对象负载模式 | 对象模型 + 编译器输出 | Molecule/schema 编码的类型化负载 |
 | 对象身份/版本/生命周期 | 类型脚本定义的布局，在有用的地方具有可选标准化头模板 | 不要对所有 Cell 强制通用协议范围的头 |
 | 资源线性 | 编译器 | 编译时保证 |
 | 生命周期合法性 | 编译器 + 验证器 | 尽可能静态，需要时运行时 |
@@ -2426,7 +2432,7 @@ Slice 107 更新：verifier scratch/cell buffer 从 256 字节扩展到 512 字�
 
 推荐：
 - 解析器：手写递归下降
-- 编码：Borsh
+- 编码：公开 VM/CellScript ABI 使用 Molecule；测试/调试可保留 JSON 镜像；Borsh 仅限隔离的私有存储或迁移工具
 - 用于测试/调试的 IR 格式：JSON 镜像加上规范二进制形式
 - 后端：首先简单的自定义降级，除非以后有正当理由，否则没有 LLVM 依赖
 - 标准库：薄而显式，具有系统调用包装器和类型化布局助手
@@ -3013,9 +3019,9 @@ CellScript 是一个针对现有基础设施的编译器。它在不修改基础
 
 1. **原始字节级编程**：CKB 鼓励用 C/汇编编写脚本。CellScript 用类型化语言取代这一点。原始脚本保持支持，但不是推荐路径。
 
-2. **手动见证编码**：CKB 脚本逐字节解析见证。CellScript 的编译器自动生成基于 Borsh 的见证编码/解码。标准库处理序列化。
+2. **手动见证编码**：CKB 脚本逐字节解析见证。CellScript 的编译器自动生成规范 Molecule witness/schema 编码。标准库处理序列化。
 
-3. **无类型 Cell 数据**：CKB Cell 数据是具有无强制模式的 `Vec<u8>`。CellScript 在编译时强制执行类型化数据布局，并为每个资源类型生成 Borsh 模式。类型脚本验证数据布局转换。
+3. **无类型 Cell 数据**：CKB Cell 数据是具有无强制模式的 `Vec<u8>`。CellScript 在编译时强制执行类型化数据布局，并为每个资源类型生成 Molecule/schema 模式。类型脚本验证数据布局转换。
 
    重要限制：
    CellScript 不应该用强制通用对象头取代这一点。类型化布局应该保持编译器和脚本定义，仅在抽象明显值得的地方具有可选标准化布局模板。
@@ -3027,7 +3033,7 @@ CellScript 是一个针对现有基础设施的编译器。它在不修改基础
    重要信任边界：
    这些提示仅是建议性的。链在 v1 中不能依赖它们进行共识有效性。
 
-6. **Molecule 序列化**：CKB 使用 Molecule 进行链上编码。Spora 已经采用 Borsh（代码大小小 80%）。CellScript 专门生成 Borsh 编码。
+6. **Molecule 序列化**：CKB 使用 Molecule 进行链上编码。Spora 启动前的公开 VM/CellScript ABI 也应使用 Molecule；Borsh 只能留在不进入交易、共识、RPC 或跨语言合约 ABI 的私有实现边界。
 
 ### 13.6 CellScript 如何取代 CoBuild / OTX / 交易构建器心智模型
 
@@ -3085,7 +3091,7 @@ CellScript 的价值是将此协调栈内部化为一个规范管道：
 | 关注点 | 位置 | 原理 |
 |---|---|---|
 | 交易结构 | CellTx 信封（不变） | CellScript 编译成有效的 CellTx。信封是协议的线格式。 |
-| 对象数据布局 | Cell 数据（outputs_data） | CellScript 生成 Borsh 编码的类型化数据。类型脚本验证布局。 |
+| 对象数据布局 | Cell 数据（outputs_data） | CellScript 生成 Molecule/schema 编码的类型化数据。类型脚本验证布局。 |
 | 可选对象头模板 | 选定模式的编译器约定 | 对某些 `shared` / `receipt` / `settle` 模式有用，但不是全局强制的 |
 | 状态转换规则 | 类型脚本 ELF（编译器输出） | 类型脚本就是编译的 CellScript 操作。它在 ckbvm 中运行。 |
 | 授权逻辑 | 锁定脚本 ELF（编译器输出） | 锁定脚本从 CellScript 锁定函数编译。 |

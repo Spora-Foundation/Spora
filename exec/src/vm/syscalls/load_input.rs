@@ -10,7 +10,7 @@ use crate::celltx::{CellInput, CellTx};
 use crate::serialization::molecule_compat::{serialize_cell_input_molecule, serialize_outpoint_molecule};
 use crate::serialization::vm_abi::serialize_outpoint;
 use crate::serialization::VmAbiFormat;
-use crate::vm::transferred_byte_cycles;
+use crate::vm::{transferred_byte_cycles, VmSemantics};
 use ckb_vm::{
     registers::{A0, A3, A4, A5, A7},
     Error as VMError, Register, SupportMachine, Syscalls,
@@ -24,16 +24,22 @@ pub struct LoadInput {
     tx: Arc<CellTx>,
     group_input_indices: Vec<usize>,
     abi_format: VmAbiFormat,
+    semantics: VmSemantics,
 }
 
 impl LoadInput {
     pub fn new(tx: Arc<CellTx>, group_input_indices: Vec<usize>) -> Self {
-        Self { tx, group_input_indices, abi_format: VmAbiFormat::Legacy }
+        Self { tx, group_input_indices, abi_format: VmAbiFormat::Molecule, semantics: VmSemantics::SporaExtended }
     }
 
     /// Select the VM ABI wire format used by full input loads.
     pub fn with_abi_format(mut self, abi_format: VmAbiFormat) -> Self {
         self.abi_format = abi_format;
+        self
+    }
+
+    pub fn with_semantics(mut self, semantics: VmSemantics) -> Self {
+        self.semantics = semantics;
         self
     }
 
@@ -85,7 +91,7 @@ impl<M: SupportMachine> Syscalls<M> for LoadInput {
         }
 
         let index = machine.registers()[A3].to_u64() as usize;
-        let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
+        let source = Source::parse_from_u64_for_semantics(machine.registers()[A4].to_u64(), self.semantics)?;
 
         // Get input
         let input = match self.get_input(source, index) {
@@ -121,7 +127,7 @@ mod tests {
     use crate::serialization::molecule_compat::serialize_cell_input_molecule;
     use crate::serialization::VmAbiFormat;
     use crate::vm::syscalls::SUCCESS;
-    use crate::vm::ScriptVersion;
+    use crate::vm::{ScriptVersion, VmSemantics};
     use ckb_vm::{
         registers::{A1, A2},
         CoreMachine, Memory, Register,
@@ -152,7 +158,7 @@ mod tests {
         machine.set_register(A4, 0x01);
         machine.set_register(A7, LOAD_INPUT_SYSCALL_NUMBER);
 
-        let mut syscall = LoadInput::new(tx, vec![0]);
+        let mut syscall = LoadInput::new(tx, vec![0]).with_abi_format(VmAbiFormat::Legacy);
         let handled = syscall.ecall(&mut machine).expect("load input syscall should succeed");
 
         assert!(handled);
@@ -221,5 +227,33 @@ mod tests {
         let err = syscall.ecall(&mut machine).expect_err("unknown field should trap");
 
         assert_eq!(err, VMError::External("InputField parse_from_u64 99".to_string()));
+    }
+
+    #[test]
+    fn test_load_input_ckb_strict_rejects_legacy_group_source_encoding() {
+        let input = CellInput::new(crate::celltx::OutPoint::new([0xAB; 32], 7), 0x1122_3344_5566_7788);
+        let tx = Arc::new(CellTx {
+            version: 0xC001,
+            inputs: vec![input],
+            cell_deps: vec![],
+            header_deps: vec![],
+            outputs: vec![],
+            outputs_data: vec![],
+            witnesses: vec![],
+        });
+
+        let mut machine = ScriptVersion::V2.init_core_machine(10_000);
+        machine.memory_mut().store64(&SIZE_ADDR, &8u64).unwrap();
+        machine.set_register(A0, BUFFER_ADDR);
+        machine.set_register(A1, SIZE_ADDR);
+        machine.set_register(A2, 0);
+        machine.set_register(A3, 0);
+        machine.set_register(A4, 0x0100);
+        machine.set_register(A7, LOAD_INPUT_SYSCALL_NUMBER);
+
+        let mut syscall = LoadInput::new(tx, vec![0]).with_semantics(VmSemantics::CkbStrict);
+        let err = syscall.ecall(&mut machine).expect_err("legacy group source should be rejected under CKB strict");
+
+        assert_eq!(err, VMError::External("SourceEntry parse_from_u64 256".to_string()));
     }
 }

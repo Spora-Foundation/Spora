@@ -5,6 +5,7 @@
 
 use super::{MAX_VMS_SPAWNED, SPAWN_EXTRA_CYCLES_BASE, SPAWN_SYSCALL_NUMBER, SPAWN_YIELD_CYCLES_BASE};
 use crate::vm::scheduler::{Fd, Message, ProgramLocation, ProgramPiece, ProgramResolver, SpawnRequest, VmId, VmRuntime};
+use crate::vm::VmSemantics;
 use ckb_vm::{
     memory::Memory,
     registers::{A0, A1, A2, A3, A4, A7},
@@ -22,6 +23,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct Spawn {
     runtime: Option<SpawnRuntime>,
+    semantics: VmSemantics,
 }
 
 #[derive(Clone)]
@@ -33,11 +35,19 @@ struct SpawnRuntime {
 
 impl Spawn {
     pub fn new() -> Self {
-        Self { runtime: None }
+        Self { runtime: None, semantics: VmSemantics::SporaExtended }
     }
 
     pub fn with_runtime(id: VmId, runtime: &VmRuntime, program_resolver: ProgramResolver) -> Self {
-        Self { runtime: Some(SpawnRuntime { id, message_box: Arc::clone(&runtime.message_box), program_resolver }) }
+        Self {
+            runtime: Some(SpawnRuntime { id, message_box: Arc::clone(&runtime.message_box), program_resolver }),
+            semantics: VmSemantics::SporaExtended,
+        }
+    }
+
+    pub fn with_semantics(mut self, semantics: VmSemantics) -> Self {
+        self.semantics = semantics;
+        self
     }
 }
 
@@ -59,7 +69,7 @@ impl<M: SupportMachine> Syscalls<M> for Spawn {
         };
 
         let index = machine.registers()[A0].to_u64() as usize;
-        let source = super::Source::parse_from_u64(machine.registers()[A1].to_u64())?;
+        let source = super::Source::parse_from_u64_for_semantics(machine.registers()[A1].to_u64(), self.semantics)?;
         let Some(place) = crate::vm::scheduler::ProgramPlace::parse(machine.registers()[A2].to_u64()) else {
             machine.set_register(A0, M::REG::from_u8(super::INDEX_OUT_OF_BOUND));
             return Ok(true);

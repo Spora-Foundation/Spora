@@ -7,6 +7,7 @@ use crate::{
     TransactionRuntimeInputRequirementMetadata, VerifierObligationMetadata,
 };
 use serde::Serialize;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -120,15 +121,23 @@ pub struct DocGenerator {
     modules: Vec<ModuleDoc>,
     audit: Option<AuditDoc>,
     format: OutputFormat,
+    /// Cross-reference index: type name -> module name that defines it.
+    type_index: HashMap<String, String>,
 }
 
 impl DocGenerator {
     pub fn new(format: OutputFormat) -> Self {
-        Self { modules: Vec::new(), audit: None, format }
+        Self { modules: Vec::new(), audit: None, format, type_index: HashMap::new() }
     }
 
     pub fn add_module(&mut self, module: &Module) {
         let items = module.items.iter().filter_map(item_doc).collect::<Vec<_>>();
+        // Build cross-reference index for types
+        for item in &module.items {
+            if let Some(name) = item_name_for_xref(item) {
+                self.type_index.entry(name).or_insert_with(|| module.name.clone());
+            }
+        }
         self.modules.push(ModuleDoc { name: module.name.clone(), items });
     }
 
@@ -200,6 +209,30 @@ impl DocGenerator {
                     })?)
             }
         }
+    }
+
+    /// Generate a search index as JSON for client-side search.
+    /// Returns a JSON array of { name, kind, module } entries.
+    pub fn generate_search_index(&self) -> String {
+        let entries: Vec<serde_json::Value> = self
+            .modules
+            .iter()
+            .flat_map(|module| {
+                module.items.iter().map(|item| {
+                    serde_json::json!({
+                        "name": item.name,
+                        "kind": item.kind,
+                        "module": module.name,
+                    })
+                })
+            })
+            .collect();
+        serde_json::to_string_pretty(&entries).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// Look up the module that defines a given type name.
+    pub fn resolve_type(&self, type_name: &str) -> Option<&str> {
+        self.type_index.get(type_name).map(|s| s.as_str())
     }
 
     fn generate_markdown(&self) -> String {
@@ -914,6 +947,22 @@ fn escape_html(input: &str) -> String {
     input.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
 }
 
+/// Extract a documentable name from an AST item for cross-reference indexing.
+fn item_name_for_xref(item: &Item) -> Option<String> {
+    match item {
+        Item::Resource(r) => Some(r.name.clone()),
+        Item::Shared(s) => Some(s.name.clone()),
+        Item::Receipt(r) => Some(r.name.clone()),
+        Item::Struct(s) => Some(s.name.clone()),
+        Item::Enum(e) => Some(e.name.clone()),
+        Item::Action(a) => Some(a.name.clone()),
+        Item::Function(f) => Some(f.name.clone()),
+        Item::Lock(l) => Some(l.name.clone()),
+        Item::Const(c) => Some(c.name.clone()),
+        Item::Use(_) => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -955,6 +1004,7 @@ action add(x: u64, y: u64) -> u64 {
             }],
             audit: None,
             format: OutputFormat::Html,
+            type_index: HashMap::new(),
         };
 
         let docs = generator.generate().unwrap();
@@ -1018,7 +1068,7 @@ action add(x: u64, y: u64) -> u64 {
             target_syscall_set: "spora-ckb-style-load-syscalls".to_string(),
             target_artifact_packaging: "spora-asm-sidecar".to_string(),
             target_header_abi: "spora-dag-header".to_string(),
-            target_scheduler_abi: "spora-scheduler-witness-v1-temporary-borsh".to_string(),
+            target_scheduler_abi: "spora-scheduler-witness-v1-molecule".to_string(),
             vm_abi_format: "molecule".to_string(),
             vm_abi_version: 0x8001,
             vm_abi_embedded_in_artifact: false,
@@ -1071,7 +1121,7 @@ action add(x: u64, y: u64) -> u64 {
             target_syscall_set: "spora-ckb-style-load-syscalls".to_string(),
             target_artifact_packaging: "spora-asm-sidecar".to_string(),
             target_header_abi: "spora-dag-header".to_string(),
-            target_scheduler_abi: "spora-scheduler-witness-v1-temporary-borsh".to_string(),
+            target_scheduler_abi: "spora-scheduler-witness-v1-molecule".to_string(),
             vm_abi_format: "molecule".to_string(),
             vm_abi_version: 0x8001,
             vm_abi_embedded_in_artifact: false,

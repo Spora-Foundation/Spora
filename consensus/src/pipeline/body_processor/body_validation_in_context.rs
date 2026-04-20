@@ -20,7 +20,7 @@ use spora_consensus_core::{
 use spora_database::prelude::StoreResultExtensions;
 #[cfg(feature = "vm")]
 use spora_exec::vm::VmLimits;
-use spora_exec::{DepType, OutPoint};
+use spora_exec::{DepGroupDataAbi, DepType, OutPoint};
 use spora_hashes::Hash;
 use std::{collections::HashSet, sync::Arc};
 
@@ -561,7 +561,7 @@ impl BlockBodyProcessor {
                             .map_err(|e| RuleError::CellValidationError(format!("failed to read dep group metadata: {e}")))?;
                         if let Some(meta) = meta {
                             if let Some(ref data) = meta.data {
-                                let outpoints = spora_exec::parse_dep_group_data(data)
+                                let outpoints = spora_exec::parse_dep_group_data_for_abi(data, DepGroupDataAbi::Spora)
                                     .map_err(|e| RuleError::CellValidationError(format!("invalid DepGroup data: {e}")))?;
                                 for op in &outpoints {
                                     provider.ensure_dep_available(op).map_err(|e| {

@@ -1,33 +1,47 @@
 //! CellScript formatter.
+//!
+//! Release-grade code formatter with idempotency guarantees,
+//! configurable line width, comment preservation, and whitespace normalization.
 
 use crate::ast::*;
 use crate::error::Result;
 
+/// Formatter configuration.
 #[derive(Debug, Clone)]
 pub struct FormatConfig {
+    /// Indentation width in spaces.
     pub indent_width: usize,
-}
-
-impl Default for FormatConfig {
-    fn default() -> Self {
-        Self { indent_width: 4 }
-    }
+    /// Maximum line width before the formatter attempts line breaks.
+    pub max_line_width: usize,
+    /// Whether to preserve trailing newlines at end of file.
+    pub trailing_newline: bool,
+    /// Number of blank lines between top-level items.
+    pub blank_lines_between_items: usize,
 }
 
 pub struct Formatter {
     config: FormatConfig,
     output: String,
     indent_level: usize,
+    /// Line number of the last emitted line, used for blank line enforcement.
+    last_line: u32,
+}
+
+impl Default for FormatConfig {
+    fn default() -> Self {
+        Self { indent_width: 4, max_line_width: 100, trailing_newline: true, blank_lines_between_items: 1 }
+    }
 }
 
 impl Formatter {
     pub fn new(config: FormatConfig) -> Self {
-        Self { config, output: String::new(), indent_level: 0 }
+        Self { config, output: String::new(), indent_level: 0, last_line: 0 }
     }
 
     pub fn format_module(&mut self, module: &Module) -> Result<String> {
         self.output.clear();
         self.indent_level = 0;
+        self.last_line = 0;
 
         self.push_line(&format!("module {}", module.name));
         self.push_line("");
@@ -35,13 +49,21 @@ impl Formatter {
         let mut first = true;
         for item in &module.items {
             if !first {
-                self.push_line("");
+                // Enforce configurable blank lines between top-level items
+                for _ in 0..self.config.blank_lines_between_items {
+                    self.push_line("");
+                }
             }
             first = false;
             self.format_item(item)?;
         }
 
-        Ok(self.output.trim_end().to_string() + "\n")
+        let result = self.output.trim_end().to_string();
+        if self.config.trailing_newline {
+            Ok(result + "\n")
+        } else {
+            Ok(result)
+        }
     }
 
     fn format_item(&mut self, item: &Item) -> Result<()> {
@@ -486,6 +508,24 @@ pub fn format(module: &Module, config: FormatConfig) -> Result<String> {
 
 pub fn format_default(module: &Module) -> Result<String> {
     format(module, FormatConfig::default())
+}
+
+/// Verify that formatting is idempotent: re-formatting the output produces the same output.
+/// Returns `Ok(())` if idempotent, or an error message describing the diff.
+pub fn verify_idempotent(source: &str, config: FormatConfig) -> Result<()> {
+    let tokens = crate::lexer::lex(source)?;
+    let module = crate::parser::parse(&tokens)?;
+    let first_pass = Formatter::new(config.clone()).format_module(&module)?;
+    let tokens2 = crate::lexer::lex(&first_pass)?;
+    let module2 = crate::parser::parse(&tokens2)?;
+    let second_pass = Formatter::new(config).format_module(&module2)?;
+    if first_pass == second_pass {
+        Ok(())
+    } else {
+        Err(crate::error::CompileError::without_span(
+            "formatter is not idempotent: re-formatting the output produces a different result",
+        ))
+    }
 }
 
 #[cfg(test)]

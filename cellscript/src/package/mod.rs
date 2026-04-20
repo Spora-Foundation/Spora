@@ -4,7 +4,7 @@
 
 use crate::error::{CompileError, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 /// 包清单 (Cell.toml)
@@ -341,7 +341,7 @@ dist/
     }
 
     /// 从注册表解析
-    fn resolve_from_registry(&self, name: &str, version: &str) -> Result<ResolvedPackage> {
+    pub fn resolve_from_registry(&self, name: &str, version: &str) -> Result<ResolvedPackage> {
         Err(CompileError::without_span(format!(
             "registry dependency '{}' with version '{}' is not supported yet; use a local path dependency",
             name, version
@@ -349,7 +349,7 @@ dist/
     }
 
     /// 从本地路径解析
-    fn resolve_from_path(&self, name: &str, path: &str) -> Result<ResolvedPackage> {
+    pub fn resolve_from_path(&self, name: &str, path: &str) -> Result<ResolvedPackage> {
         let package_path = self.root.join(path);
         let manifest_path = package_path.join("Cell.toml");
 
@@ -370,12 +370,134 @@ dist/
     }
 
     /// 从 Git 解析
-    fn resolve_from_git(&self, name: &str, url: &str, detailed: &DetailedDependency) -> Result<ResolvedPackage> {
-        let revision = detailed.rev.clone().or(detailed.tag.clone()).or(detailed.branch.clone()).unwrap_or_else(|| "main".to_string());
-        Err(CompileError::without_span(format!(
-            "git dependency '{}' from '{}' at revision '{}' is not supported yet; use a local path dependency",
-            name, url, revision
-        )))
+    pub fn resolve_from_git(&self, name: &str, url: &str, detailed: &DetailedDependency) -> Result<ResolvedPackage> {
+        let cache_dir = self.git_cache_dir();
+        std::fs::create_dir_all(&cache_dir).map_err(|e| {
+            CompileError::without_span(format!("failed to create git cache directory '{}': {}", cache_dir.display(), e))
+        })?;
+
+        // 生成缓存目录名 (基于 URL 的简短哈希)
+        let cache_name = format!("{}-{:016x}", name, simple_hash(url));
+        let clone_dir = cache_dir.join(&cache_name);
+
+        // 如果缓存已存在，尝试 git pull 更新
+        // 否则执行 git clone
+        let git_result = if clone_dir.exists() && clone_dir.join(".git").exists() {
+            Self::git_update(&clone_dir)
+        } else {
+            // 删除可能残留的目录
+            let _ = std::fs::remove_dir_all(&clone_dir);
+            Self::git_clone(url, &clone_dir)
+        };
+
+        git_result.map_err(|e| CompileError::without_span(format!("git dependency '{}' from '{}' failed: {}", name, url, e)))?;
+
+        // 切换到指定分支/标签/修订
+        if let Some(ref_str) = detailed.rev.as_ref().or(detailed.tag.as_ref()).or(detailed.branch.as_ref()) {
+            Self::git_checkout(&clone_dir, ref_str).map_err(|e| {
+                CompileError::without_span(format!("git dependency '{}' failed to checkout '{}': {}", name, ref_str, e))
+            })?;
+        }
+
+        // 获取当前 commit hash
+        let revision = Self::git_revision(&clone_dir).unwrap_or_else(|_| "unknown".to_string());
+
+        // 解析克隆仓库的 Cell.toml
+        let manifest_path = clone_dir.join("Cell.toml");
+        if !manifest_path.exists() {
+            return Err(CompileError::without_span(format!(
+                "git dependency '{}' from '{}' does not contain Cell.toml at repository root",
+                name, url
+            )));
+        }
+
+        let content = std::fs::read_to_string(&manifest_path)?;
+        let manifest: PackageManifest = toml::from_str(&content)?;
+
+        Ok(ResolvedPackage {
+            name: name.to_string(),
+            version: manifest.package.version.clone(),
+            path: clone_dir.clone(),
+            source: PackageSource::Git { url: url.to_string(), revision },
+            dependencies: manifest.dependencies.keys().cloned().collect(),
+        })
+    }
+
+    /// 获取 git 缓存目录
+    fn git_cache_dir(&self) -> PathBuf {
+        self.root.join(".cell/git-cache")
+    }
+
+    /// 执行 git clone
+    fn git_clone(url: &str, target: &Path) -> std::result::Result<(), String> {
+        let output = std::process::Command::new("git")
+            .args(["clone", "--depth", "1", url, &target.to_string_lossy()])
+            .output()
+            .map_err(|e| format!("failed to execute git: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("git clone failed: {}", stderr.trim()));
+        }
+
+        Ok(())
+    }
+
+    /// 执行 git pull 更新已有克隆
+    fn git_update(clone_dir: &Path) -> std::result::Result<(), String> {
+        let output = std::process::Command::new("git")
+            .args(["pull", "--ff-only"])
+            .current_dir(clone_dir)
+            .output()
+            .map_err(|e| format!("failed to execute git: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            // pull 失败不是致命错误，使用现有缓存
+            eprintln!("Warning: git pull failed for {}: {}", clone_dir.display(), stderr.trim());
+        }
+
+        Ok(())
+    }
+
+    /// 执行 git checkout 切换分支/标签
+    fn git_checkout(clone_dir: &Path, ref_str: &str) -> std::result::Result<(), String> {
+        // 先 fetch 指定 ref
+        let _output = std::process::Command::new("git")
+            .args(["fetch", "origin", ref_str])
+            .current_dir(clone_dir)
+            .output()
+            .map_err(|e| format!("failed to execute git fetch: {}", e))?;
+
+        // fetch 失败仍然尝试 checkout（可能已经本地存在）
+
+        let output = std::process::Command::new("git")
+            .args(["checkout", ref_str])
+            .current_dir(clone_dir)
+            .output()
+            .map_err(|e| format!("failed to execute git checkout: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("git checkout {} failed: {}", ref_str, stderr.trim()));
+        }
+
+        Ok(())
+    }
+
+    /// 获取当前 git commit hash
+    fn git_revision(clone_dir: &Path) -> std::result::Result<String, String> {
+        let output = std::process::Command::new("git")
+            .args(["rev-parse", "--short", "HEAD"])
+            .current_dir(clone_dir)
+            .output()
+            .map_err(|e| format!("failed to execute git rev-parse: {}", e))?;
+
+        if !output.status.success() {
+            return Err("git rev-parse failed".to_string());
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
     /// 获取已解析的依赖
@@ -478,6 +600,106 @@ impl DependencyGraph {
         rec_stack.pop();
         None
     }
+}
+
+/// 简单哈希函数 (FNV-1a 风格) 用于生成缓存目录名
+fn simple_hash(s: &str) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in s.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+/// 锁文件 (Cell.lock)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Lockfile {
+    /// 锁文件版本
+    pub version: u32,
+    /// 锁定的依赖
+    pub dependencies: BTreeMap<String, LockedDependency>,
+}
+
+impl Lockfile {
+    /// 当前锁文件格式版本
+    pub const CURRENT_VERSION: u32 = 1;
+
+    /// 创建新的空锁文件
+    pub fn new() -> Self {
+        Self { version: Self::CURRENT_VERSION, dependencies: BTreeMap::new() }
+    }
+
+    /// 从项目根目录读取锁文件
+    pub fn read_from_root(root: &Path) -> Option<Self> {
+        let lock_path = root.join("Cell.lock");
+        if !lock_path.exists() {
+            return None;
+        }
+        let content = std::fs::read_to_string(&lock_path).ok()?;
+        toml::from_str(&content).ok()
+    }
+
+    /// 写入锁文件到项目根目录
+    pub fn write_to_root(&self, root: &Path) -> Result<()> {
+        let lock_path = root.join("Cell.lock");
+        let content = toml::to_string_pretty(self)?;
+        std::fs::write(&lock_path, content)?;
+        Ok(())
+    }
+
+    /// 从已解析的依赖更新锁文件
+    pub fn update_from_resolved(&mut self, resolved: &HashMap<String, ResolvedPackage>) {
+        for (name, package) in resolved {
+            let locked = LockedDependency {
+                version: package.version.clone(),
+                source: match &package.source {
+                    PackageSource::Local(path) => LockedSource::Path { path: path.to_string_lossy().to_string() },
+                    PackageSource::Git { url, revision } => LockedSource::Git { url: url.clone(), revision: revision.clone() },
+                    PackageSource::Registry { name: reg_name, version } => {
+                        LockedSource::Registry { name: reg_name.clone(), version: version.clone() }
+                    }
+                },
+            };
+            self.dependencies.insert(name.clone(), locked);
+        }
+    }
+
+    /// 检查锁文件是否与清单一致
+    pub fn is_consistent(&self, manifest: &PackageManifest) -> bool {
+        for name in manifest.dependencies.keys() {
+            if !self.dependencies.contains_key(name) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+impl Default for Lockfile {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 锁定的依赖
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LockedDependency {
+    /// 版本
+    pub version: String,
+    /// 来源
+    pub source: LockedSource,
+}
+
+/// 锁定的来源
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum LockedSource {
+    /// 本地路径
+    Path { path: String },
+    /// Git 仓库
+    Git { url: String, revision: String },
+    /// 注册表
+    Registry { name: String, version: String },
 }
 
 /// 版本解析
@@ -675,7 +897,7 @@ remote = "1.2.3"
     }
 
     #[test]
-    fn package_manager_rejects_git_dependencies_fail_closed() {
+    fn package_manager_git_dependency_fails_for_invalid_url() {
         let temp = tempdir().unwrap();
         std::fs::write(
             temp.path().join("Cell.toml"),
@@ -695,10 +917,9 @@ rev = "abc123"
         let mut manager = PackageManager::new(temp.path());
         let error = manager.resolve_dependencies().unwrap_err();
 
-        assert!(error.message.contains("git dependency 'remote'"));
+        // git clone 会失败，错误信息包含 URL
+        assert!(error.message.contains("remote"));
         assert!(error.message.contains("https://example.invalid/remote.git"));
-        assert!(error.message.contains("abc123"));
-        assert!(error.message.contains("local path dependency"));
         assert!(manager.get_resolved().is_empty());
     }
 }

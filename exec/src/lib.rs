@@ -20,7 +20,7 @@
 //!
 //! ```text
 //! ┌─────────────────────────────────────────────────────────────────┐
-//! │  Layer 3: VM/Script ABI 层 (Borsh v1 + Molecule v1)             │
+//! │  Layer 3: VM/Script ABI 层 (Molecule v1 public + legacy v1)     │
 //! │  - ResolvedHeader, ResolvedCell, Witness Payload                │
 //! │  - 脚本可见的所有数据结构                                        │
 //! │  - 需要: canonical, partial read, version兼容                  │
@@ -43,8 +43,8 @@
 //!    - Borsh 仅用于内部通信和存储，不参与共识
 //!
 //! 2. **VM-facing ABI 必须经过显式格式边界**
-//!    - legacy default 仍保留 Borsh/custom v1，避免破坏现有脚本
-//!    - Molecule v1 (`0x8001`) 已作为 canonical VM ABI 可用
+//!    - Molecule v1 (`0x8001`) 是 launch/public VM ABI
+//!    - Borsh/custom v1 只保留为显式 legacy 兼容路径
 //!
 //! 3. **VM ABI 是独立抽象层**
 //!    - 通过 [`VmSerializable`](serialization::VmSerializable) trait 抽象序列化实现
@@ -75,7 +75,8 @@ pub mod vm;
 pub use vm::{ResolvedCell, ResolvedHeader};
 
 pub use celltx::{
-    encode_dep_group_data, parse_dep_group_data, CapacityError, CellDep, CellInput, CellOutput, CellTx, DepType, OutPoint, Script,
+    encode_ckb_dep_group_data, encode_dep_group_data, encode_dep_group_data_for_abi, parse_ckb_dep_group_data, parse_dep_group_data,
+    parse_dep_group_data_for_abi, CapacityError, CellDep, CellInput, CellOutput, CellTx, DepGroupDataAbi, DepType, OutPoint, Script,
     ScriptHashVersion, CELLTX_SCHEMA_VERSION,
 };
 
@@ -120,10 +121,28 @@ pub use serialization::compression::{
 
 // Re-export molecule compatibility layer
 pub use serialization::molecule_compat::{
-    deserialize_cell_input_molecule, deserialize_cell_output_molecule, deserialize_outpoint_molecule,
-    deserialize_resolved_cell_molecule, deserialize_resolved_header_molecule, deserialize_script_molecule,
-    serialize_cell_input_molecule, serialize_cell_output_molecule, serialize_outpoint_molecule, serialize_resolved_cell_molecule,
-    serialize_resolved_header_molecule, serialize_script_molecule, MoleculeError, MoleculeSerializer,
+    ckb_apply_type_id_args_to_output_molecule, ckb_apply_type_id_script_to_output_molecule, ckb_blake160, ckb_blake2b_256,
+    ckb_cell_data_hash, ckb_dep_group_cell_dep, ckb_epoch_number_with_fraction_from_full_value,
+    ckb_epoch_number_with_fraction_full_value, ckb_header_epoch_index, ckb_header_epoch_length, ckb_header_epoch_number,
+    ckb_header_epoch_start_block_number, ckb_header_hash_molecule, ckb_raw_header_pow_hash_molecule,
+    ckb_raw_transaction_hash_molecule, ckb_script_hash_molecule, ckb_secp256k1_blake160_pubkey_hash,
+    ckb_secp256k1_blake160_sighash_all_lock_script, ckb_secp256k1_blake160_sighash_all_type_hash,
+    ckb_sighash_all_message_from_witness_args_molecule, ckb_sighash_all_message_molecule,
+    ckb_sighash_all_message_with_zeroed_witness_lock_molecule, ckb_sign_secp256k1_blake160_sighash_all_input_molecule,
+    ckb_sign_secp256k1_blake160_sighash_all_lock_group_molecule, ckb_sign_secp256k1_blake160_sighash_all_molecule,
+    ckb_transaction_witness_hash_molecule, ckb_type_id_args, ckb_type_id_script, ckb_verify_secp256k1_blake160_recoverable_signature,
+    ckb_verify_secp256k1_blake160_sighash_all_lock_group_molecule, ckb_verify_secp256k1_blake160_sighash_all_molecule,
+    ckb_verify_type_id_script_group_molecule, ckb_verify_type_id_script_molecule, deserialize_cell_dep_molecule,
+    deserialize_cell_input_molecule, deserialize_cell_output_molecule, deserialize_ckb_header_molecule,
+    deserialize_ckb_outpoint_vec_molecule, deserialize_ckb_raw_header_molecule, deserialize_ckb_witness_args_molecule,
+    deserialize_outpoint_molecule, deserialize_raw_transaction_molecule, deserialize_resolved_cell_molecule,
+    deserialize_resolved_header_molecule, deserialize_script_molecule, deserialize_transaction_molecule, serialize_cell_dep_molecule,
+    serialize_cell_input_molecule, serialize_cell_output_molecule, serialize_ckb_header_molecule, serialize_ckb_outpoint_vec_molecule,
+    serialize_ckb_raw_header_molecule, serialize_ckb_witness_args_molecule, serialize_outpoint_molecule,
+    serialize_raw_transaction_molecule, serialize_resolved_cell_molecule, serialize_resolved_header_molecule,
+    serialize_script_molecule, serialize_transaction_molecule, CkbEpochNumberWithFraction, CkbHeader, CkbRawHeader,
+    CkbSecp256k1Blake160SighashAllLockConfig, CkbWitnessArgs, MoleculeError, MoleculeSerializer, CKB_SCRIPT_HASH_TYPE_TYPE,
+    CKB_SECP256K1_BLAKE160_LOCK_ARG_SIZE, CKB_SECP256K1_SIGHASH_ALL_SIGNATURE_SIZE, CKB_TYPE_ID_CODE_HASH,
 };
 
 /// Cell transaction version

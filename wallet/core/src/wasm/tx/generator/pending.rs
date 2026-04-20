@@ -142,6 +142,26 @@ impl PendingTransaction {
         }
     }
 
+    /// Fill CKB TYPE_ID creation args on an existing output type script.
+    ///
+    /// The output must already contain a type script. This method only mutates
+    /// its args according to CKB's first-input plus output-index rule.
+    #[wasm_bindgen(js_name = applyCkbTypeIdArgsToOutput)]
+    pub fn apply_ckb_type_id_args_to_output(&self, output_index: u32) -> Result<HexString> {
+        let args = self.inner.apply_ckb_type_id_args_to_output(output_index as usize)?;
+        Ok(args.as_slice().to_hex().into())
+    }
+
+    /// Install a complete CKB built-in TYPE_ID type script on an output.
+    ///
+    /// This writes the CKB `TYPE_ID_CODE_HASH`, `hash_type = Type`, and creation
+    /// args computed from the first input plus output index.
+    #[wasm_bindgen(js_name = applyCkbTypeIdScriptToOutput)]
+    pub fn apply_ckb_type_id_script_to_output(&self, output_index: u32) -> Result<HexString> {
+        let args = self.inner.apply_ckb_type_id_script_to_output(output_index as usize)?;
+        Ok(args.as_slice().to_hex().into())
+    }
+
     /// Submit transaction to the supplied [`RpcClient`]
     /// **IMPORTANT:** This method will remove cells from the associated
     /// {@link CellContext} if one was used to create the transaction

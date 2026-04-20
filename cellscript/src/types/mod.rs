@@ -1617,7 +1617,7 @@ impl<'a> TypeChecker<'a> {
         }
 
         match call.func.as_ref() {
-            Expr::Identifier(name) if name.starts_with("env::") => Err(CompileError::new(
+            Expr::Identifier(name) if name.starts_with("env::") || name.starts_with("ckb::") => Err(CompileError::new(
                 format!("pure function cannot call '{}' runtime builtin; move runtime-dependent logic into an action", name),
                 call.span,
             )),
@@ -2148,6 +2148,10 @@ impl<'a> TypeChecker<'a> {
                     }
                     return Ok(match (prefix, suffix) {
                         ("env", "current_daa_score") => {
+                            self.validate_builtin_arity(name, 0, arg_types, call.span)?;
+                            Type::U64
+                        }
+                        ("ckb", "header_epoch_number" | "header_epoch_start_block_number" | "header_epoch_length" | "input_since") => {
                             self.validate_builtin_arity(name, 0, arg_types, call.span)?;
                             Type::U64
                         }

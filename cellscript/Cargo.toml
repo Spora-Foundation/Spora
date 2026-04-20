@@ -27,6 +27,7 @@ serde_json = "1.0"
 borsh = { version = "1.5", features = ["derive"] }
 blake3 = "1.5"
 toml = "0.8"
+hex = "0.4"
 
 # 集合
 dashmap = "6.0"

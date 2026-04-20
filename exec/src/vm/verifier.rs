@@ -9,6 +9,11 @@ use super::machine::ScriptVersion;
 use super::scheduler::{FullSuspendedState, ProgramPiece, ProgramPlace, ProgramResolver, RunMode, VmScheduler};
 use super::{VmSemantics, MAX_SCRIPT_SIZE, MAX_VM_MEMORY};
 use crate::celltx::{CellOutput, CellTx, Script};
+use crate::serialization::molecule_compat::{
+    ckb_raw_transaction_hash_molecule, ckb_script_hash_molecule, deserialize_resolved_cell_molecule,
+    deserialize_resolved_header_molecule, serialize_resolved_cell_molecule, serialize_resolved_header_molecule,
+    serialize_transaction_molecule, CkbHeader,
+};
 use crate::serialization::{split_vm_abi_trailer, VmAbiError, VmAbiFormat, VmAbiNegotiator, VmSerializable};
 use borsh::{BorshDeserialize, BorshSerialize};
 use rayon::prelude::*;
@@ -149,38 +154,63 @@ impl ResolvedHeader {
 }
 
 impl VmSerializable for ResolvedHeader {
-    /// Current ABI version: Borsh-based ABI v1
+    /// Public trait ABI version: Molecule v1.
     fn abi_version() -> u16 {
-        VmAbiNegotiator::ABI_VERSION_BORSH_V1
+        VmAbiNegotiator::ABI_VERSION_MOLECULE_V1
     }
 
-    /// Serialize to VM-visible bytes using Borsh
+    /// Serialize to public VM-visible bytes using Molecule.
     fn to_vm_bytes(&self) -> Vec<u8> {
-        // Current: Borsh implementation
-        // Future: Can switch to Molecule without changing ABI
-        borsh::to_vec(self).expect("Borsh serialization should not fail for ResolvedHeader")
+        serialize_resolved_header_molecule(self).expect("Molecule serialization should not fail for ResolvedHeader")
     }
 
-    /// Deserialize from VM-visible bytes using Borsh
+    /// Deserialize from public VM-visible bytes using Molecule.
     fn from_vm_bytes(bytes: &[u8]) -> Result<Self, VmAbiError> {
-        BorshDeserialize::try_from_slice(bytes).map_err(|e| VmAbiError::DeserializationFailed(e.to_string()))
+        deserialize_resolved_header_molecule(bytes).map_err(|e| VmAbiError::DeserializationFailed(e.to_string()))
     }
 }
 
 impl VmSerializable for ResolvedCell {
-    /// Current ABI version: Borsh-based ABI v1
+    /// Public trait ABI version: Molecule v1.
     fn abi_version() -> u16 {
-        VmAbiNegotiator::ABI_VERSION_BORSH_V1
+        VmAbiNegotiator::ABI_VERSION_MOLECULE_V1
     }
 
-    /// Serialize to VM-visible bytes using Borsh
+    /// Serialize to public VM-visible bytes using Molecule.
     fn to_vm_bytes(&self) -> Vec<u8> {
-        borsh::to_vec(self).expect("Borsh serialization should not fail for ResolvedCell")
+        serialize_resolved_cell_molecule(self).expect("Molecule serialization should not fail for ResolvedCell")
     }
 
-    /// Deserialize from VM-visible bytes using Borsh
+    /// Deserialize from public VM-visible bytes using Molecule.
     fn from_vm_bytes(bytes: &[u8]) -> Result<Self, VmAbiError> {
-        BorshDeserialize::try_from_slice(bytes).map_err(|e| VmAbiError::DeserializationFailed(e.to_string()))
+        deserialize_resolved_cell_molecule(bytes).map_err(|e| VmAbiError::DeserializationFailed(e.to_string()))
+    }
+}
+
+fn script_hash_for_semantics(script: &Script, semantics: VmSemantics) -> ScriptResult<[u8; 32]> {
+    match semantics {
+        VmSemantics::SporaExtended => Ok(script.hash()),
+        VmSemantics::CkbStrict => ckb_script_hash_molecule(script)
+            .map_err(|err| ScriptError::VM(VMError::InvalidData(format!("failed to hash CKB Molecule Script: {err}")))),
+    }
+}
+
+fn transaction_hash_and_data_for_semantics(tx: &CellTx, semantics: VmSemantics) -> ScriptResult<([u8; 32], Vec<u8>)> {
+    match semantics {
+        VmSemantics::SporaExtended => {
+            let tx_hash = crate::celltx::compute_txid(tx);
+            let tx_data = borsh::to_vec(tx).map_err(|err| {
+                ScriptError::VM(VMError::InvalidData(format!("failed to serialize tx for LOAD_TRANSACTION syscall: {err}")))
+            })?;
+            Ok((tx_hash, tx_data))
+        }
+        VmSemantics::CkbStrict => {
+            let tx_hash = ckb_raw_transaction_hash_molecule(tx)
+                .map_err(|err| ScriptError::VM(VMError::InvalidData(format!("failed to hash CKB RawTransaction: {err}"))))?;
+            let tx_data = serialize_transaction_molecule(tx)
+                .map_err(|err| ScriptError::VM(VMError::InvalidData(format!("failed to serialize CKB Transaction: {err}"))))?;
+            Ok((tx_hash, tx_data))
+        }
     }
 }
 
@@ -197,6 +227,16 @@ pub trait CellDataProvider: Send + Sync + 'static {
 
     /// Load the header associated with a resolved input or dep outpoint.
     fn load_header_by_outpoint(&self, tx_hash: &[u8; 32], index: u32) -> Option<ResolvedHeader>;
+
+    /// Load a CKB packed header by hash.
+    fn load_ckb_header(&self, _hash: &[u8; 32]) -> Option<CkbHeader> {
+        None
+    }
+
+    /// Load the CKB block header hash associated with a resolved input or dep outpoint.
+    fn load_ckb_header_hash_by_outpoint(&self, _tx_hash: &[u8; 32], _index: u32) -> Option<[u8; 32]> {
+        None
+    }
 
     /// Load a fully resolved cell associated with a header hash.
     ///
@@ -231,7 +271,10 @@ pub struct TransactionScriptVerifier<D: CellDataProvider> {
 }
 
 impl<D: CellDataProvider> TransactionScriptVerifier<D> {
-    /// Create a new verifier
+    /// Create a new verifier.
+    ///
+    /// The default public VM object ABI is Molecule. Use `with_abi_format(VmAbiFormat::Legacy)`
+    /// or an artifact trailer declaring `0x0001` only for explicit legacy compatibility.
     pub fn new(tx: Arc<CellTx>, data_provider: Arc<D>) -> Self {
         Self {
             tx,
@@ -243,7 +286,7 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
             skip_lock_groups: false,
             skip_lock_script_hashes: HashSet::new(),
             semantics: VmSemantics::SporaExtended,
-            abi_format: VmAbiFormat::Legacy,
+            abi_format: VmAbiFormat::Molecule,
         }
     }
 
@@ -321,7 +364,7 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
                     )))
                 })?;
             if !self.skip_lock_groups {
-                let lock_hash = resolved.cell_output.lock.hash();
+                let lock_hash = script_hash_for_semantics(&resolved.cell_output.lock, self.semantics)?;
                 if self.skip_lock_script_hashes.contains(&lock_hash) {
                     continue;
                 }
@@ -339,7 +382,7 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
             }
 
             if let Some(ref type_script) = resolved.cell_output.type_ {
-                let type_hash = type_script.hash();
+                let type_hash = script_hash_for_semantics(type_script, self.semantics)?;
 
                 type_groups
                     .entry(type_hash)
@@ -357,7 +400,7 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
         // Type scripts execute over both consumed and created cells.
         for (i, output) in self.tx.outputs.iter().enumerate() {
             if let Some(ref type_script) = output.type_ {
-                let type_hash = type_script.hash();
+                let type_hash = script_hash_for_semantics(type_script, self.semantics)?;
 
                 type_groups
                     .entry(type_hash)
@@ -608,16 +651,13 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
                     })
             })
             .collect::<ScriptResult<Vec<_>>>()?;
+        let (tx_hash, tx_data) = transaction_hash_and_data_for_semantics(&self.tx, self.semantics)?;
 
         let tx = Arc::clone(&self.tx);
         let provider = Arc::clone(&self.data_provider);
         let script = Arc::new(group.script.clone());
         let group_input_indices = group.input_indices.clone();
         let group_output_indices = group.output_indices.clone();
-        let tx_hash = crate::celltx::compute_txid(&self.tx);
-        let tx_data = borsh::to_vec(self.tx.as_ref()).map_err(|e| {
-            ScriptError::VM(super::error::VMError::InvalidData(format!("failed to serialize tx for LOAD_TRANSACTION syscall: {e}")))
-        })?;
 
         let program_resolver: ProgramResolver = Arc::new({
             let tx = Arc::clone(&tx);
@@ -714,31 +754,46 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
                     )
                     .with_semantics(semantics),
                 ));
-                syscalls.push(Box::new(LoadInput::new(Arc::clone(&tx), group_input_indices.clone()).with_abi_format(abi_format)));
-                syscalls.push(Box::new(LoadWitness::new(Arc::clone(&tx), group_input_indices.clone(), group_output_indices.clone())));
-                syscalls.push(Box::new(LoadScript::new(Arc::clone(&script)).with_abi_format(abi_format)));
-                syscalls.push(Box::new(LoadSignatureHash::new(Arc::clone(&tx), signing_inputs.clone(), group_input_indices.clone())));
+                syscalls.push(Box::new(
+                    LoadInput::new(Arc::clone(&tx), group_input_indices.clone()).with_abi_format(abi_format).with_semantics(semantics),
+                ));
+                syscalls.push(Box::new(
+                    LoadWitness::new(Arc::clone(&tx), group_input_indices.clone(), group_output_indices.clone())
+                        .with_semantics(semantics),
+                ));
+                syscalls.push(Box::new(LoadScript::new(Arc::clone(&script)).with_abi_format(abi_format).with_semantics(semantics)));
+                if semantics.allow_spora_extension_syscalls() {
+                    syscalls.push(Box::new(LoadSignatureHash::new(
+                        Arc::clone(&tx),
+                        signing_inputs.clone(),
+                        group_input_indices.clone(),
+                    )));
+                }
                 syscalls.push(Box::new(
                     LoadHeader::new(Arc::clone(&tx), Arc::clone(&provider), group_input_indices.clone(), group_output_indices.clone())
-                        .with_abi_format(abi_format),
+                        .with_abi_format(abi_format)
+                        .with_semantics(semantics),
                 ));
                 syscalls.push(Box::new(VMVersion::new()));
                 syscalls.push(Box::new(CurrentCycles::with_base_cycles(Arc::clone(&runtime.base_cycles))));
                 syscalls.push(Box::new(Debugger::new(script.code_hash)));
                 syscalls.push(Box::new(
                     Exec::new(Arc::clone(&tx), Arc::clone(&provider), group_input_indices.clone(), group_output_indices.clone())
-                        .with_snapshot_tracking(Arc::clone(&runtime.snapshot2_context), runtime.data_source.clone()),
+                        .with_snapshot_tracking(Arc::clone(&runtime.snapshot2_context), runtime.data_source.clone())
+                        .with_semantics(semantics),
                 ));
                 syscalls.push(Box::new(ProcessId::new(vm_id)));
-                syscalls.push(Box::new(Spawn::with_runtime(vm_id, runtime, Arc::clone(&program_resolver))));
+                syscalls.push(Box::new(Spawn::with_runtime(vm_id, runtime, Arc::clone(&program_resolver)).with_semantics(semantics)));
                 syscalls.push(Box::new(Wait::with_runtime(vm_id, runtime)));
                 syscalls.push(Box::new(Pipe::with_runtime(vm_id, runtime)));
                 syscalls.push(Box::new(Read::with_runtime(vm_id, runtime)));
                 syscalls.push(Box::new(Write::with_runtime(vm_id, runtime)));
                 syscalls.push(Box::new(InheritedFd::with_runtime(vm_id, runtime)));
                 syscalls.push(Box::new(Close::with_runtime(vm_id, runtime)));
-                syscalls.push(Box::new(Blake3Hash::new()));
-                syscalls.push(Box::new(Secp256k1Verify::new()));
+                if semantics.allow_spora_extension_syscalls() {
+                    syscalls.push(Box::new(Blake3Hash::new()));
+                    syscalls.push(Box::new(Secp256k1Verify::new()));
+                }
                 Ok(syscalls)
             }
         });
@@ -752,6 +807,7 @@ pub struct SimpleDataProvider {
     scripts: std::collections::HashMap<[u8; 32], Vec<u8>>,
     cells: std::collections::HashMap<([u8; 32], u32), ResolvedCell>,
     headers: std::collections::HashMap<[u8; 32], ResolvedHeader>,
+    ckb_headers: std::collections::HashMap<[u8; 32], CkbHeader>,
     cell_headers: std::collections::HashMap<([u8; 32], u32), [u8; 32]>,
     header_cells: std::collections::HashMap<[u8; 32], ResolvedCell>,
 }
@@ -762,6 +818,7 @@ impl SimpleDataProvider {
             scripts: std::collections::HashMap::new(),
             cells: std::collections::HashMap::new(),
             headers: std::collections::HashMap::new(),
+            ckb_headers: std::collections::HashMap::new(),
             cell_headers: std::collections::HashMap::new(),
             header_cells: std::collections::HashMap::new(),
         }
@@ -782,6 +839,10 @@ impl SimpleDataProvider {
 
     pub fn add_header(&mut self, hash: [u8; 32], header: ResolvedHeader) {
         self.headers.insert(hash, header);
+    }
+
+    pub fn add_ckb_header(&mut self, hash: [u8; 32], header: CkbHeader) {
+        self.ckb_headers.insert(hash, header);
     }
 
     /// Register a cell associated with a header hash (e.g. cellbase output).
@@ -808,6 +869,14 @@ impl CellDataProvider for SimpleDataProvider {
         self.headers.get(header_hash).cloned()
     }
 
+    fn load_ckb_header(&self, hash: &[u8; 32]) -> Option<CkbHeader> {
+        self.ckb_headers.get(hash).cloned()
+    }
+
+    fn load_ckb_header_hash_by_outpoint(&self, tx_hash: &[u8; 32], index: u32) -> Option<[u8; 32]> {
+        self.cell_headers.get(&(*tx_hash, index)).copied()
+    }
+
     fn load_cell_by_header(&self, header_hash: &[u8; 32]) -> Option<ResolvedCell> {
         self.header_cells.get(header_hash).cloned()
     }
@@ -818,6 +887,9 @@ mod tests {
     use super::*;
     use crate::celltx::{CellInput, OutPoint};
     use crate::scripts::{always_success_code_hash, ALWAYS_SUCCESS_SCRIPT};
+    use crate::serialization::molecule_compat::{
+        ckb_raw_transaction_hash_molecule, ckb_script_hash_molecule, serialize_transaction_molecule,
+    };
     use crate::vm::VmSemantics;
 
     fn always_success_verifier() -> TransactionScriptVerifier<SimpleDataProvider> {
@@ -876,6 +948,66 @@ mod tests {
             .expect("molecule ABI should be supported");
 
         assert_eq!(verifier.abi_format, VmAbiFormat::Molecule);
+    }
+
+    #[test]
+    fn test_transaction_hash_and_data_switch_to_ckb_molecule_under_ckb_strict_semantics() {
+        let tx = CellTx::new(
+            vec![CellInput::new(OutPoint::new([0x11; 32], 0), 7)],
+            vec![],
+            vec![CellOutput { capacity: 1000, lock: Script::new([0x22; 32], 0, vec![0xAA]), type_: None }],
+            vec![vec![0xBB, 0xCC]],
+            vec![vec![0xDD]],
+        )
+        .unwrap();
+
+        let (spora_hash, spora_data) = transaction_hash_and_data_for_semantics(&tx, VmSemantics::SporaExtended).unwrap();
+        assert_eq!(spora_hash, crate::celltx::compute_txid(&tx));
+        assert_eq!(spora_data, borsh::to_vec(&tx).unwrap());
+
+        let (ckb_hash, ckb_data) = transaction_hash_and_data_for_semantics(&tx, VmSemantics::CkbStrict).unwrap();
+        assert_eq!(ckb_hash, ckb_raw_transaction_hash_molecule(&tx).unwrap());
+        assert_eq!(ckb_data, serialize_transaction_molecule(&tx).unwrap());
+        assert_ne!(ckb_hash, spora_hash);
+        assert_ne!(ckb_data, spora_data);
+    }
+
+    #[test]
+    fn test_resolved_vm_serializable_uses_molecule_public_abi() {
+        let header = ResolvedHeader {
+            hash: [0x11; 32],
+            version: 7,
+            parents_by_level: vec![vec![[0xAA; 32], [0xBB; 32]], vec![[0xCC; 32]]],
+            hash_merkle_root: [0x22; 32],
+            accepted_id_merkle_root: [0x33; 32],
+            cell_commitment: [0x44; 32],
+            cell_root: [0x55; 32],
+            segment_root: [0x66; 32],
+            timestamp: 0x0102_0304_0506_0708,
+            bits: 0x1d00_ffff,
+            nonce: 0x8877_6655_4433_2211,
+            daa_score: 0x1122_3344_5566_7788,
+            blue_work: [0x77; 24],
+            blue_score: 0x99AA_BBCC_DDEE_FF00,
+            pruning_point: [0x88; 32],
+        };
+        assert_eq!(ResolvedHeader::abi_version(), VmAbiNegotiator::ABI_VERSION_MOLECULE_V1);
+        let header_bytes = header.to_vm_bytes();
+        assert_eq!(header_bytes, serialize_resolved_header_molecule(&header).expect("header molecule bytes"));
+        assert_eq!(ResolvedHeader::from_vm_bytes(&header_bytes).expect("header roundtrip"), header);
+
+        let cell = ResolvedCell {
+            cell_output: CellOutput {
+                capacity: 42,
+                lock: Script::new([0x99; 32], 0, vec![1, 2, 3]),
+                type_: Some(Script::new([0xAA; 32], 1, vec![4, 5])),
+            },
+            data: Some(vec![9, 8, 7]),
+        };
+        assert_eq!(ResolvedCell::abi_version(), VmAbiNegotiator::ABI_VERSION_MOLECULE_V1);
+        let cell_bytes = cell.to_vm_bytes();
+        assert_eq!(cell_bytes, serialize_resolved_cell_molecule(&cell).expect("cell molecule bytes"));
+        assert_eq!(ResolvedCell::from_vm_bytes(&cell_bytes).expect("cell roundtrip"), cell);
     }
 
     #[test]
@@ -1005,6 +1137,51 @@ mod tests {
         skip.insert(skipped_lock.hash());
         let groups =
             TransactionScriptVerifier::new(tx, Arc::new(provider)).with_skip_lock_script_hashes(skip).extract_script_groups().unwrap();
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].group_type, ScriptGroupType::Lock);
+        assert_eq!(groups[0].script, retained_lock);
+        assert_eq!(groups[0].input_indices, vec![1]);
+    }
+
+    #[test]
+    fn test_extract_script_groups_uses_ckb_script_hashes_under_ckb_strict_semantics() {
+        let skipped_lock = Script::new([0x11; 32], 0, vec![0xAA]);
+        let retained_lock = Script::new([0x22; 32], 0, vec![0xBB]);
+        let skipped_out_point = OutPoint::new([0x31; 32], 0);
+        let retained_out_point = OutPoint::new([0x32; 32], 0);
+        let tx = Arc::new(
+            CellTx::new(
+                vec![CellInput::new(skipped_out_point, 0), CellInput::new(retained_out_point, 0)],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+            )
+            .unwrap(),
+        );
+
+        let mut provider = SimpleDataProvider::new();
+        provider.add_cell(
+            [0x31; 32],
+            0,
+            ResolvedCell { cell_output: CellOutput { capacity: 1000, lock: skipped_lock.clone(), type_: None }, data: Some(vec![]) },
+        );
+        provider.add_cell(
+            [0x32; 32],
+            0,
+            ResolvedCell { cell_output: CellOutput { capacity: 1000, lock: retained_lock.clone(), type_: None }, data: Some(vec![]) },
+        );
+
+        let ckb_skipped_hash = ckb_script_hash_molecule(&skipped_lock).unwrap();
+        assert_ne!(ckb_skipped_hash, skipped_lock.hash());
+        let mut skip = HashSet::new();
+        skip.insert(ckb_skipped_hash);
+        let groups = TransactionScriptVerifier::new(tx, Arc::new(provider))
+            .with_semantics(VmSemantics::CkbStrict)
+            .with_skip_lock_script_hashes(skip)
+            .extract_script_groups()
+            .unwrap();
 
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].group_type, ScriptGroupType::Lock);

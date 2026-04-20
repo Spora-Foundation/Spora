@@ -7,7 +7,9 @@
 use super::utils::{store_data, INDEX_OUT_OF_BOUND, ITEM_MISSING};
 use super::{CellField, Source, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER, LOAD_CELL_SYSCALL_NUMBER};
 use crate::celltx::{CellTx, Script};
-use crate::serialization::molecule_compat::{serialize_cell_output_molecule, serialize_script_molecule};
+use crate::serialization::molecule_compat::{
+    ckb_cell_data_hash, ckb_script_hash_molecule, serialize_cell_output_molecule, serialize_script_molecule,
+};
 use crate::serialization::vm_abi::{serialize_cell_output, serialize_script};
 use crate::serialization::VmAbiFormat;
 use crate::vm::transferred_byte_cycles;
@@ -46,7 +48,7 @@ impl<D: CellDataProvider> LoadCell<D> {
             group_input_indices,
             group_output_indices,
             semantics: VmSemantics::SporaExtended,
-            abi_format: VmAbiFormat::Legacy,
+            abi_format: VmAbiFormat::Molecule,
         }
     }
 
@@ -119,19 +121,12 @@ impl<D: CellDataProvider> LoadCell<D> {
             CellField::Capacity => Ok(Some(cell.cell_output.capacity.to_le_bytes().to_vec())),
             CellField::DataHash => {
                 let data = cell.data.as_deref().unwrap_or(&[]);
-                Ok(Some(if data.is_empty() {
-                    [0u8; 32].to_vec()
-                } else {
-                    let mut hasher = blake3::Hasher::new();
-                    hasher.update(b"spora-cell/data");
-                    hasher.update(data);
-                    hasher.finalize().as_bytes().to_vec()
-                }))
+                Ok(Some(self.cell_data_hash(data).to_vec()))
             }
             CellField::Lock => Ok(Some(self.serialize_script(&cell.cell_output.lock)?)),
-            CellField::LockHash => Ok(Some(cell.cell_output.lock.hash().to_vec())),
+            CellField::LockHash => Ok(Some(self.script_hash(&cell.cell_output.lock)?.to_vec())),
             CellField::Type => cell.cell_output.type_.as_ref().map(|s| self.serialize_script(s)).transpose(),
-            CellField::TypeHash => Ok(cell.cell_output.type_.as_ref().map(|s| s.hash().to_vec())),
+            CellField::TypeHash => cell.cell_output.type_.as_ref().map(|s| self.script_hash(s).map(|hash| hash.to_vec())).transpose(),
             CellField::OccupiedCapacity => {
                 let data_len = cell.data.as_ref().map_or(0, Vec::len);
                 Ok(Some(cell.cell_output.occupied_capacity(data_len).to_le_bytes().to_vec()))
@@ -143,6 +138,29 @@ impl<D: CellDataProvider> LoadCell<D> {
         match self.abi_format {
             VmAbiFormat::Legacy => Ok(serialize_script(script)),
             VmAbiFormat::Molecule => serialize_script_molecule(script).map_err(|e| VMError::External(e.to_string())),
+        }
+    }
+
+    fn script_hash(&self, script: &Script) -> Result<[u8; 32], VMError> {
+        match self.semantics {
+            VmSemantics::SporaExtended => Ok(script.hash()),
+            VmSemantics::CkbStrict => ckb_script_hash_molecule(script).map_err(|e| VMError::External(e.to_string())),
+        }
+    }
+
+    fn cell_data_hash(&self, data: &[u8]) -> [u8; 32] {
+        match self.semantics {
+            VmSemantics::SporaExtended => {
+                if data.is_empty() {
+                    [0u8; 32]
+                } else {
+                    let mut hasher = blake3::Hasher::new();
+                    hasher.update(b"spora-cell/data");
+                    hasher.update(data);
+                    *hasher.finalize().as_bytes()
+                }
+            }
+            VmSemantics::CkbStrict => ckb_cell_data_hash(data),
         }
     }
 
@@ -173,7 +191,7 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for LoadCell<D> {
         // A4: source
         // A5: field (only for 2081)
         let index = machine.registers()[A3].to_u64() as usize;
-        let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
+        let source = Source::parse_from_u64_for_semantics(machine.registers()[A4].to_u64(), self.semantics)?;
 
         // Get cell
         let cell = match self.resolve_cell(source, index) {
@@ -217,7 +235,7 @@ impl<D: CellDataProvider, M: SupportMachine> Syscalls<M> for LoadCell<D> {
 mod tests {
     use super::*;
     use crate::celltx::{CellDep, CellInput, CellOutput, DepType, OutPoint};
-    use crate::serialization::molecule_compat::serialize_cell_output_molecule;
+    use crate::serialization::molecule_compat::{ckb_cell_data_hash, ckb_script_hash_molecule, serialize_cell_output_molecule};
     use crate::serialization::VmAbiFormat;
     use crate::vm::syscalls::SUCCESS;
     use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider, VmSemantics};
@@ -246,6 +264,56 @@ mod tests {
 
         let _syscall = LoadCell::new(tx, provider, vec![0], vec![0]);
         // Just ensure it compiles
+    }
+
+    #[test]
+    fn test_load_cell_by_field_uses_ckb_hashes_under_ckb_strict_semantics() {
+        let output = CellOutput {
+            capacity: 1000,
+            lock: Script::new([1u8; 32], 0, vec![0xAA]),
+            type_: Some(Script::new([2u8; 32], 1, vec![0xBB])),
+        };
+        let tx = Arc::new(CellTx {
+            version: 0xC001,
+            inputs: vec![],
+            cell_deps: vec![],
+            header_deps: vec![],
+            outputs: vec![output.clone()],
+            outputs_data: vec![vec![0xCC, 0xDD]],
+            witnesses: vec![],
+        });
+        let provider = Arc::new(SimpleDataProvider::new());
+
+        let expected_data_hash = ckb_cell_data_hash(&[0xCC, 0xDD]);
+        let expected_lock_hash = ckb_script_hash_molecule(&output.lock).unwrap();
+        let expected_type_hash = ckb_script_hash_molecule(output.type_.as_ref().unwrap()).unwrap();
+        assert_ne!(expected_lock_hash, output.lock.hash());
+        assert_ne!(expected_type_hash, output.type_.as_ref().unwrap().hash());
+
+        for (field, expected) in [
+            (CellField::DataHash as u64, expected_data_hash),
+            (CellField::LockHash as u64, expected_lock_hash),
+            (CellField::TypeHash as u64, expected_type_hash),
+        ] {
+            let mut machine = ScriptVersion::V2.init_core_machine(20_000);
+            machine.memory_mut().store64(&SIZE_ADDR, &32u64).unwrap();
+            machine.set_register(A0, BUFFER_ADDR);
+            machine.set_register(A1, SIZE_ADDR);
+            machine.set_register(A2, 0);
+            machine.set_register(A3, 0);
+            machine.set_register(A4, Source::Output as u64);
+            machine.set_register(A5, field);
+            machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER);
+
+            let mut syscall =
+                LoadCell::new(Arc::clone(&tx), Arc::clone(&provider), vec![], vec![0]).with_semantics(VmSemantics::CkbStrict);
+            let handled = syscall.ecall(&mut machine).expect("load cell field syscall should succeed");
+
+            assert!(handled);
+            assert_eq!(machine.registers()[A0].to_u64(), SUCCESS as u64);
+            assert_eq!(machine.memory_mut().load64(&SIZE_ADDR).unwrap().to_u64(), 32);
+            assert_eq!(machine.memory_mut().load_bytes(BUFFER_ADDR, 32).unwrap().as_ref(), expected.as_ref());
+        }
     }
 
     #[test]
@@ -365,7 +433,7 @@ mod tests {
         machine.set_register(A5, CellField::Capacity as u64);
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER);
 
-        let mut syscall = LoadCell::new(tx, Arc::new(provider), vec![0], vec![]);
+        let mut syscall = LoadCell::new(tx, Arc::new(provider), vec![0], vec![]).with_abi_format(VmAbiFormat::Legacy);
         let handled = syscall.ecall(&mut machine).expect("load cell syscall should succeed");
 
         assert!(handled);
@@ -406,7 +474,7 @@ mod tests {
         machine.set_register(A5, 99);
         machine.set_register(A7, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER);
 
-        let mut syscall = LoadCell::new(tx, Arc::new(provider), vec![0], vec![]);
+        let mut syscall = LoadCell::new(tx, Arc::new(provider), vec![0], vec![]).with_abi_format(VmAbiFormat::Legacy);
         let err = syscall.ecall(&mut machine).expect_err("unknown field should trap");
 
         assert_eq!(err, VMError::External("CellField parse_from_u64 99".to_string()));
@@ -477,7 +545,7 @@ mod tests {
         machine.set_register(A4, Source::Input as u64);
         machine.set_register(A7, LOAD_CELL_SYSCALL_NUMBER);
 
-        let mut syscall = LoadCell::new(tx, Arc::new(provider), vec![0], vec![]);
+        let mut syscall = LoadCell::new(tx, Arc::new(provider), vec![0], vec![]).with_abi_format(VmAbiFormat::Legacy);
         let handled = syscall.ecall(&mut machine).expect("load cell syscall should succeed");
 
         assert!(handled);

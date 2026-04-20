@@ -8,6 +8,7 @@ mod tests {
     use crate::celltx::{CellInput, CellOutput, CellTx, OutPoint, Script};
     use crate::scripts::timelock::encode_absolute_timestamp_since;
     use crate::scripts::{htlc_code_hash, HTLC_SCRIPT};
+    use crate::serialization::VmAbiFormat;
     use crate::vm::{ResolvedCell, ScriptVersion, SimpleDataProvider, TransactionScriptVerifier};
     use std::sync::Arc;
 
@@ -110,6 +111,7 @@ mod tests {
         };
 
         let verifier = TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider))
+            .with_abi_format(VmAbiFormat::Legacy)
             .with_version(ScriptVersion::V2)
             .with_max_cycles(1_000_000);
 
@@ -158,8 +160,10 @@ mod tests {
             witnesses: vec![witness],
         };
 
-        let verifier =
-            TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider)).with_version(ScriptVersion::V2).with_max_cycles(100_000);
+        let verifier = TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider))
+            .with_abi_format(VmAbiFormat::Legacy)
+            .with_version(ScriptVersion::V2)
+            .with_max_cycles(100_000);
 
         assert!(verifier.verify().is_err());
     }
@@ -200,6 +204,7 @@ mod tests {
         };
 
         let verifier = TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider))
+            .with_abi_format(VmAbiFormat::Legacy)
             .with_version(ScriptVersion::V2)
             .with_max_cycles(1_000_000);
 
@@ -245,8 +250,10 @@ mod tests {
             witnesses: vec![witness],
         };
 
-        let verifier =
-            TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider)).with_version(ScriptVersion::V2).with_max_cycles(100_000);
+        let verifier = TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider))
+            .with_abi_format(VmAbiFormat::Legacy)
+            .with_version(ScriptVersion::V2)
+            .with_max_cycles(100_000);
 
         assert!(verifier.verify().is_err());
     }
@@ -282,8 +289,10 @@ mod tests {
             witnesses: vec![witness],
         };
 
-        let verifier =
-            TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider)).with_version(ScriptVersion::V2).with_max_cycles(100_000);
+        let verifier = TransactionScriptVerifier::new(Arc::new(tx), Arc::new(provider))
+            .with_abi_format(VmAbiFormat::Legacy)
+            .with_version(ScriptVersion::V2)
+            .with_max_cycles(100_000);
 
         assert!(verifier.verify().is_err());
     }

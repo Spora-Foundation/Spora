@@ -13,7 +13,7 @@
 
 * **目标**：在新分支 `spora` 中，**完全放弃 legacy txout 模型**，全面引入 **Cell 模型（lock/type/data + RW-Set）**，保持 **DAG 共识骨架**，先用 **GhostDAG**，为后续 **Spora 共识**预留挂载点。
 * **参照**：CKB 的 **Cell 语义/脚本接口/CKB-VM 交互模式**，而**不复制**其线性链/NC-Max 共识。
-  * **CKB 源码位置**：`/home/arthur/RustRoverProjects/ckb/` （可直接参考）
+  * **CKB 源码位置**：父目录 `../ckb/` （可直接参考）
   * 重点参考：`ckb/script/`, `ckb/traits/`, `ckb/tx-pool/`, `ckb/store/`
 * **⚠️ 重要决策：完全放弃 legacy txout**
   * **不保留任何 legacy txout 代码**（包括兼容层、过渡脚手架）
@@ -341,7 +341,7 @@ pub struct Script {
     pub args: Vec<u8>,
 }
 
-/// Cell 输出（完全对齐 CKB CellOutput）
+/// Cell 输出（CKB-style CellOutput；Spora profile 保留 Spora 单位和扩展）
 /// 注意：data 字段分离到 CellTx.outputs_data，避免重复存储
 pub struct CellOutput {
     /// 锁脚本：定义谁能花费此 Cell
@@ -526,7 +526,7 @@ impl Ord for ConflictKey {
 
 ---
 
-## 6. VM 与脚本接口（完整 CKB 风格）
+## 6. VM 与脚本接口（CKB 风格，Spora 语义）
 
 ### 6.1 脚本验证架构（参考 CKB script/verify.rs）
 
@@ -620,9 +620,11 @@ pub enum ScriptGroupType {
 }
 ```
 
-### 6.2 CKB-VM 集成（完全复刻 CKB syscall 语义）
+### 6.2 CKB-VM 集成（profile-aware syscall 语义）
 
-**⚠️ 兼容性声明**：系统调用**完全对齐 CKB**，支持 CKB 脚本 1:1 迁移
+**兼容性声明**：Spora profile 保留 Spora syscall、hash、header 和调度语义；
+CKB strict profile 使用 CKB syscall/source/hash/header/Molecule 规则。v1 只承诺
+受支持纯净 CellScript 子集的 CKB artifact，不承诺任意手写 CKB 脚本可直接迁移。
 
 ```rust
 // exec/vm/ckbvm.rs
@@ -635,14 +637,15 @@ use ckb_vm::{
 /// CKB-VM 机器（RISC-V）
 pub type CellVM = AsmMachine;
 
-/// 系统调用号（与 CKB 完全一致）
+/// 系统调用号示例；实际实现按 spora/ckb profile 分派
 pub const SYSCALL_LOAD_TX_HASH: u64 = 2061;
 pub const SYSCALL_LOAD_SCRIPT_HASH: u64 = 2062;
 pub const SYSCALL_LOAD_CELL: u64 = 2071;
 pub const SYSCALL_LOAD_HEADER: u64 = 2072;
 pub const SYSCALL_LOAD_INPUT: u64 = 2073;
 pub const SYSCALL_LOAD_WITNESS: u64 = 2074;
-pub const SYSCALL_LOAD_SCRIPT: u64 = 2075;
+pub const SPORA_SYSCALL_LOAD_SCRIPT: u64 = 2075;
+pub const CKB_SYSCALL_LOAD_SCRIPT: u64 = 2052;
 pub const SYSCALL_LOAD_CELL_BY_FIELD: u64 = 2081;
 pub const SYSCALL_LOAD_HEADER_BY_FIELD: u64 = 2082;
 pub const SYSCALL_LOAD_INPUT_BY_FIELD: u64 = 2083;
@@ -675,7 +678,7 @@ pub fn generate_cell_syscalls<DL: CellDataProvider>(
     ]
 }
 
-/// LoadCell 系统调用（完全对齐 CKB）
+/// LoadCell 系统调用（CKB-style，按 profile 选择 ABI）
 /// 参数：addr, len, offset, source, index
 pub struct LoadCell<DL> {
     rtx: Arc<ResolvedCellTx>,
@@ -692,10 +695,10 @@ impl<DL: CellDataProvider> Syscalls<CellVM> for LoadCell<DL> {
         let source = args[3];
         let index = args[4] as usize;
         
-        // 获取 CellMeta（与 CKB 相同的 source 语义）
+        // 获取 CellMeta（按 profile 选择 source 语义）
         let cell = self.load_cell_from_source(source, index)?;
         
-        // 序列化 CellOutput（CKB Molecule 格式）
+        // 序列化 CellOutput（CKB strict 使用 Molecule 格式）
         let serialized = self.serialize_cell_output(&cell.cell_output);
         
         // 写入 VM 内存（带 offset 和 len 截断）
@@ -709,7 +712,7 @@ impl<DL: CellDataProvider> Syscalls<CellVM> for LoadCell<DL> {
 }
 
 impl<DL: CellDataProvider> LoadCell<DL> {
-    /// CKB Source 语义（完全一致）
+    /// Source 语义（CKB strict 使用 canonical CKB source 值）
     fn load_cell_from_source(&self, source: u64, index: usize) -> Result<&CellMeta, VMError> {
         match source {
             // 0: Group Input（当前 ScriptGroup 的输入）
@@ -1912,11 +1915,13 @@ impl ReorgManager {
 
 ---
 
-## 8. 序列化/哈希/签名（Molecule 完全对齐 CKB）
+## 8. 序列化/哈希/签名（Molecule public ABI + profile-aware hashing）
 
 ### 8.1 序列化方案选择（与 CKB 统一）
 
-**⚠️ 采用 Molecule，与 CKB 生态完全兼容**
+**采用 Molecule 作为 VM/CellScript 公共 ABI**。Spora profile 保留 Spora
+BLAKE3/hash/scheduler 语义；CKB strict profile 对受支持子集使用 CKB
+Molecule/BLAKE2b/hash/header 规则。
 
 **Molecule 特性**：
 - **类型安全**：Schema 定义强类型，编译时检查
@@ -1997,17 +2002,13 @@ vector BytesVec <Bytes>;
 
 ### 8.3 Molecule 代码生成
 
-**Cargo.toml 依赖**（实际使用 Borsh）：
+**Legacy Borsh 边界**：
 
-```toml
-[dependencies]
-borsh = { version = "1.5", features = ["derive"] }
-serde = { version = "1.0", features = ["derive"] }
-```
+公开 VM/CellScript ABI、CellScript scheduler witness 和 CKB strict profile 不再把
+Borsh 作为新的 wire format。Borsh 只保留在历史迁移、回归测试或内部 Rust
+结构兼容路径；新增公开路径必须走 Molecule。
 
-**注意**：当前实现使用 Borsh 序列化，而非 Molecule。Borsh 提供更简单的 Rust 集成和更好的性能。
-
-**Borsh 序列化使用**（实际实现）：
+**旧 Borsh 示例**（legacy-only，不用于新的公开 CellScript ABI）：
 
 ```rust
 // exec/src/celltx/types.rs
@@ -2044,7 +2045,7 @@ pub const MAX_OUTPUTS: usize = 1000;
 
 ### 8.4 测试向量（testvectors/s1_serialization）
 
-**Borsh 序列化测试**：
+**Legacy Borsh 回归测试**：
 
 ```rust
 // testvectors/s1_serialization/test_borsh.rs
@@ -2081,14 +2082,14 @@ fn test_borsh_version_check() {
 }
 ```
 
-**与 CKB 兼容性测试**：
+**CKB Molecule 编码测试**（受支持对象）：
 
 ```rust
 // testvectors/s1_serialization/test_ckb_compat.rs
 
 #[test]
 fn test_script_encoding_matches_ckb() {
-    // 确保 Script 编码与 CKB 完全一致
+    // 确保受支持 Script Molecule 编码与 CKB 参考向量一致
     let script = Script {
         code_hash: [0x12; 32],
         hash_type: 1,
@@ -3822,13 +3823,13 @@ pub fn verify_nmt_proof(
    - Cellbase 支持 mergeset 奖励
 
 2. **哈希算法**：
-   - 统一使用 `blake3`（CKB 用 `blake2b`）
-   - 域前缀：`spora-cell/*`
+   - Spora profile 使用 domain-separated `blake3`
+   - CKB strict profile 对受支持对象使用 CKB `blake2b`
 
 3. **序列化**：
-   - **使用 Borsh**（实际实现）
-   - 简单高效的 Rust 集成
-   - 注意：与 CKB 的 Molecule 不同，但结构兼容
+   - VM/CellScript 公共 ABI 使用 Molecule
+   - Legacy Borsh 仅保留为历史迁移、回归测试或内部兼容路径
+   - CKB strict profile 不接受 Borsh 作为公开 wire format
 
 4. **共识**：
    - GhostDAG（CKB 用 NC-Max）
@@ -3915,8 +3916,8 @@ The following Spora components are inspired by or adapted from CKB:
 ### Key Differences
 
 1. **Consensus**: GhostDAG (vs. NC-Max in CKB)
-2. **Hashing**: blake3 (vs. blake2b in CKB)
-3. **Serialization**: **Borsh** (implementation choice) - Different from CKB's Molecule but structurally compatible
+2. **Hashing**: Spora profile uses domain-separated blake3; CKB strict uses CKB blake2b for admitted objects
+3. **Serialization**: Molecule is the public VM/CellScript ABI; legacy Borsh is retained only for migration, regression, or internal compatibility paths
 4. **DA Layer**: NMT sampling (new in Spora)
 5. **DAG Adaptations**: `daa_score`, mergeset rewards, reorg logs
 

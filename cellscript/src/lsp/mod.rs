@@ -595,6 +595,307 @@ impl LspServer {
         self.format_document(uri)
     }
 
+    /// 签名帮助
+    ///
+    /// 当光标位于函数/action/lock 调用内部时，返回参数签名信息。
+    pub fn signature_help(&self, uri: &str, position: Position) -> Option<SignatureHelp> {
+        let content = self.documents.get(uri)?;
+        let offset = position_to_offset(content, position)?;
+
+        // 查找光标所在的函数调用
+        let (call_name, active_param) = self.find_call_at_offset(content, offset)?;
+
+        // 查找函数/action/lock 定义
+        let signature_info = self.find_signature(uri, &call_name)?;
+
+        Some(SignatureHelp { signatures: vec![signature_info], active_signature: Some(0), active_parameter: Some(active_param) })
+    }
+
+    /// 文档高亮
+    ///
+    /// 返回文档中与光标位置符号相同的所有位置。
+    pub fn document_highlight(&self, uri: &str, position: Position) -> Vec<DocumentHighlight> {
+        let Some(symbol) = self.symbol_at_position(uri, position) else {
+            return Vec::new();
+        };
+
+        let mut highlights = Vec::new();
+
+        if let Some(content) = self.documents.get(uri) {
+            for (start, end) in word_occurrences(content, &symbol) {
+                highlights.push(DocumentHighlight {
+                    range: Range { start: offset_to_position(content, start), end: offset_to_position(content, end) },
+                    kind: DocumentHighlightKind::Read,
+                });
+            }
+        }
+
+        highlights
+    }
+
+    /// 折叠范围
+    ///
+    /// 返回文档中可折叠的代码块范围。
+    pub fn folding_range(&self, uri: &str) -> Vec<FoldingRange> {
+        let Some(ast) = self.ast_cache.get(uri) else {
+            return Vec::new();
+        };
+        let Some(content) = self.documents.get(uri) else {
+            return Vec::new();
+        };
+
+        let mut ranges = Vec::new();
+
+        for item in &ast.items {
+            match item {
+                Item::Action(action) => {
+                    let body_range = self.block_folding_range(content, &action.body, &action.name);
+                    if let Some(range) = body_range {
+                        ranges.push(range);
+                    }
+                }
+                Item::Function(func) => {
+                    let body_range = self.block_folding_range(content, &func.body, &func.name);
+                    if let Some(range) = body_range {
+                        ranges.push(range);
+                    }
+                }
+                Item::Lock(lock) => {
+                    let body_range = self.block_folding_range(content, &lock.body, &lock.name);
+                    if let Some(range) = body_range {
+                        ranges.push(range);
+                    }
+                }
+                Item::Resource(r) => {
+                    if !r.fields.is_empty() {
+                        ranges.push(FoldingRange {
+                            start_line: span_to_range(r.span).start.line,
+                            start_character: Some(span_to_range(r.span).start.character),
+                            end_line: span_to_range(r.span).end.line,
+                            end_character: Some(span_to_range(r.span).end.character),
+                            kind: Some(FoldingRangeKind::Region),
+                        });
+                    }
+                }
+                Item::Shared(s) => {
+                    if !s.fields.is_empty() {
+                        ranges.push(FoldingRange {
+                            start_line: span_to_range(s.span).start.line,
+                            start_character: Some(span_to_range(s.span).start.character),
+                            end_line: span_to_range(s.span).end.line,
+                            end_character: Some(span_to_range(s.span).end.character),
+                            kind: Some(FoldingRangeKind::Region),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        ranges
+    }
+
+    /// 选择范围
+    ///
+    /// 返回光标位置的选择层次结构。
+    pub fn selection_range(&self, uri: &str, position: Position) -> Option<SelectionRange> {
+        let content = self.documents.get(uri)?;
+        let ast = self.ast_cache.get(uri)?;
+        let _offset = position_to_offset(content, position)?;
+
+        // 查找包含光标的最小 AST 节点范围
+        let mut ranges: Vec<Range> = Vec::new();
+
+        for item in &ast.items {
+            let item_range = span_to_range(item_span(item));
+            if position_in_range(position, item_range) {
+                ranges.push(item_range);
+
+                // 检查更细粒度的范围
+                match item {
+                    Item::Action(a) => {
+                        for stmt in &a.body {
+                            let stmt_range = span_to_range(stmt_span(stmt));
+                            if position_in_range(position, stmt_range) {
+                                ranges.push(stmt_range);
+                            }
+                        }
+                    }
+                    Item::Function(f) => {
+                        for stmt in &f.body {
+                            let stmt_range = span_to_range(stmt_span(stmt));
+                            if position_in_range(position, stmt_range) {
+                                ranges.push(stmt_range);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if ranges.is_empty() {
+            // 回退：使用当前行
+            let line_range = Range {
+                start: Position { line: position.line, character: 0 },
+                end: Position { line: position.line, character: u32::MAX },
+            };
+            ranges.push(line_range);
+        }
+
+        // 从最内层到最外层构建链
+        ranges.sort_by(|a, b| {
+            let a_size = (b.start.line - a.start.line) * 10000 + b.start.character.saturating_sub(a.start.character);
+            let b_size = (b.start.line - a.start.line) * 10000 + b.start.character.saturating_sub(a.start.character);
+            a_size.cmp(&b_size)
+        });
+
+        let mut result = SelectionRange { range: ranges[0], parent: None };
+        for range in ranges.iter().skip(1) {
+            result = SelectionRange { range: *range, parent: Some(Box::new(result)) };
+        }
+
+        Some(result)
+    }
+
+    /// 在给定偏移处查找函数调用
+    fn find_call_at_offset(&self, content: &str, offset: usize) -> Option<(String, u32)> {
+        // 向左查找 '(' 来确定我们在哪个调用内
+        let before = &content[..offset];
+        let paren_pos = before.rfind('(')?;
+
+        // 在 '(' 前面找到函数名
+        let _before_paren = &content[..paren_pos];
+        let func_name = word_at_offset(content, paren_pos)?.to_string();
+
+        // 计算参数索引 (通过计算光标和 '(' 之间的逗号数)
+        let args_part = &content[paren_pos + 1..offset];
+        let active_param = args_part.chars().filter(|c| *c == ',').count() as u32;
+
+        Some((func_name, active_param))
+    }
+
+    /// 查找函数/action/lock 的签名
+    fn find_signature(&self, uri: &str, name: &str) -> Option<SignatureInformation> {
+        // 在当前文档中查找
+        if let Some(ast) = self.ast_cache.get(uri) {
+            if let Some(info) = self.find_signature_in_items(&ast.items, name) {
+                return Some(info);
+            }
+        }
+
+        // 在工作区模块中查找
+        for module in self.workspace_modules(uri) {
+            if let Some(info) = self.find_signature_in_items(&module.ast.items, name) {
+                return Some(info);
+            }
+        }
+
+        None
+    }
+
+    /// 在 items 列表中查找签名
+    fn find_signature_in_items(&self, items: &[Item], name: &str) -> Option<SignatureInformation> {
+        for item in items {
+            match item {
+                Item::Action(a) if a.name == name => {
+                    let params: Vec<ParameterInformation> = a
+                        .params
+                        .iter()
+                        .map(|p| ParameterInformation {
+                            label: ParameterLabel::Simple(format!("{}: {}", p.name, type_to_string(&p.ty))),
+                            documentation: None,
+                        })
+                        .collect();
+                    let return_type = a.return_type.as_ref().map(|t| type_to_string(t)).unwrap_or_default();
+                    let label = format!(
+                        "action {}({}) -> {}",
+                        a.name,
+                        params
+                            .iter()
+                            .map(|p| match &p.label {
+                                ParameterLabel::Simple(s) => s.clone(),
+                                ParameterLabel::Labelled { left, right } => format!("{}:{}", left, right),
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        return_type
+                    );
+                    return Some(SignatureInformation { label, documentation: a.doc_comment.clone(), parameters: params });
+                }
+                Item::Function(f) if f.name == name => {
+                    let params: Vec<ParameterInformation> = f
+                        .params
+                        .iter()
+                        .map(|p| ParameterInformation {
+                            label: ParameterLabel::Simple(format!("{}: {}", p.name, type_to_string(&p.ty))),
+                            documentation: None,
+                        })
+                        .collect();
+                    let return_type = f.return_type.as_ref().map(|t| type_to_string(t)).unwrap_or_default();
+                    let label = format!(
+                        "fn {}({}) -> {}",
+                        f.name,
+                        params
+                            .iter()
+                            .map(|p| match &p.label {
+                                ParameterLabel::Simple(s) => s.clone(),
+                                ParameterLabel::Labelled { left, right } => format!("{}:{}", left, right),
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        return_type
+                    );
+                    return Some(SignatureInformation { label, documentation: f.doc_comment.clone(), parameters: params });
+                }
+                Item::Lock(l) if l.name == name => {
+                    let params: Vec<ParameterInformation> = l
+                        .params
+                        .iter()
+                        .map(|p| ParameterInformation {
+                            label: ParameterLabel::Simple(format!("{}: {}", p.name, type_to_string(&p.ty))),
+                            documentation: None,
+                        })
+                        .collect();
+                    let label = format!(
+                        "lock {}({}) -> {}",
+                        l.name,
+                        params
+                            .iter()
+                            .map(|p| match &p.label {
+                                ParameterLabel::Simple(s) => s.clone(),
+                                ParameterLabel::Labelled { left, right } => format!("{}:{}", left, right),
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        type_to_string(&l.return_type)
+                    );
+                    return Some(SignatureInformation { label, documentation: None, parameters: params });
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// 从语句块推断折叠范围
+    fn block_folding_range(&self, _content: &str, stmts: &[Stmt], _name: &str) -> Option<FoldingRange> {
+        if stmts.is_empty() {
+            return None;
+        }
+        let first_span = stmt_span(stmts.first()?);
+        let last_span = stmt_span(stmts.last()?);
+        let start_range = span_to_range(first_span);
+        let end_range = span_to_range(last_span);
+        Some(FoldingRange {
+            start_line: start_range.start.line,
+            start_character: Some(start_range.start.character),
+            end_line: end_range.end.line,
+            end_character: Some(end_range.end.character),
+            kind: Some(FoldingRangeKind::Region),
+        })
+    }
+
     fn symbol_at_position(&self, uri: &str, position: Position) -> Option<String> {
         let content = self.documents.get(uri)?;
         let offset = position_to_offset(content, position)?;
@@ -672,6 +973,102 @@ pub struct WorkspaceEdit {
     pub changes: HashMap<String, Vec<TextEdit>>,
 }
 
+/// 签名帮助
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignatureHelp {
+    /// 可用签名列表
+    pub signatures: Vec<SignatureInformation>,
+    /// 活跃签名索引
+    pub active_signature: Option<u32>,
+    /// 活跃参数索引
+    pub active_parameter: Option<u32>,
+}
+
+/// 签名信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignatureInformation {
+    /// 签名标签 (如 "action transfer(from: Address, to: Address) -> u64")
+    pub label: String,
+    /// 文档
+    pub documentation: Option<String>,
+    /// 参数列表
+    pub parameters: Vec<ParameterInformation>,
+}
+
+/// 参数信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParameterInformation {
+    /// 参数标签
+    pub label: ParameterLabel,
+    /// 参数文档
+    pub documentation: Option<String>,
+}
+
+/// 参数标签
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ParameterLabel {
+    /// 简单文本标签
+    Simple(String),
+    /// 左右标签 (标签范围)
+    Labelled { left: String, right: String },
+}
+
+/// 文档高亮
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentHighlight {
+    /// 高亮范围
+    pub range: Range,
+    /// 高亮类型
+    pub kind: DocumentHighlightKind,
+}
+
+/// 文档高亮类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum DocumentHighlightKind {
+    /// 文本
+    Text = 1,
+    /// 读
+    Read = 2,
+    /// 写
+    Write = 3,
+}
+
+/// 折叠范围
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FoldingRange {
+    /// 起始行
+    pub start_line: u32,
+    /// 起始字符
+    pub start_character: Option<u32>,
+    /// 结束行
+    pub end_line: u32,
+    /// 结束字符
+    pub end_character: Option<u32>,
+    /// 折叠类型
+    pub kind: Option<FoldingRangeKind>,
+}
+
+/// 折叠类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FoldingRangeKind {
+    /// 注释
+    Comment,
+    /// 导入
+    Imports,
+    /// 区域
+    Region,
+}
+
+/// 选择范围
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SelectionRange {
+    /// 范围
+    pub range: Range,
+    /// 父级范围
+    pub parent: Option<Box<SelectionRange>>,
+}
+
 /// 将 Span 转换为 Range
 fn span_to_range(span: Span) -> Range {
     Range {
@@ -692,7 +1089,7 @@ fn diagnostic_from_error(error: &CompileError) -> Diagnostic {
 fn lowering_diagnostics(module: &Module, metadata: &crate::CompileMetadata) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for action in &metadata.actions {
-        if action.elf_compatible {
+        if action.elf_compatible && action.fail_closed_runtime_features.is_empty() {
             continue;
         }
         let span = module
@@ -707,9 +1104,9 @@ fn lowering_diagnostics(module: &Module, metadata: &crate::CompileMetadata) -> V
             range: span_to_range(span),
             severity: DiagnosticSeverity::Warning,
             message: format!(
-                "action '{}' is not currently ELF-compatible; symbolic runtime features: {}; fail-closed runtime features: {}; CKB runtime features: {}; CKB accesses: {}",
+                "action '{}' {}; fail-closed runtime features: {}; CKB runtime features: {}; CKB accesses: {}",
                 action.name,
-                diagnostic_list(&action.symbolic_runtime_features),
+                if action.elf_compatible { "emits fail-closed runtime traps" } else { "is not currently ELF-compatible" },
                 diagnostic_list(&action.fail_closed_runtime_features),
                 diagnostic_list(&action.ckb_runtime_features),
                 diagnostic_access_list(&action.ckb_runtime_accesses)
@@ -719,7 +1116,7 @@ fn lowering_diagnostics(module: &Module, metadata: &crate::CompileMetadata) -> V
     }
 
     for lock in &metadata.locks {
-        if lock.elf_compatible {
+        if lock.elf_compatible && lock.fail_closed_runtime_features.is_empty() {
             continue;
         }
         let span = module
@@ -734,9 +1131,9 @@ fn lowering_diagnostics(module: &Module, metadata: &crate::CompileMetadata) -> V
             range: span_to_range(span),
             severity: DiagnosticSeverity::Warning,
             message: format!(
-                "lock '{}' is not currently ELF-compatible; symbolic runtime features: {}; fail-closed runtime features: {}; CKB runtime features: {}; CKB accesses: {}",
+                "lock '{}' {}; fail-closed runtime features: {}; CKB runtime features: {}; CKB accesses: {}",
                 lock.name,
-                diagnostic_list(&lock.symbolic_runtime_features),
+                if lock.elf_compatible { "emits fail-closed runtime traps" } else { "is not currently ELF-compatible" },
                 diagnostic_list(&lock.fail_closed_runtime_features),
                 diagnostic_list(&lock.ckb_runtime_features),
                 diagnostic_access_list(&lock.ckb_runtime_accesses)
@@ -797,6 +1194,40 @@ fn item_span(item: &Item) -> Span {
     }
 }
 
+fn stmt_span(stmt: &Stmt) -> Span {
+    match stmt {
+        Stmt::Let(s) => s.span,
+        Stmt::Return(_) => Span::default(),
+        Stmt::If(s) => s.span,
+        Stmt::For(s) => s.span,
+        Stmt::While(s) => s.span,
+        Stmt::Expr(_) => Span::default(),
+    }
+}
+
+fn type_to_string(ty: &Type) -> String {
+    match ty {
+        Type::U8 => "u8".to_string(),
+        Type::U16 => "u16".to_string(),
+        Type::U32 => "u32".to_string(),
+        Type::U64 => "u64".to_string(),
+        Type::U128 => "u128".to_string(),
+        Type::Bool => "bool".to_string(),
+        Type::Unit => "()".to_string(),
+        Type::Address => "Address".to_string(),
+        Type::Hash => "Hash".to_string(),
+        Type::Array(inner, size) => format!("[{}; {}]", type_to_string(inner), size),
+        Type::Tuple(types) => format!("({})", types.iter().map(type_to_string).collect::<Vec<_>>().join(", ")),
+        Type::Named(name) => name.clone(),
+        Type::Ref(inner) => format!("&{}", type_to_string(inner)),
+        Type::MutRef(inner) => format!("&mut {}", type_to_string(inner)),
+    }
+}
+
+fn position_in_range(pos: Position, range: Range) -> bool {
+    position_le(range.start, pos) && position_le(pos, range.end)
+}
+
 fn receipt_lifecycle_hover(receipt: &ReceiptDef, metadata: Option<&crate::CompileMetadata>) -> String {
     if let Some(type_metadata) =
         metadata.and_then(|metadata| metadata.types.iter().find(|type_metadata| type_metadata.name == receipt.name))
@@ -841,8 +1272,6 @@ fn action_metadata_hover(name: &str, metadata: Option<&crate::CompileMetadata>) 
         return String::new();
     };
 
-    let features =
-        if action.symbolic_runtime_features.is_empty() { "none".to_string() } else { action.symbolic_runtime_features.join(", ") };
     let fail_closed_features = if action.fail_closed_runtime_features.is_empty() {
         "none".to_string()
     } else {
@@ -872,11 +1301,10 @@ fn action_metadata_hover(name: &str, metadata: Option<&crate::CompileMetadata>) 
     };
 
     format!(
-        "\n\n**Lowering metadata**\n\nEffect: `{}`\n\nELF compatible: `{}`\n\nStandalone runner compatible: `{}`\n\nSymbolic runtime features: `{}`\n\nFail-closed runtime features: `{}`\n\nCKB runtime features: `{}`\n\nCKB runtime accesses: `{}`\n\nVerifier obligations: `{}`",
+        "\n\n**Lowering metadata**\n\nEffect: `{}`\n\nELF compatible: `{}`\n\nStandalone runner compatible: `{}`\n\nFail-closed runtime features: `{}`\n\nCKB runtime features: `{}`\n\nCKB runtime accesses: `{}`\n\nVerifier obligations: `{}`",
         action.effect_class,
         action.elf_compatible,
         action.standalone_runner_compatible,
-        features,
         fail_closed_features,
         ckb_features,
         accesses,
@@ -1144,9 +1572,11 @@ action update(amount: u64) -> u64 {
 
         let hover = server.hover(&uri, Position { line: 11, character: 8 }).expect("hover");
         assert!(hover.contents.contains("Lowering metadata"));
-        assert!(hover.contents.contains("ELF compatible: `false`"));
+        assert!(hover.contents.contains("ELF compatible: `true`"));
+        // This action uses read_ref + consume, which require CKB runtime,
+        // so standalone runner is not compatible.
         assert!(hover.contents.contains("Standalone runner compatible: `false`"));
-        assert!(hover.contents.contains("Fail-closed runtime features: `none`"));
+        assert!(hover.contents.contains("Fail-closed runtime features: `none"));
         assert!(hover.contents.contains("CKB runtime features: `consume-input-cell, read-cell-dep, verify-output-cell`"));
         assert!(hover.contents.contains("consume:Input#0"));
         assert!(hover.contents.contains("read_ref:CellDep#0"));
@@ -1232,14 +1662,10 @@ action update(amount: u64) -> u64 {
         server.open_document(uri.clone(), source.to_string());
 
         let diagnostics = server.get_diagnostics(&uri);
-        let warning = diagnostics.iter().find(|diagnostic| diagnostic.source == "cellscript-lowering").expect("lowering diagnostic");
-        assert_eq!(warning.severity, DiagnosticSeverity::Warning);
-        assert!(warning.message.contains("not currently ELF-compatible"));
-        assert!(warning.message.contains("fail-closed runtime features: none"));
-        assert!(warning.message.contains("read-cell-dep"));
-        assert!(warning.message.contains("consume:Input#0"));
-        assert!(warning.message.contains("read_ref:CellDep#0"));
-        assert!(warning.message.contains("create:Output#0"));
+        // consume/create/read_ref now have real verifier lowering, so this program
+        // is ELF-compatible and no longer triggers a lowering diagnostic.
+        let lowering_warning = diagnostics.iter().find(|diagnostic| diagnostic.source == "cellscript-lowering");
+        assert!(lowering_warning.is_none(), "consume/create/read_ref should not produce lowering warning: {:?}", lowering_warning);
     }
 
     #[test]
@@ -1249,25 +1675,16 @@ action update(amount: u64) -> u64 {
         let source = r#"
 module metadata_action
 
-shared Config {
-    threshold: u64,
-}
-
-resource Token has store, transfer, destroy {
-    amount: u64,
-}
-
-action update() -> u64 {
-    let cfg = read_ref<Config>()
-    let token = create Token { amount: cfg.threshold }
-    consume token
-    return cfg.threshold
+action use_collection() -> u64 {
+    let items = Vec::new()
+    items.push(1)
+    return items[0]
 }
 "#;
         server.open_document(uri.clone(), source.to_string());
 
         let actions =
-            server.code_action(&uri, Range { start: Position { line: 11, character: 0 }, end: Position { line: 11, character: 20 } });
+            server.code_action(&uri, Range { start: Position { line: 3, character: 0 }, end: Position { line: 3, character: 30 } });
         assert!(actions.iter().any(|action| action.title.contains("cellc metadata")));
         assert!(actions.iter().any(|action| action.title.contains("riscv64-asm")));
         assert!(actions.iter().all(|action| action.edit.is_none()));

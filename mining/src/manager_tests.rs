@@ -30,8 +30,9 @@ mod tests {
         },
     };
     use spora_exec::celltx::{
-        CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness, CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
-        CELLSCRIPT_SCHEDULER_OP_CREATE, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT, CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+        encode_cellscript_scheduler_witness_molecule, CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness,
+        CELLSCRIPT_SCHEDULER_EFFECT_CREATING, CELLSCRIPT_SCHEDULER_OP_CREATE, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+        CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
     };
     use spora_hashes::Hash;
     use spora_mining_errors::mempool::RuleResult;
@@ -65,7 +66,7 @@ mod tests {
     }
 
     fn scheduler_witness_bytes(summary: CellScriptSchedulerAccessList) -> Vec<u8> {
-        borsh::to_vec(&summary).expect("test helper must encode scheduler witness")
+        encode_cellscript_scheduler_witness_molecule(&summary)
     }
 
     fn expiring_sidecar_test_config() -> Config {

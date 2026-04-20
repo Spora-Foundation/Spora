@@ -13,6 +13,12 @@ use spora_consensus_core::block::CellScriptSchedulerAccessList;
 use spora_consensus_core::hashing::sighash_type::SigHashType;
 use spora_consensus_core::sign::{sign_input, sign_with_multiple_v2, Signed};
 use spora_consensus_core::tx::{CellTx, SignableTransaction, TransactionId};
+use spora_exec::{
+    ckb_apply_type_id_args_to_output_molecule, ckb_apply_type_id_script_to_output_molecule,
+    ckb_sign_secp256k1_blake160_sighash_all_input_molecule, ckb_sign_secp256k1_blake160_sighash_all_lock_group_molecule,
+    ckb_verify_secp256k1_blake160_sighash_all_lock_group_molecule, CellOutput, CkbSecp256k1Blake160SighashAllLockConfig,
+    CkbWitnessArgs, Script, CKB_SECP256K1_BLAKE160_LOCK_ARG_SIZE, CKB_SECP256K1_SIGHASH_ALL_SIGNATURE_SIZE,
+};
 use spora_rpc_core::{RpcTransaction, RpcTransactionId};
 
 pub(crate) struct PendingTransactionInner {
@@ -297,6 +303,149 @@ impl PendingTransaction {
         Ok(())
     }
 
+    /// Sign one input using CKB default secp256k1-blake160-sighash-all witness rules.
+    ///
+    /// This is an explicit CKB-targeted entry point. The existing Spora
+    /// `sign_input` path remains Blake3/`SigHashType` based and unchanged.
+    pub fn sign_ckb_secp256k1_blake160_sighash_all_input(
+        &self,
+        input_index: usize,
+        private_key: &[u8; 32],
+        signing_witness: CkbWitnessArgs,
+        extra_witnesses: &[Vec<u8>],
+    ) -> Result<CkbWitnessArgs> {
+        let secret_key = secp256k1::SecretKey::from_slice(private_key)?;
+        let mut mutable_tx = self.inner.signable_tx.lock()?.clone();
+        let extra_witnesses = extra_witnesses.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        let signed_witness = ckb_sign_secp256k1_blake160_sighash_all_input_molecule(
+            &mut mutable_tx.tx,
+            input_index,
+            &signing_witness,
+            &secret_key,
+            &extra_witnesses,
+        )
+        .map_err(|err| Error::custom(format!("failed to sign CKB sighash-all witness: {err}")))?;
+        *self.inner.signable_tx.lock().unwrap() = mutable_tx;
+        Ok(signed_witness)
+    }
+
+    /// Sign the first input in a discovered CKB default secp256k1-blake160 lock group.
+    ///
+    /// `resolved_inputs` must be aligned with the transaction inputs and carry
+    /// the spent cells' lock scripts. The existing Spora `sign_input` path
+    /// remains Blake3/`SigHashType` based and unchanged.
+    pub fn sign_ckb_secp256k1_blake160_sighash_all_lock_group(
+        &self,
+        resolved_inputs: &[CellOutput],
+        lock_script: &Script,
+        private_key: &[u8; 32],
+        signing_witness: CkbWitnessArgs,
+        extra_witnesses: &[Vec<u8>],
+    ) -> Result<CkbWitnessArgs> {
+        let secret_key = secp256k1::SecretKey::from_slice(private_key)?;
+        let mut mutable_tx = self.inner.signable_tx.lock()?.clone();
+        let extra_witnesses = extra_witnesses.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        let signed_witness = ckb_sign_secp256k1_blake160_sighash_all_lock_group_molecule(
+            &mut mutable_tx.tx,
+            resolved_inputs,
+            lock_script,
+            &signing_witness,
+            &secret_key,
+            &extra_witnesses,
+        )
+        .map_err(|err| Error::custom(format!("failed to sign CKB lock-group sighash-all witness: {err}")))?;
+        *self.inner.signable_tx.lock().unwrap() = mutable_tx;
+        Ok(signed_witness)
+    }
+
+    /// Sign a configured CKB default secp256k1-blake160 lock group.
+    ///
+    /// The config supplies the chain-specific system script type hash and cell
+    /// dependency. This helper derives the CKB lock script from that config plus
+    /// the 20-byte Blake160 pubkey hash, then delegates to the explicit
+    /// lock-group signing path.
+    pub fn sign_configured_ckb_secp256k1_blake160_sighash_all_lock_group(
+        &self,
+        config: &CkbSecp256k1Blake160SighashAllLockConfig,
+        pubkey_hash: &[u8; CKB_SECP256K1_BLAKE160_LOCK_ARG_SIZE],
+        resolved_inputs: &[CellOutput],
+        private_key: &[u8; 32],
+        signing_witness: CkbWitnessArgs,
+        extra_witnesses: &[Vec<u8>],
+    ) -> Result<CkbWitnessArgs> {
+        let lock_script = config.lock_script(pubkey_hash);
+        self.sign_ckb_secp256k1_blake160_sighash_all_lock_group(
+            resolved_inputs,
+            &lock_script,
+            private_key,
+            signing_witness,
+            extra_witnesses,
+        )
+    }
+
+    /// Verify a discovered CKB default secp256k1-blake160 lock group.
+    ///
+    /// This is the wallet-level counterpart to
+    /// `sign_ckb_secp256k1_blake160_sighash_all_lock_group`. It uses the
+    /// transaction's current witnesses and leaves the Spora signing path
+    /// unchanged.
+    pub fn verify_ckb_secp256k1_blake160_sighash_all_lock_group(
+        &self,
+        expected_pubkey_hash: &[u8; CKB_SECP256K1_BLAKE160_LOCK_ARG_SIZE],
+        resolved_inputs: &[CellOutput],
+        lock_script: &Script,
+        extra_witnesses: &[Vec<u8>],
+    ) -> Result<bool> {
+        let mutable_tx = self.inner.signable_tx.lock()?.clone();
+        let extra_witnesses = extra_witnesses.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        ckb_verify_secp256k1_blake160_sighash_all_lock_group_molecule(
+            expected_pubkey_hash,
+            &mutable_tx.tx,
+            resolved_inputs,
+            lock_script,
+            &extra_witnesses,
+        )
+        .map_err(|err| Error::custom(format!("failed to verify CKB lock-group sighash-all witness: {err}")))
+    }
+
+    /// Verify a configured CKB default secp256k1-blake160 lock group.
+    pub fn verify_configured_ckb_secp256k1_blake160_sighash_all_lock_group(
+        &self,
+        config: &CkbSecp256k1Blake160SighashAllLockConfig,
+        expected_pubkey_hash: &[u8; CKB_SECP256K1_BLAKE160_LOCK_ARG_SIZE],
+        resolved_inputs: &[CellOutput],
+        extra_witnesses: &[Vec<u8>],
+    ) -> Result<bool> {
+        let lock_script = config.lock_script(expected_pubkey_hash);
+        self.verify_ckb_secp256k1_blake160_sighash_all_lock_group(expected_pubkey_hash, resolved_inputs, &lock_script, extra_witnesses)
+    }
+
+    /// Fill CKB TYPE_ID creation args for an output type script.
+    ///
+    /// This is an explicit CKB-targeted transaction-builder entry point. It
+    /// mutates only the output type script args and leaves Spora metadata
+    /// `#[type_id]` semantics untouched.
+    pub fn apply_ckb_type_id_args_to_output(&self, output_index: usize) -> Result<[u8; 32]> {
+        let mut mutable_tx = self.inner.signable_tx.lock()?.clone();
+        let args = ckb_apply_type_id_args_to_output_molecule(&mut mutable_tx.tx, output_index)
+            .map_err(|err| Error::custom(format!("failed to apply CKB TYPE_ID args: {err}")))?;
+        *self.inner.signable_tx.lock().unwrap() = mutable_tx;
+        Ok(args)
+    }
+
+    /// Install a complete CKB built-in TYPE_ID type script on an output.
+    ///
+    /// This computes the creation args from CKB's first-input plus output-index
+    /// rule, then writes the canonical built-in TYPE_ID script code hash and
+    /// hash type into the selected output's type script.
+    pub fn apply_ckb_type_id_script_to_output(&self, output_index: usize) -> Result<[u8; 32]> {
+        let mut mutable_tx = self.inner.signable_tx.lock()?.clone();
+        let args = ckb_apply_type_id_script_to_output_molecule(&mut mutable_tx.tx, output_index)
+            .map_err(|err| Error::custom(format!("failed to apply CKB TYPE_ID script: {err}")))?;
+        *self.inner.signable_tx.lock().unwrap() = mutable_tx;
+        Ok(args)
+    }
+
     pub fn try_sign_with_keys(&self, privkeys: &[[u8; 32]], check_fully_signed: Option<bool>) -> Result<()> {
         let mutable_tx = self.inner.signable_tx.lock()?.clone();
         let signed = sign_with_multiple_v2(mutable_tx, privkeys);
@@ -449,3 +598,133 @@ pub fn increase_fees_for_rbf(&self, additional_fees: u64) -> Result<PendingTrans
     // *self.inner.signable_tx.lock().unwrap() = mutable_tx;
 }
 */
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tx::{Fees, GeneratorSettings, PaymentDestination};
+    use spora_exec::{
+        ckb_secp256k1_blake160_pubkey_hash, ckb_type_id_args, CellDep, CellInput, DepType, OutPoint, CKB_SCRIPT_HASH_TYPE_TYPE,
+        CKB_TYPE_ID_CODE_HASH,
+    };
+
+    fn empty_generator() -> Generator {
+        let change_address = Address::new_std_single(Prefix::Testnet, &[0x11; 32]).unwrap();
+        let settings = GeneratorSettings::try_new_with_iterator(
+            NetworkId::with_suffix(NetworkType::Testnet, 10),
+            Box::new(std::iter::empty()),
+            None,
+            change_address,
+            1,
+            PaymentDestination::Change,
+            None,
+            Fees::None,
+            None,
+            None,
+        )
+        .unwrap();
+        Generator::try_new(settings, None, None).unwrap()
+    }
+
+    #[test]
+    fn configured_ckb_lock_group_signing_roundtrips() {
+        let secp = secp256k1::Secp256k1::new();
+        let secret_key = secp256k1::SecretKey::from_slice(&[0x44; 32]).expect("secret key");
+        let private_key = secret_key.secret_bytes();
+        let pubkey = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
+        let pubkey_hash = ckb_secp256k1_blake160_pubkey_hash(&pubkey.serialize());
+        let config = CkbSecp256k1Blake160SighashAllLockConfig::with_dep_group([0x51; 32], OutPoint::new([0x52; 32], 3));
+        let lock_script = config.lock_script(&pubkey_hash);
+        let resolved_inputs = vec![CellOutput { lock: lock_script, type_: None, capacity: 1_000 }];
+        let tx = CellTx::new(
+            vec![CellInput::new(OutPoint::new([0x61; 32], 0), 0)],
+            vec![config.cell_dep()],
+            vec![CellOutput { lock: Script::new([0x71; 32], 0, vec![]), type_: None, capacity: 900 }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .unwrap();
+        let id = TransactionId::from_bytes(tx.id());
+        let pending = PendingTransaction {
+            inner: Arc::new(PendingTransactionInner {
+                generator: empty_generator(),
+                cell_entries: Default::default(),
+                id,
+                signable_tx: Mutex::new(SignableTransaction::new(tx)),
+                addresses: vec![],
+                is_submitted: AtomicBool::new(false),
+                payment_value: None,
+                change_output_index: None,
+                change_output_value: 0,
+                aggregate_input_value: 1_000,
+                aggregate_output_value: 900,
+                minimum_signatures: 1,
+                mass: 0,
+                fees: 0,
+                kind: DataKind::Final,
+                cellscript_scheduler_accesses: None,
+            }),
+        };
+
+        let signed_witness = pending
+            .sign_configured_ckb_secp256k1_blake160_sighash_all_lock_group(
+                &config,
+                &pubkey_hash,
+                &resolved_inputs,
+                &private_key,
+                CkbWitnessArgs::default(),
+                &[],
+            )
+            .unwrap();
+
+        assert_eq!(signed_witness.lock.as_deref().map(<[u8]>::len), Some(CKB_SECP256K1_SIGHASH_ALL_SIGNATURE_SIZE));
+        assert!(pending
+            .verify_configured_ckb_secp256k1_blake160_sighash_all_lock_group(&config, &pubkey_hash, &resolved_inputs, &[])
+            .unwrap());
+        assert_eq!(
+            pending.transaction().cell_deps,
+            vec![CellDep { out_point: OutPoint::new([0x52; 32], 3), dep_type: DepType::DepGroup }]
+        );
+    }
+
+    #[test]
+    fn apply_ckb_type_id_script_to_output_installs_builtin_type_script() {
+        let tx = CellTx::new(
+            vec![CellInput::new(OutPoint::new([0x81; 32], 0), 0)],
+            vec![],
+            vec![CellOutput { lock: Script::new([0x71; 32], 0, vec![]), type_: None, capacity: 900 }],
+            vec![vec![]],
+            vec![vec![]],
+        )
+        .unwrap();
+        let id = TransactionId::from_bytes(tx.id());
+        let pending = PendingTransaction {
+            inner: Arc::new(PendingTransactionInner {
+                generator: empty_generator(),
+                cell_entries: Default::default(),
+                id,
+                signable_tx: Mutex::new(SignableTransaction::new(tx)),
+                addresses: vec![],
+                is_submitted: AtomicBool::new(false),
+                payment_value: None,
+                change_output_index: None,
+                change_output_value: 0,
+                aggregate_input_value: 1_000,
+                aggregate_output_value: 900,
+                minimum_signatures: 1,
+                mass: 0,
+                fees: 0,
+                kind: DataKind::Final,
+                cellscript_scheduler_accesses: None,
+            }),
+        };
+
+        let args = pending.apply_ckb_type_id_script_to_output(0).unwrap();
+        let tx = pending.transaction();
+        assert_eq!(args, ckb_type_id_args(&tx.inputs[0], 0).unwrap());
+        let type_script = tx.outputs[0].type_.as_ref().unwrap();
+        assert_eq!(type_script.code_hash, CKB_TYPE_ID_CODE_HASH);
+        assert_eq!(type_script.hash_type, CKB_SCRIPT_HASH_TYPE_TYPE);
+        assert_eq!(type_script.args, args.to_vec());
+    }
+}

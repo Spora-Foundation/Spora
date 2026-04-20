@@ -35,7 +35,7 @@ struct Cli {
     #[arg(short, long)]
     target: Option<String>,
 
-    /// 目标 profile (spora, ckb, portable-cell)。v1 只允许 spora 生成产物。
+    /// 目标 profile (spora, ckb, portable-cell)。portable-cell 只做源兼容检查。
     #[arg(long)]
     target_profile: Option<String>,
 
@@ -107,7 +107,17 @@ fn main() {
 
     // 生成标准库
     if cli.gen_stdlib {
-        let asm = cellscript::stdlib::StdLib::generate_assembly();
+        let target_profile = cli
+            .target_profile
+            .as_deref()
+            .map(cellscript::TargetProfile::from_name)
+            .transpose()
+            .unwrap_or_else(|e| {
+                eprintln!("{}: {}", "error".red(), e);
+                process::exit(1);
+            })
+            .unwrap_or(cellscript::TargetProfile::Spora);
+        let asm = cellscript::stdlib::StdLib::generate_assembly_for_target_profile(target_profile);
         println!("{}", asm);
         return;
     }

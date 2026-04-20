@@ -17,6 +17,9 @@ use spora_consensus_core::{config::params::Params, constants::*};
 use spora_hashes::HASH_SIZE;
 
 const STANDARD_LOCK_ARGS_SIZE: u64 = 32;
+const CKB_TYPE_ID_ARGS_SIZE: u64 = 32;
+const CKB_TYPE_ID_SCRIPT_SIZE: u64 = 32 + 1 + CKB_TYPE_ID_ARGS_SIZE;
+const CELL_OUTPUT_TYPE_SCRIPT_SERIALIZED_DELTA: u64 = 32 + 1 + 8 + CKB_TYPE_ID_ARGS_SIZE;
 
 // pub const ECDSA_SIGNATURE_SIZE: u64 = 64;
 // pub const SCHNORR_SIGNATURE_SIZE: u64 = 64;
@@ -181,6 +184,13 @@ impl MassCalculator {
         let lock_script = pay_to_address_lock_script(&output.address);
         self.mass_per_script_pub_key_byte * (33 + lock_script.args.len() as u64)
             + payment_output_serialized_byte_size(output) * self.mass_per_tx_byte
+    }
+
+    pub(crate) fn calc_compute_mass_for_ckb_type_id_output_scripts(&self, count: usize) -> u64 {
+        let per_output = CKB_TYPE_ID_SCRIPT_SIZE
+            .saturating_mul(self.mass_per_script_pub_key_byte)
+            .saturating_add(CELL_OUTPUT_TYPE_SCRIPT_SERIALIZED_DELTA.saturating_mul(self.mass_per_tx_byte));
+        per_output.saturating_mul(count as u64)
     }
 
     /// Client-side input mass based on serialized input bytes only.

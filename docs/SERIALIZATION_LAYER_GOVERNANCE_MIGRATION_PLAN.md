@@ -43,7 +43,7 @@ Spora 项目当前采用 **Borsh** 作为默认序列化方案，与 CKB 使用�
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Layer 3: VM/Script ABI 层 (Borsh v1 + Molecule v1)             │
+│  Layer 3: VM/Script ABI 层 (Molecule v1 public + legacy v1)     │
 │  - ResolvedHeader, ResolvedCell, Witness Payload                │
 │  - 脚本可见的所有数据结构                                        │
 │  - 需要: canonical, partial read, version兼容                  │
@@ -242,8 +242,8 @@ impl<T: BorshSerialize + BorshDeserialize> VersionedEnvelope<T> {
 //!    - Borsh 仅用于内部通信和存储，不参与共识
 //!
 //! 2. **VM-facing ABI 必须经过显式格式边界**
-//!    - legacy default 仍保留 Borsh/custom v1，避免破坏现有脚本
-//!    - Molecule v1 (`0x8001`) 已作为 canonical VM ABI 可用
+//!    - Molecule v1 (`0x8001`) 是 launch/public VM ABI
+//!    - Borsh/custom v1 只保留为显式 legacy 兼容路径
 //!
 //! 3. **VM ABI 是独立抽象层**
 //!    - 通过 `VmSerializable` trait 抽象序列化实现
@@ -289,20 +289,19 @@ pub enum VmAbiError {
     VersionMismatch { expected: u16, actual: u16 },
 }
 
-// 为 ResolvedHeader 实现 Borsh 版本
+// 为 ResolvedHeader 实现 public Molecule 版本
 impl VmSerializable for ResolvedHeader {
     fn to_vm_bytes(&self) -> Vec<u8> {
-        // 当前: Borsh 实现
-        borsh::to_vec(self).expect("Borsh serialization should not fail")
+        serialize_resolved_header_molecule(self).expect("Molecule serialization should not fail")
     }
     
     fn from_vm_bytes(bytes: &[u8]) -> Result<Self, VmAbiError> {
-        BorshDeserialize::try_from_slice(bytes)
+        deserialize_resolved_header_molecule(bytes)
             .map_err(|e| VmAbiError::DeserializationFailed(e.to_string()))
     }
     
     fn abi_version() -> u16 {
-        0x0001 // Borsh-based ABI v1
+        0x8001 // Molecule-based ABI v1
     }
 }
 ```
@@ -322,20 +321,20 @@ impl LoadHeader {
             .load_header(hash)
             .ok_or(VMError::ItemMissing("header".to_string()))?;
         
-        // 使用 VmSerializable 而非直接 Borsh
+        // 默认 public path 使用 Molecule；legacy 必须显式选择 VmAbiFormat::Legacy。
         Ok(header.to_vm_bytes())
     }
 }
 ```
 
-### 4.3 Phase 3: VM ABI 定型时 (未来 6-12 个月)
+### 4.3 Phase 3: VM ABI 定型
 
-#### 任务 3.1: 实现 Molecule 版本的 VmSerializable
+#### 任务 3.1: 实现 Molecule 版本的 VmSerializable ✅
 
 ```rust
 // 新增: exec/src/vm/serialization_molecule.rs
 
-// 当 VM ABI 定型后，为 ResolvedHeader 实现 Molecule 版本
+// VM/CellScript public ABI 已定为 Molecule；legacy Borsh/custom v1 仅保留为显式兼容路径。
 
 pub struct MoleculeVmSerializer;
 
@@ -366,8 +365,7 @@ pub struct VmAbiNegotiator;
 impl VmAbiNegotiator {
     /// 协商脚本和 VM 之间的 ABI 版本
     pub fn negotiate(script_version: u16, vm_capabilities: &[u16]) -> Result<u16, VmAbiError> {
-        // 优先使用 Molecule 版本 (0x80xx)
-        // 回退到 Borsh 版本 (0x00xx)
+        // 精确匹配脚本声明的 ABI；Molecule 不隐式降级到 Borsh。
         for cap in vm_capabilities {
             if *cap == script_version {
                 return Ok(*cap);
@@ -464,7 +462,7 @@ impl VmAbiNegotiator {
 - [x] `VmSerializable` trait 定义完成 (`exec/src/serialization/mod.rs`)
 - [x] `VmAbiNegotiator` 版本协商实现
 - [x] `ResolvedHeader` / `ResolvedCell` 实现 `VmSerializable`
-- [x] 所有 VM syscall 使用 `to_vm_bytes()` / `from_vm_bytes()`
+- [x] VM full-load syscalls support `VmAbiFormat::Molecule`; `LoadScript` / `LoadInput` / `LoadCell` / `LoadHeader` and `TransactionScriptVerifier` default to Molecule
 - [x] `vm_abi` 模块提供标准化序列化
 - [x] 单元测试覆盖核心功能
 - [ ] 集成测试通过 (包括脚本执行) (待运行)
@@ -520,6 +518,7 @@ impl VmAbiNegotiator {
 | 2026-04-16 | 实现 Molecule canonical VM ABI 编码/解码 | VM 范围需要 canonical/partial-read-friendly ABI，但不能破坏 legacy Borsh/custom 默认路径 |
 | 2026-04-16 | CellScript artifact metadata 声明 Molecule VM object ABI | 编译产物必须显式携带 `0x8001` 要求，由 verifier policy 选择 syscall 输出格式 |
 | 2026-04-16 | RISC-V ELF artifact 内嵌固定 VM ABI trailer | ELF code cell bytes 自带 ABI version；loader/verifier strip trailer 后再交给 CKB-VM，不需要修改 CKB-VM |
+| 2026-04-19 | VM/CellScript public ABI default 切到 Molecule | Spora 尚未 launch，避免把 Borsh 变成公共合约债务；Borsh/custom v1 只保留 explicit legacy 兼容 |
 
 ---
 
