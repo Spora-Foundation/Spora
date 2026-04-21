@@ -158,19 +158,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 async fn connect_grpc_with_retry(url: &str, timeout: Duration) -> Result<GrpcClient, Box<dyn Error>> {
     let deadline = Instant::now() + timeout;
-    let mut last_error = String::new();
+    let mut last_error = None;
 
     loop {
         match GrpcClient::connect(url.to_string()).await {
             Ok(client) => match client.get_info().await {
                 Ok(_) => return Ok(client),
-                Err(error) => last_error = error.to_string(),
+                Err(error) => last_error = Some(error.to_string()),
             },
-            Err(error) => last_error = error.to_string(),
+            Err(error) => last_error = Some(error.to_string()),
         }
 
         if Instant::now() >= deadline {
-            return Err(io::Error::new(io::ErrorKind::TimedOut, format!("gRPC probe timed out: {last_error}")).into());
+            let detail = last_error.unwrap_or_else(|| "no connection attempt completed".to_string());
+            return Err(io::Error::new(io::ErrorKind::TimedOut, format!("gRPC probe timed out: {detail}")).into());
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }

@@ -225,7 +225,7 @@ impl<
                 return match self.resolve_added_cell_in_diff(current, outpoint) {
                     Ok(Some(metadata)) => Ok(Some(metadata)),
                     Ok(None) => Ok(Some(synthetic_metadata())),
-                    Err(err) if cell_meta.lock_script.is_some() || cell_meta.type_script.is_some() || cell_meta.data.is_some() => {
+                    Err(_) if cell_meta.lock_script.is_some() || cell_meta.type_script.is_some() || cell_meta.data.is_some() => {
                         Ok(Some(synthetic_metadata()))
                     }
                     Err(err) => Err(err),
