@@ -455,9 +455,9 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64ct"
-version = "1.8.0"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55248b47b0caf0546f7988906588779981c43bb1bc9d0c44087278f80cdb44ba"
+checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
 name = "bech32"
@@ -721,7 +721,7 @@ dependencies = [
  "dashmap",
  "env_logger 0.11.8",
  "hex",
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "log",
  "pretty_assertions",
  "serde",
@@ -1693,7 +1693,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1795,9 +1795,9 @@ checksum = "52051878f80a721bb68ebfbc930e07b65ba72f2da88968ea5c06fd6ca3d3a127"
 
 [[package]]
 name = "fixedbitset"
-version = "0.5.7"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
+checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
 
 [[package]]
 name = "fixedstr"
@@ -2059,7 +2059,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "http 0.2.12",
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "slab",
  "tokio",
  "tokio-util",
@@ -2078,7 +2078,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "http 1.3.1",
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "slab",
  "tokio",
  "tokio-util",
@@ -2139,12 +2139,6 @@ dependencies = [
  "equivalent",
  "foldhash",
 ]
-
-[[package]]
-name = "hashbrown"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5419bdc4f6a9207fbeba6d11b604d481addf78ecd10c11ad51e76c2f6482748d"
 
 [[package]]
 name = "headers"
@@ -2606,14 +2600,13 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.11.4"
+version = "2.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b0f83760fb341a774ed326568e19f5a863af4a952def8c39f9ab92fd95b88e5"
+checksum = "168fb715dda47215e360912c096649d23d58bf392ac62f73919e831745e40f26"
 dependencies = [
  "equivalent",
- "hashbrown 0.16.0",
+ "hashbrown 0.14.5",
  "serde",
- "serde_core",
 ]
 
 [[package]]
@@ -3556,7 +3549,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3682,12 +3675,12 @@ dependencies = [
 
 [[package]]
 name = "petgraph"
-version = "0.7.1"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3672b37090dbd86368a4145bc067582552b29c27377cad4e0a306c97f9bd7772"
+checksum = "b4c5cc86750666a3ed20bdaf5ca2a0344f9c67674cae0515bec2da16fbaa47db"
 dependencies = [
  "fixedbitset",
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
 ]
 
 [[package]]
@@ -3869,11 +3862,11 @@ dependencies = [
 
 [[package]]
 name = "proc-macro-crate"
-version = "3.4.0"
+version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "219cb19e96be00ab2e37d6e299658a0cfa83e52429179969b0f0121b4ac46983"
+checksum = "8ecf48c7ca261d60b74ab1a7b20da18bede46776b2e55535cb958eb595c5fa7b"
 dependencies = [
- "toml_edit 0.23.7",
+ "toml_edit",
 ]
 
 [[package]]
@@ -4044,7 +4037,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.1",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4419,7 +4412,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4750,7 +4743,7 @@ dependencies = [
  "chrono",
  "hex",
  "indexmap 1.9.3",
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "schemars 0.9.0",
  "schemars 1.0.4",
  "serde_core",
@@ -4777,7 +4770,7 @@ version = "0.9.34+deprecated"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
 dependencies = [
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "itoa",
  "ryu",
  "serde",
@@ -4908,7 +4901,7 @@ dependencies = [
  "futures",
  "futures-util",
  "headers",
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "itertools 0.13.0",
  "log",
  "num_cpus",
@@ -5193,7 +5186,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "hex",
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "itertools 0.13.0",
  "log",
  "once_cell",
@@ -5410,7 +5403,7 @@ dependencies = [
  "bincode",
  "enum-primitive-derive",
  "faster-hex",
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "itertools 0.13.0",
  "num-traits",
  "num_cpus",
@@ -5437,7 +5430,7 @@ dependencies = [
  "ckb-vm",
  "criterion",
  "hex",
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "log",
  "parking_lot",
  "proptest",
@@ -5640,7 +5633,7 @@ name = "spora-mempool"
 version = "1.21.0"
 dependencies = [
  "blake3",
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "parking_lot",
  "serde",
  "spora-exec",
@@ -5735,7 +5728,7 @@ dependencies = [
  "derive_more 0.99.20",
  "futures",
  "futures-util",
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "itertools 0.13.0",
  "log",
  "parking_lot",
@@ -5766,7 +5759,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "itertools 0.13.0",
  "log",
  "parking_lot",
@@ -5977,7 +5970,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "borsh",
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "lru 0.12.5",
  "memmap2",
  "parking_lot",
@@ -6009,7 +6002,7 @@ dependencies = [
  "faster-hex",
  "flate2",
  "futures-util",
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "itertools 0.13.0",
  "log",
  "parking_lot",
@@ -6636,7 +6629,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix 1.1.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6884,14 +6877,14 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.8.23"
+version = "0.8.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
+checksum = "a1ed1f98e3fdc28d6d910e6737ae6ab1a93bf1985935a1193e68f93eeb68d24e"
 dependencies = [
  "serde",
  "serde_spanned",
- "toml_datetime 0.6.11",
- "toml_edit 0.22.27",
+ "toml_datetime",
+ "toml_edit",
 ]
 
 [[package]]
@@ -6904,54 +6897,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "toml_datetime"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2cdb639ebbc97961c51720f858597f7f24c4fc295327923af55b74c3c724533"
-dependencies = [
- "serde_core",
-]
-
-[[package]]
 name = "toml_edit"
-version = "0.22.27"
+version = "0.22.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
+checksum = "583c44c02ad26b0c3f3066fe629275e50627026c51ac2e595cca4c230ce1ce1d"
 dependencies = [
- "indexmap 2.11.4",
+ "indexmap 2.2.6",
  "serde",
  "serde_spanned",
- "toml_datetime 0.6.11",
- "toml_write",
+ "toml_datetime",
  "winnow",
 ]
-
-[[package]]
-name = "toml_edit"
-version = "0.23.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6485ef6d0d9b5d0ec17244ff7eb05310113c3f316f2d14200d4de56b3cb98f8d"
-dependencies = [
- "indexmap 2.11.4",
- "toml_datetime 0.7.3",
- "toml_parser",
- "winnow",
-]
-
-[[package]]
-name = "toml_parser"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0cbe268d35bdb4bb5a56a2de88d0ad0eb70af5384a99d648cd4b3d04039800e"
-dependencies = [
- "winnow",
-]
-
-[[package]]
-name = "toml_write"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "tonic"
@@ -7926,9 +7882,9 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 
 [[package]]
 name = "winnow"
-version = "0.7.13"
+version = "0.6.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21a0236b59786fed61e2a80582dd500fe61f18b5dca67a4a067d0bc9039339cf"
+checksum = "1e90edd2ac1aa278a5c4599b1d89cf03074b610800f866d4026dc199d7929a28"
 dependencies = [
  "memchr",
 ]

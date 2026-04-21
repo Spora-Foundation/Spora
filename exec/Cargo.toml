@@ -23,7 +23,7 @@ thiserror = "1.0"
 anyhow = "1.0"
 
 # Collections
-indexmap = "2.2"
+indexmap = "=2.2.6"
 
 # Parallel execution
 rayon = "1.10"

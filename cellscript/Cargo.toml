@@ -27,7 +27,7 @@ toml = "0.8"
 hex = "0.4"
 
 dashmap = "6.0"
-indexmap = "2.2"
+indexmap = "=2.2.6"
 
 log = "0.4"
 env_logger = "0.11"
