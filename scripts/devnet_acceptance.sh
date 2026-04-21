@@ -86,7 +86,7 @@ run_smoke() {
   (
     cd "$REPO_ROOT"
     DEVNET_ACCEPTANCE_SMOKE_REPORT_JSON="$SMOKE_REPORT_JSON" \
-    cargo test -p spora-testing-integration --lib \
+    cargo test --locked -p spora-testing-integration --lib \
       --features "integration-tests devnet-prealloc vm" \
       devnet_acceptance_tests::devnet_acceptance_smoke \
       -- --nocapture --test-threads=1
@@ -163,16 +163,16 @@ PY
 run_cellscript_suite() {
   (
     cd "$REPO_ROOT"
-    cargo test -p cellscript --test examples -- --nocapture --test-threads=1
-    cargo test -p cellscript --test cli cellc_compiles_package_with_local_path_dependency -- --nocapture --test-threads=1
-    cargo test -p cellscript --test cli cellc_rejects_registry_package_dependencies_fail_closed -- --nocapture --test-threads=1
-    cargo test -p cellscript --test cli cellc_build_and_check_subcommands_use_package_flow -- --nocapture --test-threads=1
-    cargo test -p cellscript --test cli cellc_init_subcommand_supports_json_summary -- --nocapture --test-threads=1
-    cargo test -p cellscript --test cli cellc_info_subcommand_supports_json_summary -- --nocapture --test-threads=1
-    cargo test -p cellscript --test cli cellc_entry_witness_subcommand -- --nocapture --test-threads=1
-    cargo test -p cellscript --test cli cellc_add_and_remove_subcommands_honor_dev_path_and_json -- --nocapture --test-threads=1
-    cargo test -p cellscript --test cli cellc_install_path_updates_lockfile_and_remove_prunes_it -- --nocapture --test-threads=1
-    cargo test -p spora-testing-integration --lib \
+    cargo test --locked -p cellscript --test examples -- --nocapture --test-threads=1
+    cargo test --locked -p cellscript --test cli cellc_compiles_package_with_local_path_dependency -- --nocapture --test-threads=1
+    cargo test --locked -p cellscript --test cli cellc_rejects_registry_package_dependencies_fail_closed -- --nocapture --test-threads=1
+    cargo test --locked -p cellscript --test cli cellc_build_and_check_subcommands_use_package_flow -- --nocapture --test-threads=1
+    cargo test --locked -p cellscript --test cli cellc_init_subcommand_supports_json_summary -- --nocapture --test-threads=1
+    cargo test --locked -p cellscript --test cli cellc_info_subcommand_supports_json_summary -- --nocapture --test-threads=1
+    cargo test --locked -p cellscript --test cli cellc_entry_witness_subcommand -- --nocapture --test-threads=1
+    cargo test --locked -p cellscript --test cli cellc_add_and_remove_subcommands_honor_dev_path_and_json -- --nocapture --test-threads=1
+    cargo test --locked -p cellscript --test cli cellc_install_path_updates_lockfile_and_remove_prunes_it -- --nocapture --test-threads=1
+    cargo test --locked -p spora-testing-integration --lib \
       --features "integration-tests devnet-prealloc vm" \
       common::cellscript_contracts::tests::all_spora_examples_compile_metadata_acceptance \
       -- --nocapture --test-threads=1
@@ -201,7 +201,7 @@ JSON
 run_propagation_suite() {
   (
     cd "$REPO_ROOT"
-    cargo test -p spora-testing-integration --lib \
+    cargo test --locked -p spora-testing-integration --lib \
       --features "integration-tests devnet-prealloc vm" \
       daemon_integration_tests::daemon_cells_propagation_test \
       -- --nocapture --test-threads=1
@@ -227,7 +227,7 @@ JSON
 bootstrap_wallet() {
   (
     cd "$REPO_ROOT"
-    cargo run -p spora-testing-integration --bin spora-devnet-bootstrap -- \
+    cargo run --locked -p spora-testing-integration --bin spora-devnet-bootstrap -- \
       --network devnet \
       --wallet-dir "$RUN_DIR/wallet" \
       --wallet-name acceptance \
@@ -259,7 +259,7 @@ run_external_boot() {
 
   (
     cd "$REPO_ROOT"
-    cargo run --bin sporad --features devnet-prealloc -- \
+    cargo run --locked --bin sporad --features devnet-prealloc -- \
       --devnet \
       --appdir "$RUN_DIR/sporad" \
       --num-prealloc-cells=101 \
@@ -301,7 +301,7 @@ run_external_boot() {
 
   (
     cd "$REPO_ROOT"
-    cargo run -p spora-testing-integration --bin spora-devnet-probe -- \
+    cargo run --locked -p spora-testing-integration --bin spora-devnet-probe -- \
       --grpc grpc://127.0.0.1:16610 \
       --wrpc-borsh ws://127.0.0.1:17610 \
       --wrpc-json ws://127.0.0.1:18610 \

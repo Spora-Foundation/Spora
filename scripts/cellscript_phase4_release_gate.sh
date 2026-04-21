@@ -371,6 +371,8 @@ check_v1_ci_workflow() {
         "rustup toolchain install 1.85.0 --profile minimal --component rustfmt"
         "CARGO_TARGET_DIR: /tmp/spora-v1-release-gate-target"
         "CELLSCRIPT_BACKEND_SHAPE_REPORT:"
+        "cargo check --locked --workspace --all-targets"
+        "cargo test --locked -p cellscript -- --test-threads=1"
         "./scripts/cellscript_phase4_release_gate.sh v1"
         "actions/upload-artifact@v4"
         "target/cellscript-backend-shape/"
@@ -575,14 +577,14 @@ check_v1_code_boundaries() {
 
 run_quick_gate() {
     run cargo fmt -p cellscript -p spora-adaptor --check
-    run cargo check -p cellscript -p spora-adaptor --all-targets
-    run cargo test -p cellscript -- --test-threads=1
-    run cargo test -p spora-adaptor -- --test-threads=1
-    run cargo run -p spora-adaptor --example adaptor_roundtrip
-    run cargo run -p spora-adaptor --example adaptor_reject_noncanonical
-    run cargo test -p spora-wallet-core cellscript -- --nocapture
-    run cargo test -p spora-wallet-core ckb_type_id -- --nocapture
-    run cargo test -p spora-wallet-core generator_settings_cell_and_header_deps_are_included_in_unsigned_transactions -- --nocapture
+    run cargo check --locked -p cellscript -p spora-adaptor --all-targets
+    run cargo test --locked -p cellscript -- --test-threads=1
+    run cargo test --locked -p spora-adaptor -- --test-threads=1
+    run cargo run --locked -p spora-adaptor --example adaptor_roundtrip
+    run cargo run --locked -p spora-adaptor --example adaptor_reject_noncanonical
+    run cargo test --locked -p spora-wallet-core cellscript -- --nocapture
+    run cargo test --locked -p spora-wallet-core ckb_type_id -- --nocapture
+    run cargo test --locked -p spora-wallet-core generator_settings_cell_and_header_deps_are_included_in_unsigned_transactions -- --nocapture
     run ./scripts/ckb_cellscript_acceptance.sh --compile-only
     run git diff --check
     check_trailing_whitespace
@@ -591,20 +593,20 @@ run_quick_gate() {
 
 run_full_gate() {
     run cargo fmt --all --check
-    run cargo check --workspace --all-targets
-    run cargo test -p cellscript -- --test-threads=1
-    run cargo test -p spora-adaptor -- --test-threads=1
-    run cargo run -p spora-adaptor --example adaptor_roundtrip
-    run cargo run -p spora-adaptor --example adaptor_reject_noncanonical
-    run cargo test -p spora-exec scheduler_witness -- --nocapture
-    run cargo test -p spora-exec prop_cellscript_scheduler_ -- --nocapture
-    run cargo test -p spora-consensus --lib trusted_access_set_path -- --nocapture
-    run cargo test -p spora-consensus --lib template_scheduler_policy -- --nocapture
-    run cargo test -p spora-wallet-core cellscript -- --nocapture
-    run cargo test -p spora-wallet-core ckb_type_id -- --nocapture
-    run cargo test -p spora-wallet-core generator_settings_cell_and_header_deps_are_included_in_unsigned_transactions -- --nocapture
-    run cargo test -p spora-wallet-core attach_cellscript_compiled_scheduler_witness -- --nocapture
-    run cargo test -p spora-mining scheduler -- --nocapture --test-threads=1
+    run cargo check --locked --workspace --all-targets
+    run cargo test --locked -p cellscript -- --test-threads=1
+    run cargo test --locked -p spora-adaptor -- --test-threads=1
+    run cargo run --locked -p spora-adaptor --example adaptor_roundtrip
+    run cargo run --locked -p spora-adaptor --example adaptor_reject_noncanonical
+    run cargo test --locked -p spora-exec scheduler_witness -- --nocapture
+    run cargo test --locked -p spora-exec prop_cellscript_scheduler_ -- --nocapture
+    run cargo test --locked -p spora-consensus --lib trusted_access_set_path -- --nocapture
+    run cargo test --locked -p spora-consensus --lib template_scheduler_policy -- --nocapture
+    run cargo test --locked -p spora-wallet-core cellscript -- --nocapture
+    run cargo test --locked -p spora-wallet-core ckb_type_id -- --nocapture
+    run cargo test --locked -p spora-wallet-core generator_settings_cell_and_header_deps_are_included_in_unsigned_transactions -- --nocapture
+    run cargo test --locked -p spora-wallet-core attach_cellscript_compiled_scheduler_witness -- --nocapture
+    run cargo test --locked -p spora-mining scheduler -- --nocapture --test-threads=1
     run ./scripts/ckb_cellscript_acceptance.sh --compile-only
     run git diff --check
     check_trailing_whitespace

@@ -188,7 +188,7 @@ else
 fi
 
 CELLC_BUILD_JSON="$RUN_DIR/cellc-build.jsonl"
-if ! cargo build --manifest-path "$REPO_ROOT/Cargo.toml" -p cellscript --bin cellc --message-format=json-render-diagnostics >"$CELLC_BUILD_JSON"; then
+if ! cargo build --locked --manifest-path "$REPO_ROOT/Cargo.toml" -p cellscript --bin cellc --message-format=json-render-diagnostics >"$CELLC_BUILD_JSON"; then
   cat "$CELLC_BUILD_JSON" >&2
   exit 1
 fi

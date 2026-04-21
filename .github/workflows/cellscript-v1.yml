@@ -89,6 +89,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Locked dependency preflight
+        run: |
+          cargo check --locked --workspace --all-targets
+          cargo test --locked -p cellscript -- --test-threads=1
+
       - name: Run CellScript v1 release gate
         run: ./scripts/cellscript_phase4_release_gate.sh v1
 
