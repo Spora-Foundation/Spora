@@ -1718,6 +1718,7 @@ struct MetadataFieldLayout {
     ty: ir::IrType,
     offset: usize,
     fixed_size: Option<usize>,
+    fixed_enum_size: Option<usize>,
 }
 
 type MetadataTypeLayouts = HashMap<String, HashMap<String, MetadataFieldLayout>>;
@@ -2314,17 +2315,19 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
     let type_defs = metadata_type_defs_by_name(ir);
     let lifecycle_states = metadata_lifecycle_states(ir);
     let cell_type_kinds = metadata_cell_type_kinds(ir);
+    let pure_const_returns = metadata_pure_const_returns(ir);
     // No operations are purely symbolic anymore — all have real RISC-V
     // lowerings or fail-closed traps. The unsupported_elf_features list
     // is kept for backward compatibility but will always be empty.
     let _unsupported_elf_features = module_symbolic_runtime_features(ir, &type_layouts, &cell_type_kinds);
     let unsupported_elf_features: Vec<String> = Vec::new();
-    let fail_closed_runtime_features = module_fail_closed_runtime_features(ir, &type_layouts, &cell_type_kinds);
+    let fail_closed_runtime_features = module_fail_closed_runtime_features(ir, &type_layouts, &cell_type_kinds, &pure_const_returns);
     let ckb_runtime_features = module_ckb_runtime_features(ir, &cell_type_kinds, &type_layouts);
     let ckb_runtime_accesses = module_ckb_runtime_accesses(ir, &cell_type_kinds, &type_layouts);
-    let verifier_obligations = module_verifier_obligations(ir, &type_layouts, &lifecycle_states, &cell_type_kinds);
+    let verifier_obligations =
+        module_verifier_obligations(ir, &type_layouts, &lifecycle_states, &cell_type_kinds, &pure_const_returns);
     let transaction_runtime_input_requirements = transaction_runtime_input_requirements_from_obligations(&verifier_obligations);
-    let pool_primitives = module_pool_primitive_metadata(ir, &type_layouts, &cell_type_kinds);
+    let pool_primitives = module_pool_primitive_metadata(ir, &type_layouts, &cell_type_kinds, &pure_const_returns);
     let has_entry_params = module_has_entry_params(ir);
     let ckb_runtime_required = !ckb_runtime_features.is_empty();
     let standalone_runner_compatible = unsupported_elf_features.is_empty() && !ckb_runtime_required && !has_entry_params;
@@ -2412,6 +2415,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
                         &action.params,
                         &cell_type_kinds,
                         action.return_type.as_ref(),
+                        &pure_const_returns,
                     );
                     let ckb_runtime_features = body_ckb_runtime_features(&action.name, &action.body, &cell_type_kinds, &type_layouts);
                     let ckb_runtime_accesses = body_ckb_runtime_accesses(&action.name, &action.body, &cell_type_kinds, &type_layouts);
@@ -2428,6 +2432,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
                         &lifecycle_states,
                         &cell_type_kinds,
                         action.return_type.as_ref(),
+                        &pure_const_returns,
                     );
                     let pool_primitives = body_pool_primitive_metadata(
                         "action",
@@ -2436,6 +2441,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
                         &action.params,
                         &type_layouts,
                         &cell_type_kinds,
+                        &pure_const_returns,
                     );
                     let transaction_runtime_input_requirements =
                         transaction_runtime_input_requirements_from_obligations(&verifier_obligations);
@@ -2508,6 +2514,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
                         &function.params,
                         &cell_type_kinds,
                         function.return_type.as_ref(),
+                        &pure_const_returns,
                     );
                     let ckb_runtime_features = body_ckb_runtime_features(&function.name, &function.body, &cell_type_kinds, &type_layouts);
                     let ckb_runtime_accesses =
@@ -2525,6 +2532,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
                         &lifecycle_states,
                         &cell_type_kinds,
                         function.return_type.as_ref(),
+                        &pure_const_returns,
                     );
                     let pool_primitives = body_pool_primitive_metadata(
                         "fn",
@@ -2533,6 +2541,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
                         &function.params,
                         &type_layouts,
                         &cell_type_kinds,
+                        &pure_const_returns,
                     );
                     let transaction_runtime_input_requirements =
                         transaction_runtime_input_requirements_from_obligations(&verifier_obligations);
@@ -2576,6 +2585,7 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
                         &lock.params,
                         &cell_type_kinds,
                         None,
+                        &pure_const_returns,
                     );
                     let ckb_runtime_features = body_ckb_runtime_features(&lock.name, &lock.body, &cell_type_kinds, &type_layouts);
                     let ckb_runtime_accesses = body_ckb_runtime_accesses(&lock.name, &lock.body, &cell_type_kinds, &type_layouts);
@@ -2592,9 +2602,10 @@ fn compile_metadata_from_ir(ir: &ir::IrModule, artifact_format: ArtifactFormat, 
                         &lifecycle_states,
                         &cell_type_kinds,
                         None,
+                        &pure_const_returns,
                     );
                     let pool_primitives =
-                        body_pool_primitive_metadata("lock", &lock.name, &lock.body, &lock.params, &type_layouts, &cell_type_kinds);
+                        body_pool_primitive_metadata("lock", &lock.name, &lock.body, &lock.params, &type_layouts, &cell_type_kinds, &pure_const_returns);
                     let transaction_runtime_input_requirements =
                         transaction_runtime_input_requirements_from_obligations(&verifier_obligations);
                     let standalone_runner_compatible =
@@ -2682,6 +2693,7 @@ fn module_fail_closed_runtime_features(
     ir: &ir::IrModule,
     type_layouts: &MetadataTypeLayouts,
     cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    pure_const_returns: &HashMap<String, ir::IrConst>,
 ) -> Vec<String> {
     let mut features = BTreeSet::new();
     for item in &ir.items {
@@ -2695,6 +2707,7 @@ fn module_fail_closed_runtime_features(
                     &action.params,
                     cell_type_kinds,
                     action.return_type.as_ref(),
+                    pure_const_returns,
                 ));
             }
             ir::IrItem::PureFn(function) => {
@@ -2706,6 +2719,7 @@ fn module_fail_closed_runtime_features(
                     &function.params,
                     cell_type_kinds,
                     function.return_type.as_ref(),
+                    pure_const_returns,
                 ));
             }
             ir::IrItem::Lock(lock) => {
@@ -2717,6 +2731,7 @@ fn module_fail_closed_runtime_features(
                     &lock.params,
                     cell_type_kinds,
                     None,
+                    pure_const_returns,
                 ));
             }
             ir::IrItem::TypeDef(_) => {}
@@ -2776,6 +2791,7 @@ fn module_verifier_obligations(
     type_layouts: &MetadataTypeLayouts,
     lifecycle_states: &HashMap<String, Vec<String>>,
     cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    pure_const_returns: &HashMap<String, ir::IrConst>,
 ) -> Vec<VerifierObligationMetadata> {
     let mut obligations = Vec::new();
     for item in &ir.items {
@@ -2797,6 +2813,7 @@ fn module_verifier_obligations(
                     &action.params,
                     cell_type_kinds,
                     action.return_type.as_ref(),
+                    pure_const_returns,
                 );
                 let ckb_runtime_features = body_ckb_runtime_features(&action.name, &action.body, cell_type_kinds, type_layouts);
                 let ckb_runtime_accesses = body_ckb_runtime_accesses(&action.name, &action.body, cell_type_kinds, type_layouts);
@@ -2813,6 +2830,7 @@ fn module_verifier_obligations(
                     lifecycle_states,
                     cell_type_kinds,
                     action.return_type.as_ref(),
+                    pure_const_returns,
                 ));
             }
             ir::IrItem::PureFn(function) => {
@@ -2832,6 +2850,7 @@ fn module_verifier_obligations(
                     &function.params,
                     cell_type_kinds,
                     function.return_type.as_ref(),
+                    pure_const_returns,
                 );
                 let ckb_runtime_features = body_ckb_runtime_features(&function.name, &function.body, cell_type_kinds, type_layouts);
                 let ckb_runtime_accesses = body_ckb_runtime_accesses(&function.name, &function.body, cell_type_kinds, type_layouts);
@@ -2848,6 +2867,7 @@ fn module_verifier_obligations(
                     lifecycle_states,
                     cell_type_kinds,
                     function.return_type.as_ref(),
+                    pure_const_returns,
                 ));
             }
             ir::IrItem::Lock(lock) => {
@@ -2861,6 +2881,7 @@ fn module_verifier_obligations(
                     &lock.params,
                     cell_type_kinds,
                     None,
+                    pure_const_returns,
                 );
                 let ckb_runtime_features = body_ckb_runtime_features(&lock.name, &lock.body, cell_type_kinds, type_layouts);
                 let ckb_runtime_accesses = body_ckb_runtime_accesses(&lock.name, &lock.body, cell_type_kinds, type_layouts);
@@ -2877,6 +2898,7 @@ fn module_verifier_obligations(
                     lifecycle_states,
                     cell_type_kinds,
                     None,
+                    pure_const_returns,
                 ));
             }
             ir::IrItem::TypeDef(_) => {}
@@ -2889,6 +2911,7 @@ fn module_pool_primitive_metadata(
     ir: &ir::IrModule,
     type_layouts: &MetadataTypeLayouts,
     cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    pure_const_returns: &HashMap<String, ir::IrConst>,
 ) -> Vec<PoolPrimitiveMetadata> {
     let mut pool_primitives = Vec::new();
     for item in &ir.items {
@@ -2901,6 +2924,7 @@ fn module_pool_primitive_metadata(
                     &action.params,
                     type_layouts,
                     cell_type_kinds,
+                    pure_const_returns,
                 ));
             }
             ir::IrItem::PureFn(function) => {
@@ -2911,6 +2935,7 @@ fn module_pool_primitive_metadata(
                     &function.params,
                     type_layouts,
                     cell_type_kinds,
+                    pure_const_returns,
                 ));
             }
             ir::IrItem::Lock(lock) => {
@@ -2921,6 +2946,7 @@ fn module_pool_primitive_metadata(
                     &lock.params,
                     type_layouts,
                     cell_type_kinds,
+                    pure_const_returns,
                 ));
             }
             ir::IrItem::TypeDef(_) => {}
@@ -2943,6 +2969,7 @@ fn body_verifier_obligations(
     lifecycle_states: &HashMap<String, Vec<String>>,
     cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
     return_type: Option<&ir::IrType>,
+    pure_const_returns: &HashMap<String, ir::IrConst>,
 ) -> Vec<VerifierObligationMetadata> {
     let scope = format!("{}:{}", scope_kind, name);
     let fail_closed = fail_closed_runtime_features.iter().cloned().collect::<BTreeSet<_>>();
@@ -2986,7 +3013,9 @@ fn body_verifier_obligations(
         );
     }
 
-    for check in body_transaction_resource_obligations(name, body, type_layouts, params, lifecycle_states, cell_type_kinds) {
+    for check in
+        body_transaction_resource_obligations(name, body, type_layouts, params, lifecycle_states, cell_type_kinds, pure_const_returns)
+    {
         push_verifier_obligation(&mut obligations, &mut seen, &scope, check.category, &check.feature, check.status, &check.detail);
     }
 
@@ -3038,7 +3067,7 @@ fn body_verifier_obligations(
         );
     }
 
-    for check in body_lifecycle_transition_checks(body, lifecycle_states, type_layouts, params) {
+    for check in body_lifecycle_transition_checks(body, lifecycle_states, type_layouts, params, pure_const_returns) {
         push_verifier_obligation(
             &mut obligations,
             &mut seen,
@@ -3128,9 +3157,10 @@ fn body_transaction_resource_obligations(
     params: &[ir::IrParam],
     lifecycle_states: &HashMap<String, Vec<String>>,
     cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    pure_const_returns: &HashMap<String, ir::IrConst>,
 ) -> Vec<TransactionResourceObligation> {
     let param_schema_vars = schema_pointer_var_ids(body, params);
-    let availability = metadata_prelude_availability(body, &param_schema_vars, type_layouts, params);
+    let availability = metadata_prelude_availability(body, &param_schema_vars, type_layouts, params, pure_const_returns);
     let mut checks = Vec::new();
     let mut output_index = 0usize;
     for block in &body.blocks {
@@ -3188,7 +3218,7 @@ fn body_transaction_resource_obligations(
                     if let Some(type_name) = operand_named_type_name(operand) {
                         let binding = operand_var_name(operand).unwrap_or(&type_name);
                         let scan_detail = if destroy_group_output_absence_scan_is_checked(body, &type_name, binding) {
-                            "; destroy-output-absence=checked-runtime; destroy-group-boundary=checked-runtime"
+                            "; destroy-output-absence=checked-runtime; destroy-output-scan=checked-runtime"
                         } else {
                             ""
                         };
@@ -3197,7 +3227,7 @@ fn body_transaction_resource_obligations(
                             feature: format!("destroy-output-scan:{}", type_name),
                             status: if scan_detail.is_empty() { "runtime-required" } else { "checked-runtime" },
                             detail: format!(
-                                "Runtime verifier must scan grouped outputs to prove the destroyed '{}' instance is not recreated by the same state transition{}",
+                                "Runtime verifier must scan transaction outputs to prove the destroyed '{}' instance is not recreated by the same state transition{}",
                                 type_name, scan_detail
                             ),
                         });
@@ -3673,16 +3703,14 @@ fn resource_conservation_has_single_u64_amount_field(type_layouts: &MetadataType
     if layouts.len() != 1 {
         return false;
     }
-    layouts
-        .get("amount")
-        .is_some_and(|layout| layout.ty == ir::IrType::U64 && metadata_fixed_scalar_width(&layout.ty, layout.fixed_size) == Some(8))
+    layouts.get("amount").is_some_and(|layout| layout.ty == ir::IrType::U64 && metadata_layout_fixed_scalar_width(&layout) == Some(8))
 }
 
 fn resource_conservation_has_u64_amount_field(type_layouts: &MetadataTypeLayouts, type_name: &str) -> bool {
     type_layouts
         .get(type_name)
         .and_then(|layouts| layouts.get("amount"))
-        .is_some_and(|layout| layout.ty == ir::IrType::U64 && metadata_fixed_scalar_width(&layout.ty, layout.fixed_size) == Some(8))
+        .is_some_and(|layout| layout.ty == ir::IrType::U64 && metadata_layout_fixed_scalar_width(&layout) == Some(8))
 }
 
 fn resource_conservation_created_identity_fields_are_checked(
@@ -4164,7 +4192,7 @@ fn transaction_runtime_input_requirements_from_obligations(
             } else {
                 "runtime-required"
             };
-            let group_boundary_status = if transaction_obligation_has_checked_subcondition(obligation, "destroy-group-boundary") {
+            let output_scan_status = if transaction_obligation_has_checked_subcondition(obligation, "destroy-output-scan") {
                 "checked-runtime"
             } else {
                 "runtime-required"
@@ -4173,10 +4201,9 @@ fn transaction_runtime_input_requirements_from_obligations(
                 obligation,
                 "destroy-output-absence",
                 absence_status,
-                (absence_status == "runtime-required")
-                    .then_some("destroy lowering has no executable grouped output type-id absence scan"),
-                (absence_status == "runtime-required").then_some("grouped-output-scan-gap"),
-                "GroupOutput",
+                (absence_status == "runtime-required").then_some("destroy lowering has no executable output type-id absence scan"),
+                (absence_status == "runtime-required").then_some("output-scan-gap"),
+                "Output",
                 binding,
                 Some("type_hash-absence"),
                 "destroy-output-scan-type-id",
@@ -4184,15 +4211,15 @@ fn transaction_runtime_input_requirements_from_obligations(
             ));
             requirements.push(transaction_runtime_input_requirement(
                 obligation,
-                "destroy-group-boundary",
-                group_boundary_status,
-                (group_boundary_status == "runtime-required")
-                    .then_some("destroy lowering does not bind transaction input/output group boundaries"),
-                (group_boundary_status == "runtime-required").then_some("group-boundary-binding-gap"),
+                "destroy-output-scan",
+                output_scan_status,
+                (output_scan_status == "runtime-required")
+                    .then_some("destroy lowering does not bind transaction output scan boundaries"),
+                (output_scan_status == "runtime-required").then_some("output-scan-boundary-gap"),
                 "Transaction",
                 binding,
-                Some("input-output-group"),
-                "destroy-output-scan-group-context",
+                Some("outputs"),
+                "destroy-output-scan-transaction-boundary",
                 None,
             ));
         } else if let Some(binding) = obligation.feature.strip_prefix("claim-output:") {
@@ -4635,7 +4662,7 @@ fn transaction_condition_input_summary(
 }
 
 fn transaction_field_requirement_abi(layout: &MetadataFieldLayout) -> Option<(String, usize)> {
-    if let Some(width) = metadata_fixed_scalar_width(&layout.ty, layout.fixed_size) {
+    if let Some(width) = metadata_layout_fixed_scalar_width(&layout) {
         let scalar = match width {
             1 => "u8",
             2 => "u16",
@@ -4646,7 +4673,7 @@ fn transaction_field_requirement_abi(layout: &MetadataFieldLayout) -> Option<(St
         };
         return Some((format!("input-cell-field-{}", scalar), width));
     }
-    metadata_fixed_byte_width(&layout.ty, layout.fixed_size).map(|width| (format!("input-cell-field-bytes-{}", width), width))
+    metadata_layout_fixed_byte_width(&layout).map(|width| (format!("input-cell-field-bytes-{}", width), width))
 }
 
 fn transaction_output_obligation(
@@ -4736,9 +4763,9 @@ fn metadata_can_verify_settle_final_state(
     lifecycle_states: &HashMap<String, Vec<String>>,
 ) -> bool {
     lifecycle_states.get(&pattern.ty).is_some_and(|states| states.len() >= 2)
-        && type_layouts.get(&pattern.ty).is_some_and(|layouts| {
-            layouts.get("state").and_then(|layout| metadata_fixed_scalar_width(&layout.ty, layout.fixed_size)).is_some()
-        })
+        && type_layouts
+            .get(&pattern.ty)
+            .is_some_and(|layouts| layouts.get("state").and_then(|layout| metadata_layout_fixed_scalar_width(&layout)).is_some())
         && metadata_can_verify_create_output_fields(pattern, type_layouts, availability)
 }
 
@@ -4840,11 +4867,12 @@ fn body_pool_primitive_metadata(
     params: &[ir::IrParam],
     type_layouts: &MetadataTypeLayouts,
     cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
+    pure_const_returns: &HashMap<String, ir::IrConst>,
 ) -> Vec<PoolPrimitiveMetadata> {
     let scope = format!("{}:{}", scope_kind, name);
     let source_invariant_count = body_assert_invariant_count(body);
     let param_schema_vars = schema_pointer_var_ids(body, params);
-    let availability = metadata_prelude_availability(body, &param_schema_vars, type_layouts, params);
+    let availability = metadata_prelude_availability(body, &param_schema_vars, type_layouts, params, pure_const_returns);
     let mut pool_primitives = Vec::new();
     let mut seen = BTreeSet::new();
 
@@ -5601,7 +5629,7 @@ fn type_field_has_fixed_width(type_layouts: &MetadataTypeLayouts, type_name: &st
     type_layouts
         .get(type_name)
         .and_then(|fields| fields.get(field))
-        .and_then(|layout| metadata_fixed_byte_width(&layout.ty, layout.fixed_size))
+        .and_then(|layout| metadata_layout_fixed_byte_width(&layout))
         .is_some_and(|width| width == expected_width)
 }
 
@@ -6739,10 +6767,11 @@ fn body_lifecycle_transition_checks(
     lifecycle_states: &HashMap<String, Vec<String>>,
     type_layouts: &MetadataTypeLayouts,
     params: &[ir::IrParam],
+    pure_const_returns: &HashMap<String, ir::IrConst>,
 ) -> Vec<LifecycleTransitionCheck> {
     let consumed_types = body_consumed_named_types(body);
     let param_schema_vars = schema_pointer_var_ids(body, params);
-    let availability = metadata_prelude_availability(body, &param_schema_vars, type_layouts, params);
+    let availability = metadata_prelude_availability(body, &param_schema_vars, type_layouts, params, pure_const_returns);
     let mut checks = Vec::new();
     let mut seen = BTreeSet::new();
     for pattern in &body.create_set {
@@ -6786,7 +6815,7 @@ fn metadata_can_verify_lifecycle_transition(
     let Some(state_layout) = layouts.get("state") else {
         return false;
     };
-    if metadata_fixed_scalar_width(&state_layout.ty, state_layout.fixed_size).is_none() {
+    if metadata_layout_fixed_scalar_width(&state_layout).is_none() {
         return false;
     }
     metadata_can_verify_create_output_fields(pattern, type_layouts, availability)
@@ -6855,9 +6884,10 @@ fn body_fail_closed_runtime_features(
     params: &[ir::IrParam],
     cell_type_kinds: &HashMap<String, ir::IrTypeKind>,
     return_type: Option<&ir::IrType>,
+    pure_const_returns: &HashMap<String, ir::IrConst>,
 ) -> Vec<String> {
     let mut features = BTreeSet::new();
-    let prelude_availability = metadata_prelude_availability(body, param_schema_vars, type_layouts, params);
+    let prelude_availability = metadata_prelude_availability(body, param_schema_vars, type_layouts, params, pure_const_returns);
     if body.create_set.iter().any(|pattern| !metadata_can_verify_create_output_fields(pattern, type_layouts, &prelude_availability)) {
         features.insert("output-verification-incomplete".to_string());
     }
@@ -7007,11 +7037,39 @@ struct MetadataAggregatePointerSource {
     ty: ir::IrType,
 }
 
+fn metadata_pure_const_returns(ir: &ir::IrModule) -> HashMap<String, ir::IrConst> {
+    ir.items
+        .iter()
+        .filter_map(|item| {
+            let ir::IrItem::PureFn(function) = item else {
+                return None;
+            };
+            metadata_pure_const_return(&function.body).map(|value| (function.name.clone(), value))
+        })
+        .collect()
+}
+
+fn metadata_pure_const_return(body: &ir::IrBody) -> Option<ir::IrConst> {
+    let [block] = body.blocks.as_slice() else {
+        return None;
+    };
+    match (&block.instructions[..], &block.terminator) {
+        ([], ir::IrTerminator::Return(Some(ir::IrOperand::Const(value)))) => Some(value.clone()),
+        ([ir::IrInstruction::LoadConst { dest, value }], ir::IrTerminator::Return(Some(ir::IrOperand::Var(var))))
+            if dest.id == var.id =>
+        {
+            Some(value.clone())
+        }
+        _ => None,
+    }
+}
+
 fn metadata_prelude_availability(
     body: &ir::IrBody,
     param_schema_vars: &BTreeSet<usize>,
     type_layouts: &MetadataTypeLayouts,
     params: &[ir::IrParam],
+    pure_const_returns: &HashMap<String, ir::IrConst>,
 ) -> MetadataPreludeAvailability {
     let mut availability = MetadataPreludeAvailability::default();
     let schema_param_ids =
@@ -7037,6 +7095,21 @@ fn metadata_prelude_availability(
             match instruction {
                 ir::IrInstruction::Call { dest: Some(dest), .. } if matches!(dest.ty, ir::IrType::Tuple(_)) => {
                     availability.tuple_call_return_vars.insert(dest.id, dest.ty.clone());
+                }
+                ir::IrInstruction::Call { dest: Some(dest), func, .. } if pure_const_returns.contains_key(func) => {
+                    let value = pure_const_returns.get(func).expect("guarded pure const return");
+                    if metadata_fixed_scalar_const_value(value).is_some() {
+                        availability.scalar_vars.insert(dest.id);
+                        availability.fixed_value_vars.insert(dest.id);
+                        if dest.ty == ir::IrType::U64 {
+                            availability.u64_value_vars.insert(dest.id);
+                            availability.u64_operand_vars.insert(dest.id);
+                        }
+                    } else if metadata_fixed_byte_const_len(value)
+                        .is_some_and(|len| type_static_length(&dest.ty).is_some_and(|dest_len| dest_len == len))
+                    {
+                        availability.fixed_value_vars.insert(dest.id);
+                    }
                 }
                 ir::IrInstruction::Create { dest, .. } => {
                     let output_index = availability.created_output_vars.len();
@@ -7091,10 +7164,10 @@ fn metadata_prelude_availability(
                         };
                         layout
                     };
-                    if metadata_fixed_byte_width(&layout.ty, layout.fixed_size).is_some() && layout.ty == dest.ty {
+                    if metadata_layout_fixed_byte_width(&layout).is_some() && layout.ty == dest.ty {
                         availability.fixed_value_vars.insert(dest.id);
                     }
-                    if metadata_fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() && layout.ty == dest.ty {
+                    if metadata_layout_fixed_scalar_width(&layout).is_some() && layout.ty == dest.ty {
                         availability.scalar_vars.insert(dest.id);
                         if dest.ty == ir::IrType::U64 {
                             availability.u64_value_vars.insert(dest.id);
@@ -7182,7 +7255,7 @@ fn metadata_can_verify_create_output_fields(
     }
     pattern.fields.iter().all(|(field, value)| {
         layouts.get(field).is_some_and(|layout| {
-            metadata_fixed_byte_width(&layout.ty, layout.fixed_size)
+            metadata_layout_fixed_byte_width(&layout)
                 .is_some_and(|width| metadata_fixed_value_available_with_width(value, availability, width))
         })
     })
@@ -7306,6 +7379,14 @@ fn metadata_fixed_byte_width(ty: &ir::IrType, fixed_size: Option<usize>) -> Opti
     }
 }
 
+fn metadata_layout_fixed_scalar_width(layout: &MetadataFieldLayout) -> Option<usize> {
+    metadata_fixed_scalar_width(&layout.ty, layout.fixed_size).or(layout.fixed_enum_size)
+}
+
+fn metadata_layout_fixed_byte_width(layout: &MetadataFieldLayout) -> Option<usize> {
+    metadata_fixed_byte_width(&layout.ty, layout.fixed_size).or(layout.fixed_enum_size)
+}
+
 fn metadata_fixed_aggregate_pointer_size(ty: &ir::IrType) -> Option<usize> {
     match ty {
         ir::IrType::Array(_, _) | ir::IrType::Tuple(_) => type_static_length(ty).filter(|width| *width > 8),
@@ -7320,11 +7401,14 @@ fn metadata_aggregate_field_layout(ty: &ir::IrType, field: &str) -> Option<Metad
             let field_ty = items.get(index)?.clone();
             let offset = items.iter().take(index).try_fold(0usize, |acc, item| type_static_length(item).map(|size| acc + size))?;
             let fixed_size = type_static_length(&field_ty);
-            Some(MetadataFieldLayout { ty: field_ty, offset, fixed_size })
+            Some(MetadataFieldLayout { ty: field_ty, offset, fixed_size, fixed_enum_size: None })
         }
-        ir::IrType::Address | ir::IrType::Hash if field == "0" => {
-            Some(MetadataFieldLayout { ty: ir::IrType::Array(Box::new(ir::IrType::U8), 32), offset: 0, fixed_size: Some(32) })
-        }
+        ir::IrType::Address | ir::IrType::Hash if field == "0" => Some(MetadataFieldLayout {
+            ty: ir::IrType::Array(Box::new(ir::IrType::U8), 32),
+            offset: 0,
+            fixed_size: Some(32),
+            fixed_enum_size: None,
+        }),
         _ => None,
     }
 }
@@ -7446,7 +7530,7 @@ fn is_executable_schema_field_access(
     let Some(layout) = type_layouts.get(type_name).and_then(|fields| fields.get(field)) else {
         return false;
     };
-    metadata_fixed_byte_width(&layout.ty, layout.fixed_size).is_some()
+    metadata_layout_fixed_byte_width(&layout).is_some()
 }
 
 fn is_executable_aggregate_field_access(obj: &ir::IrOperand, field: &str, availability: &MetadataPreludeAvailability) -> bool {
@@ -7459,7 +7543,7 @@ fn is_executable_aggregate_field_access(obj: &ir::IrOperand, field: &str, availa
     let Some(layout) = metadata_aggregate_field_layout(&source.ty, field) else {
         return false;
     };
-    metadata_fixed_byte_width(&layout.ty, layout.fixed_size).is_some()
+    metadata_layout_fixed_byte_width(&layout).is_some()
 }
 
 fn is_executable_tuple_call_return_field_access(obj: &ir::IrOperand, field: &str, availability: &MetadataPreludeAvailability) -> bool {
@@ -7545,7 +7629,7 @@ fn metadata_claim_signer_pubkey_hash_field<'a>(type_name: &str, type_layouts: &'
     let fields = type_layouts.get(type_name)?;
     CLAIM_SIGNER_PUBKEY_HASH_FIELDS.iter().find_map(|field| {
         let layout = fields.get(*field)?;
-        (metadata_fixed_byte_width(&layout.ty, layout.fixed_size) == Some(20)).then_some(*field)
+        (metadata_layout_fixed_byte_width(&layout) == Some(20)).then_some(*field)
     })
 }
 
@@ -7701,7 +7785,14 @@ fn metadata_type_layouts(ir: &ir::IrModule) -> MetadataTypeLayouts {
             .fields
             .iter()
             .map(|field| {
-                (field.name.clone(), MetadataFieldLayout { ty: field.ty.clone(), offset: field.offset, fixed_size: field.fixed_size })
+                let fixed_enum_size = match &field.ty {
+                    ir::IrType::Named(name) => ir.enum_fixed_sizes.get(name).copied(),
+                    _ => None,
+                };
+                (
+                    field.name.clone(),
+                    MetadataFieldLayout { ty: field.ty.clone(), offset: field.offset, fixed_size: field.fixed_size, fixed_enum_size },
+                )
             })
             .collect();
         layouts.insert(type_def.name.clone(), fields);
@@ -7714,7 +7805,14 @@ fn metadata_type_layouts(ir: &ir::IrModule) -> MetadataTypeLayouts {
             .fields
             .iter()
             .map(|field| {
-                (field.name.clone(), MetadataFieldLayout { ty: field.ty.clone(), offset: field.offset, fixed_size: field.fixed_size })
+                let fixed_enum_size = match &field.ty {
+                    ir::IrType::Named(name) => ir.enum_fixed_sizes.get(name).copied(),
+                    _ => None,
+                };
+                (
+                    field.name.clone(),
+                    MetadataFieldLayout { ty: field.ty.clone(), offset: field.offset, fixed_size: field.fixed_size, fixed_enum_size },
+                )
             })
             .collect();
         layouts.insert(type_def.name.clone(), fields);
@@ -8451,6 +8549,8 @@ fn mutate_field_equality_status(pattern: &ir::MutatePattern, type_layouts: &Meta
         .count();
     if checked == pattern.preserved_fields.len() {
         "checked-runtime"
+    } else if mutate_preserved_data_except_transition_is_verifier_coverable(pattern, type_layouts) {
+        "checked-runtime"
     } else if checked > 0 {
         "checked-partial"
     } else {
@@ -8462,10 +8562,26 @@ fn mutate_preserved_field_is_verifier_coverable(pattern: &ir::MutatePattern, fie
     let Some(layout) = type_layouts.get(&pattern.ty).and_then(|fields| fields.get(field)) else {
         return false;
     };
-    let Some(width) = metadata_fixed_byte_width(&layout.ty, layout.fixed_size) else {
+    let Some(width) = metadata_layout_fixed_byte_width(&layout) else {
         return false;
     };
     layout.offset + width <= METADATA_MUTATE_CELL_BUFFER_SIZE
+}
+
+fn mutate_preserved_data_except_transition_is_verifier_coverable(
+    pattern: &ir::MutatePattern,
+    type_layouts: &MetadataTypeLayouts,
+) -> bool {
+    if pattern.preserved_fields.is_empty() || pattern.transitions.len() != pattern.fields.len() || pattern.transitions.is_empty() {
+        return false;
+    }
+    pattern.transitions.iter().all(|transition| {
+        type_layouts
+            .get(&pattern.ty)
+            .and_then(|fields| fields.get(&transition.field))
+            .and_then(|layout| metadata_layout_fixed_byte_width(&layout).map(|width| layout.offset + width))
+            .is_some_and(|end| end <= METADATA_MUTATE_CELL_BUFFER_SIZE)
+    })
 }
 
 fn mutate_field_transition_status(pattern: &ir::MutatePattern, type_layouts: &MetadataTypeLayouts) -> &'static str {
@@ -8494,6 +8610,22 @@ fn mutate_transition_is_verifier_coverable(
     let Some(layout) = type_layouts.get(&pattern.ty).and_then(|fields| fields.get(&transition.field)) else {
         return false;
     };
+    if transition.op == ir::MutateTransitionOp::Set {
+        let Some(width) = metadata_layout_fixed_byte_width(&layout) else {
+            return false;
+        };
+        if layout.offset + width > METADATA_MUTATE_CELL_BUFFER_SIZE {
+            return false;
+        }
+        return match &transition.operand {
+            ir::IrOperand::Const(ir::IrConst::U64(_))
+            | ir::IrOperand::Const(ir::IrConst::Address(_))
+            | ir::IrOperand::Const(ir::IrConst::Hash(_))
+            | ir::IrOperand::Const(ir::IrConst::Array(_)) => true,
+            ir::IrOperand::Var(var) => metadata_fixed_byte_width(&var.ty, type_static_length(&var.ty)).is_some(),
+            _ => false,
+        };
+    }
     // u128 fields are verifier-coverable via 128-bit add/sub with carry.
     if layout.ty == ir::IrType::U128 && layout.fixed_size == Some(16) {
         if layout.offset + 16 > METADATA_MUTATE_CELL_BUFFER_SIZE {
@@ -8507,7 +8639,7 @@ fn mutate_transition_is_verifier_coverable(
         };
     }
     // Standard path: fields that fit in a single 64-bit register (≤8 bytes).
-    let Some(width) = metadata_fixed_scalar_width(&layout.ty, layout.fixed_size) else {
+    let Some(width) = metadata_layout_fixed_scalar_width(&layout) else {
         return false;
     };
     if width > 8 {
@@ -9791,21 +9923,21 @@ action issue(amount: u64) -> Token {
 }
 "#;
 
-    const CREATE_UNSUPPORTED_FIXED_BYTE_OUTPUT_PROGRAM: &str = r#"
+    const CREATE_UNSUPPORTED_DYNAMIC_OUTPUT_PROGRAM: &str = r#"
 module test
 
 resource Fingerprint {
     digest: Hash,
 }
 
-fn make_digest() -> Hash {
-    return Hash::zero()
+fn pass_digest(digest: Hash) -> Hash {
+    return digest
 }
 
-action issue() -> Fingerprint {
-    let digest = make_digest()
+action issue(digest: Hash) -> Fingerprint {
+    let dynamic_digest = pass_digest(digest)
     let token = create Fingerprint {
-        digest: digest
+        digest: dynamic_digest
     }
     return token
 }
@@ -12779,7 +12911,7 @@ action activate(ticket: Ticket) -> Ticket {
 
     #[test]
     fn incomplete_create_output_verification_exposes_transaction_blocker() {
-        let result = compile(CREATE_UNSUPPORTED_FIXED_BYTE_OUTPUT_PROGRAM, CompileOptions::default()).unwrap();
+        let result = compile(CREATE_UNSUPPORTED_DYNAMIC_OUTPUT_PROGRAM, CompileOptions::default()).unwrap();
         let action = result.metadata.actions.iter().find(|action| action.name == "issue").expect("issue action");
 
         assert!(
@@ -12907,15 +13039,13 @@ action activate(ticket: Ticket) -> Ticket {
         assert!(asm.contains("# consume"), "consume expression vanished from assembly:\n{}", asm);
         assert!(asm.contains("# destroy"), "destroy expression vanished from assembly:\n{}", asm);
         assert!(
-            asm.contains("# cellscript abi: destroy group output type-hash absence scan binding=b size=32"),
-            "destroy did not emit a GroupOutput TypeHash absence scan:\n{}",
+            asm.contains("# cellscript abi: destroy output type-hash absence scan binding=b size=32"),
+            "destroy did not emit an Output TypeHash absence scan:\n{}",
             asm
         );
         assert!(
-            asm.contains(
-                "# cellscript abi: LOAD_CELL_BY_FIELD reason=destroy_group_output_type_hash source=GroupOutput index=t6 field=5"
-            ),
-            "destroy absence scan did not use GroupOutput LOAD_CELL_BY_FIELD:\n{}",
+            asm.contains("# cellscript abi: LOAD_CELL_BY_FIELD reason=destroy_output_type_hash source=Output index=t6 field=5"),
+            "destroy absence scan did not use Output LOAD_CELL_BY_FIELD:\n{}",
             asm
         );
         assert!(
@@ -12981,13 +13111,13 @@ action activate(ticket: Ticket) -> Ticket {
                 && obligation.feature == "destroy-output-scan:Token"
                 && obligation.status == "checked-runtime"
                 && obligation.detail.contains("destroy-output-absence=checked-runtime")
-                && obligation.detail.contains("destroy-group-boundary=checked-runtime")
+                && obligation.detail.contains("destroy-output-scan=checked-runtime")
         }));
         assert!(action.transaction_runtime_input_requirements.iter().any(|requirement| {
             requirement.feature == "destroy-output-scan:Token"
                 && requirement.status == "checked-runtime"
                 && requirement.component == "destroy-output-absence"
-                && requirement.source == "GroupOutput"
+                && requirement.source == "Output"
                 && requirement.field.as_deref() == Some("type_hash-absence")
                 && requirement.abi == "destroy-output-scan-type-id"
                 && requirement.blocker.is_none()
@@ -12997,7 +13127,7 @@ action activate(ticket: Ticket) -> Ticket {
             requirement.scope == "action:burn"
                 && requirement.feature == "destroy-output-scan:Token"
                 && requirement.status == "checked-runtime"
-                && requirement.component == "destroy-group-boundary"
+                && requirement.component == "destroy-output-scan"
                 && requirement.blocker.is_none()
                 && requirement.blocker_class.is_none()
         }));
@@ -16578,6 +16708,59 @@ action credit(ledger: &mut Ledger, delta: u64) {
         assert!(!action.transaction_runtime_input_requirements.iter().any(|requirement| {
             requirement.feature == "shared-mutation:Ledger" && requirement.component == "mutate-field-transition"
         }));
+    }
+
+    #[test]
+    fn fixed_byte_mutable_state_set_transition_is_checked_under_ckb_profile() {
+        let source = r#"
+module test
+
+resource NFT has store, destroy {
+    token_id: u64
+    owner: Address
+    metadata_hash: Hash
+    royalty_recipient: Address
+    royalty_bps: u16
+}
+
+action transfer(nft: &mut NFT, to: Address) {
+    assert_invariant(nft.owner != to, "cannot transfer to self")
+    nft.owner = to
+}
+"#;
+
+        let result = compile(source, CompileOptions { target_profile: Some("ckb".to_string()), ..CompileOptions::default() }).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+        let action = result.metadata.actions.iter().find(|action| action.name == "transfer").expect("transfer metadata");
+        let mutation = action
+            .mutate_set
+            .iter()
+            .find(|mutation| mutation.operation == "mutate" && mutation.ty == "NFT" && mutation.binding == "nft")
+            .expect("transfer should expose NFT mutate_set metadata");
+
+        assert_eq!(mutation.field_equality_status, "checked-runtime");
+        assert_eq!(mutation.field_transition_status, "checked-runtime");
+        assert!(
+            asm.contains("# cellscript abi: verify mutate set transition field NFT.owner Output#0 offset=8 size=32"),
+            "fixed-byte set transition should be checked against the replacement output:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: verify output bytes field NFT set.owner offset=8 size=32 against fixed-byte param"),
+            "fixed-byte set transition should compare the output field to the Address parameter:\n{}",
+            asm
+        );
+        assert!(action.verifier_obligations.iter().any(|obligation| {
+            obligation.category == "cell-state"
+                && obligation.feature == "mutable-cell:NFT"
+                && obligation.status == "checked-runtime"
+                && obligation.detail.contains("field equality=checked-runtime")
+                && obligation.detail.contains("field transition=checked-runtime")
+        }));
+        assert!(!action
+            .transaction_runtime_input_requirements
+            .iter()
+            .any(|requirement| { requirement.feature == "mutable-cell:NFT" && requirement.component == "mutate-field-transition" }));
     }
 
     #[test]

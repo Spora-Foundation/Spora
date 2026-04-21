@@ -9,6 +9,9 @@ Current scope:
 - comment / bracket / auto-close configuration
 - basic snippets
 - open/save-time parse diagnostics via local `cellc --parse` or `cargo run -p cellscript -- --parse`
+- beta compiler LSP support exists in the CellScript crate for diagnostics,
+  completions, hover, definition, references, rename, formatting, and code
+  actions
 
 Also included:
 
@@ -17,9 +20,7 @@ Also included:
 
 Not included:
 
-- semantic diagnostics
-- hover / go-to-definition / rename
-- formatter integration
+- direct VS Code language-server transport
 - debugger integration
 
 ## Local install
@@ -68,7 +69,10 @@ cd /Users/arthur/RustroverProjects/Spora/cellscript/editors/vscode-cellscript
 npm run package
 ```
 
-This intentionally stays a thin editor layer. It does not yet ship a language server.
+This extension intentionally stays a thin editor layer. The CellScript compiler
+crate includes a beta LSP service, but this packaged extension still shells out
+to `cellc` for validation until the language-server transport is wired into the
+VS Code client.
 
 ## Extension development host
 

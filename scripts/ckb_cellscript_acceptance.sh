@@ -187,15 +187,35 @@ else
   fi
 fi
 
-CARGO_TARGET_DIR_RESOLVED="${CARGO_TARGET_DIR:-$REPO_ROOT/target}"
-case "$CARGO_TARGET_DIR_RESOLVED" in
-  /*) ;;
-  *) CARGO_TARGET_DIR_RESOLVED="$REPO_ROOT/$CARGO_TARGET_DIR_RESOLVED" ;;
-esac
-CELLC_BIN="$CARGO_TARGET_DIR_RESOLVED/debug/cellc"
-cargo build --manifest-path "$REPO_ROOT/Cargo.toml" -p cellscript --bin cellc
-if [[ ! -x "$CELLC_BIN" ]]; then
-  echo "cellc build finished but executable was not found at $CELLC_BIN" >&2
+CELLC_BUILD_JSON="$RUN_DIR/cellc-build.jsonl"
+if ! cargo build --manifest-path "$REPO_ROOT/Cargo.toml" -p cellscript --bin cellc --message-format=json-render-diagnostics >"$CELLC_BUILD_JSON"; then
+  cat "$CELLC_BUILD_JSON" >&2
+  exit 1
+fi
+CELLC_BIN="$(python3 - "$CELLC_BUILD_JSON" <<'PY'
+import json
+import pathlib
+import sys
+
+for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    try:
+        message = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    if message.get("reason") != "compiler-artifact":
+        continue
+    target = message.get("target") or {}
+    if target.get("name") != "cellc" or "bin" not in target.get("kind", []):
+        continue
+    executable = message.get("executable")
+    if executable:
+        print(executable)
+        break
+PY
+)"
+if [[ -z "$CELLC_BIN" || ! -x "$CELLC_BIN" ]]; then
+  cat "$CELLC_BUILD_JSON" >&2
+  echo "cellc build finished but Cargo did not report an executable artifact" >&2
   exit 1
 fi
 
@@ -232,9 +252,20 @@ if actual_examples != sorted(EXAMPLES):
 source_root = run_dir / "smoke-sources"
 example_source_root = source_root / "examples"
 baseline_source_root = source_root / "baseline"
+token_action_source_root = source_root / "token-actions"
+nft_action_source_root = source_root / "nft-actions"
+timelock_action_source_root = source_root / "timelock-actions"
 artifact_root = run_dir / "artifacts"
 strict_root = run_dir / "strict-original-ckb"
-for path in (example_source_root, baseline_source_root, artifact_root, strict_root):
+for path in (
+    example_source_root,
+    baseline_source_root,
+    token_action_source_root,
+    nft_action_source_root,
+    timelock_action_source_root,
+    artifact_root,
+    strict_root,
+):
     path.mkdir(parents=True, exist_ok=True)
 
 baseline_source = baseline_source_root / "ckb_noop.cell"
@@ -259,6 +290,124 @@ action main() -> u64 {
     0
 }
 """,
+        encoding="utf-8",
+    )
+
+TOKEN_TYPES_SOURCE = """resource Token has store, transfer, destroy {
+    amount: u64
+    symbol: [u8; 8]
+}
+
+resource MintAuthority has store {
+    token_symbol: [u8; 8]
+    max_supply: u64
+    minted: u64
+}
+"""
+
+TOKEN_ACTION_SOURCES = {
+    "mint": """
+action mint(auth: &mut MintAuthority, to: Address, amount: u64) -> Token {
+    assert_invariant(auth.minted + amount <= auth.max_supply, "exceeds max supply")
+
+    auth.minted = auth.minted + amount
+
+    create Token {
+        amount: amount,
+        symbol: auth.token_symbol
+    } with_lock(to)
+}
+""",
+    "transfer_token": """
+action transfer_token(token: Token, to: Address) -> Token {
+    consume token
+    create Token {
+        amount: token.amount,
+        symbol: token.symbol
+    } with_lock(to)
+}
+""",
+    "burn": """
+action burn(token: Token) {
+    assert_invariant(token.amount > 0, "cannot burn zero")
+    destroy token
+}
+""",
+    "merge": """
+action merge(a: Token, b: Token, to: Address) -> Token {
+    assert_invariant(a.symbol == b.symbol, "symbol mismatch")
+    let total = a.amount + b.amount
+    consume a
+    consume b
+
+    create Token {
+        amount: total,
+        symbol: a.symbol
+    } with_lock(to)
+}
+""",
+}
+
+for action, source in TOKEN_ACTION_SOURCES.items():
+    (token_action_source_root / f"token_{action}.cell").write_text(
+        f"module acceptance::token_{action}\n\n" + TOKEN_TYPES_SOURCE + "\n" + source,
+        encoding="utf-8",
+    )
+
+NFT_TYPES_SOURCE = """resource NFT has store, destroy {
+    token_id: u64
+    owner: Address
+    metadata_hash: Hash
+    royalty_recipient: Address
+    royalty_bps: u16
+}
+"""
+
+NFT_ACTION_SOURCES = {
+    "transfer": """
+action transfer(nft: &mut NFT, to: Address) {
+    assert_invariant(nft.owner != to, "cannot transfer to self")
+    nft.owner = to
+}
+""",
+    "burn": """
+action burn(nft: NFT) {
+    destroy nft
+}
+""",
+}
+
+for action, source in NFT_ACTION_SOURCES.items():
+    (nft_action_source_root / f"nft_{action}.cell").write_text(
+        f"module acceptance::nft_{action}\n\n" + NFT_TYPES_SOURCE + "\n" + source,
+        encoding="utf-8",
+    )
+
+TIMELOCK_TYPES_SOURCE = """resource TimeLock has store, destroy {
+    owner: Address
+    lock_type: u8
+    unlock_height: u64
+    created_at: u64
+}
+"""
+
+TIMELOCK_ACTION_SOURCES = {
+    "extend_lock": """
+action extend_lock(time_lock: &mut TimeLock, additional_period: u64, owner: Address, current_height: u64) {
+    assert_invariant(time_lock.owner == owner, "not owner")
+    assert_invariant(current_height < time_lock.unlock_height, "already unlocked")
+
+    let new_unlock_height = time_lock.unlock_height + additional_period
+    assert_invariant(new_unlock_height <= current_height + 2628000, "too far")
+
+    time_lock.unlock_height = new_unlock_height
+}
+""",
+}
+
+for action, source in TIMELOCK_ACTION_SOURCES.items():
+    (timelock_action_source_root / f"timelock_{action}.cell").write_text(
+        f"module acceptance::timelock_{action}\n\n" + TIMELOCK_TYPES_SOURCE + "\n" + source,
         encoding="utf-8",
     )
 
@@ -385,6 +534,48 @@ for name in EXAMPLES:
     bundled_examples.append(record)
     artifacts.append(record)
 
+token_action_artifacts = []
+for action in TOKEN_ACTION_SOURCES:
+    source = token_action_source_root / f"token_{action}.cell"
+    record = compile_artifact(
+        f"token.{action}.cell",
+        "token-action-strict",
+        source,
+        artifact_root / f"token_{action}.elf",
+        bypass_policy=False,
+    )
+    record["action"] = action
+    record["original_source"] = str(examples_dir / "token.cell")
+    token_action_artifacts.append(record)
+
+nft_action_artifacts = []
+for action in NFT_ACTION_SOURCES:
+    source = nft_action_source_root / f"nft_{action}.cell"
+    record = compile_artifact(
+        f"nft.{action}.cell",
+        "nft-action-strict",
+        source,
+        artifact_root / f"nft_{action}.elf",
+        bypass_policy=False,
+    )
+    record["action"] = action
+    record["original_source"] = str(examples_dir / "nft.cell")
+    nft_action_artifacts.append(record)
+
+timelock_action_artifacts = []
+for action in TIMELOCK_ACTION_SOURCES:
+    source = timelock_action_source_root / f"timelock_{action}.cell"
+    record = compile_artifact(
+        f"timelock.{action}.cell",
+        "timelock-action-strict",
+        source,
+        artifact_root / f"timelock_{action}.elf",
+        bypass_policy=False,
+    )
+    record["action"] = action
+    record["original_source"] = str(examples_dir / "timelock.cell")
+    timelock_action_artifacts.append(record)
+
 strict_original_policy_fail_closed = [
     record["name"]
     for record in bundled_examples
@@ -418,6 +609,9 @@ report = {
     "acceptance_smoke_policy_bypass_env": BYPASS_ENV,
     "pure_baseline": baseline,
     "bundled_examples": bundled_examples,
+    "token_action_artifacts": token_action_artifacts,
+    "nft_action_artifacts": nft_action_artifacts,
+    "timelock_action_artifacts": timelock_action_artifacts,
     "artifacts": artifacts,
 }
 report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -499,6 +693,9 @@ report = json.loads(report_path.read_text(encoding="utf-8"))
 artifacts = report.get("artifacts", [])
 if not artifacts:
     raise RuntimeError("acceptance report does not contain artifacts")
+token_action_artifacts = report.get("token_action_artifacts", [])
+nft_action_artifacts = report.get("nft_action_artifacts", [])
+timelock_action_artifacts = report.get("timelock_action_artifacts", [])
 
 report.update({
     "status": "running-onchain",
@@ -511,6 +708,9 @@ report.update({
         "chain_template": "ckb/test/template integration devnet",
         "always_success_system_cell_index": ALWAYS_SUCCESS_INDEX,
         "artifact_runs": [],
+        "token_action_runs": [],
+        "nft_action_runs": [],
+        "timelock_action_runs": [],
     },
 })
 
@@ -542,6 +742,97 @@ def always_success_lock():
 
 def data_hash(data):
     return "0x" + hashlib.blake2b(data, digest_size=32, person=b"ckb-default-hash").hexdigest()
+
+def ckb_hash(data):
+    return hashlib.blake2b(data, digest_size=32, person=b"ckb-default-hash").digest()
+
+def molecule_u32(value):
+    return int(value).to_bytes(4, "little")
+
+def molecule_bytes(data):
+    return molecule_u32(len(data)) + data
+
+def molecule_table(fields):
+    header_size = 4 + 4 * len(fields)
+    offsets = []
+    cursor = header_size
+    for field in fields:
+        offsets.append(cursor)
+        cursor += len(field)
+    out = bytearray()
+    out.extend(molecule_u32(cursor))
+    for offset in offsets:
+        out.extend(molecule_u32(offset))
+    for field in fields:
+        out.extend(field)
+    return bytes(out)
+
+def hash_type_byte(hash_type):
+    values = {"data": 0, "type": 1, "data1": 2, "data2": 4}
+    if hash_type not in values:
+        raise RuntimeError(f"unsupported hash_type for packed Script hash: {hash_type}")
+    return bytes([values[hash_type]])
+
+def decode_hex(value, expected_len=None):
+    if not isinstance(value, str) or not value.startswith("0x"):
+        raise RuntimeError(f"expected 0x-prefixed hex string, got {value!r}")
+    data = bytes.fromhex(value[2:])
+    if expected_len is not None and len(data) != expected_len:
+        raise RuntimeError(f"expected {expected_len} bytes, got {len(data)}")
+    return data
+
+def script_molecule(script):
+    return molecule_table([
+        decode_hex(script["code_hash"], 32),
+        hash_type_byte(script["hash_type"]),
+        molecule_bytes(decode_hex(script.get("args", "0x"))),
+    ])
+
+def script_hash(script):
+    return "0x" + ckb_hash(script_molecule(script)).hex()
+
+def token_data(amount, symbol=b"TOKEN001"):
+    if len(symbol) != 8:
+        raise RuntimeError(f"token symbol must be exactly 8 bytes, got {len(symbol)}")
+    return amount.to_bytes(8, "little") + symbol
+
+def mint_authority_data(token_symbol=b"TOKEN001", max_supply=1000, minted=0):
+    if len(token_symbol) != 8:
+        raise RuntimeError(f"mint authority symbol must be exactly 8 bytes, got {len(token_symbol)}")
+    return token_symbol + max_supply.to_bytes(8, "little") + minted.to_bytes(8, "little")
+
+def nft_data(token_id, owner, metadata_hash, royalty_recipient, royalty_bps):
+    if len(owner) != 32:
+        raise RuntimeError(f"NFT owner must be exactly 32 bytes, got {len(owner)}")
+    if len(metadata_hash) != 32:
+        raise RuntimeError(f"NFT metadata hash must be exactly 32 bytes, got {len(metadata_hash)}")
+    if len(royalty_recipient) != 32:
+        raise RuntimeError(f"NFT royalty recipient must be exactly 32 bytes, got {len(royalty_recipient)}")
+    return (
+        token_id.to_bytes(8, "little")
+        + owner
+        + metadata_hash
+        + royalty_recipient
+        + royalty_bps.to_bytes(2, "little")
+    )
+
+def timelock_data(owner, lock_type, unlock_height, created_at):
+    if len(owner) != 32:
+        raise RuntimeError(f"TimeLock owner must be exactly 32 bytes, got {len(owner)}")
+    if not 0 <= lock_type <= 255:
+        raise RuntimeError(f"TimeLock lock_type must fit in u8, got {lock_type}")
+    return owner + bytes([lock_type]) + unlock_height.to_bytes(8, "little") + created_at.to_bytes(8, "little")
+
+def entry_witness(*args):
+    out = bytearray(b"CSARGv1\0")
+    for arg in args:
+        if isinstance(arg, int):
+            out.extend(arg.to_bytes(8, "little"))
+        elif isinstance(arg, bytes):
+            out.extend(arg)
+        else:
+            raise RuntimeError(f"unsupported entry witness arg: {arg!r}")
+    return "0x" + bytes(out).hex()
 
 def get_block(block_hash):
     block = rpc("get_block", [block_hash])
@@ -596,7 +887,7 @@ def collect_spendable_cellbases(min_capacity, max_cells=256):
         "generated_blocks": generated_blocks,
     }
 
-def transaction(input_cells, outputs, outputs_data, cell_deps):
+def transaction(input_cells, outputs, outputs_data, cell_deps, witnesses=None):
     if isinstance(input_cells, dict) and "cells" in input_cells:
         input_cells = input_cells["cells"]
     elif isinstance(input_cells, dict):
@@ -614,7 +905,7 @@ def transaction(input_cells, outputs, outputs_data, cell_deps):
         ],
         "outputs": outputs,
         "outputs_data": outputs_data,
-        "witnesses": [],
+        "witnesses": witnesses or [],
     }
 
 def submit_and_commit(tx, label, max_blocks=64):
@@ -771,6 +1062,426 @@ def run_artifact(artifact_record, always_success_dep):
     })
     return result
 
+def deploy_code_cell(name, artifact_path, always_success_dep):
+    artifact = pathlib.Path(artifact_path).read_bytes()
+    artifact_ckb_data_hash = data_hash(artifact)
+    deploy_min_capacity = (len(artifact) + 1_000) * 100_000_000
+    deploy_input = collect_spendable_cellbases(deploy_min_capacity)
+    deploy_tx = transaction(
+        deploy_input,
+        [
+            {
+                "capacity": hex_u64(deploy_input["total_capacity"]),
+                "lock": always_success_lock(),
+                "type": None,
+            }
+        ],
+        ["0x" + artifact.hex()],
+        [always_success_dep],
+    )
+    deploy_result = submit_and_commit(deploy_tx, f"{name} action code-cell deploy")
+    deploy_live = assert_live(deploy_result["tx_hash"], 0, f"{name} action code cell")
+    return {
+        "artifact": str(artifact_path),
+        "artifact_size_bytes": len(artifact),
+        "artifact_ckb_data_hash_blake2b": artifact_ckb_data_hash,
+        "code_cell_deploy": deploy_result,
+        "code_cell_live": deploy_live.get("status") == "live",
+        "code_cell_dep": {"out_point": out_point(deploy_result["tx_hash"], 0), "dep_type": "code"},
+    }
+
+def create_script_locked_cells(label, cells, cell_deps):
+    total_capacity = sum(cell["capacity"] for cell in cells)
+    create_fee_capacity = 10 * 100_000_000
+    funding = collect_spendable_cellbases(total_capacity + create_fee_capacity)
+    tx = transaction(
+        funding,
+        [
+            {
+                "capacity": hex_u64(cell["capacity"]),
+                "lock": cell["lock"],
+                "type": cell.get("type"),
+            }
+            for cell in cells
+        ],
+        ["0x" + cell.get("data", b"").hex() for cell in cells],
+        cell_deps,
+    )
+    result = submit_and_commit(tx, f"{label} input-cell create")
+    live = [assert_live(result["tx_hash"], index, f"{label} input cell {index}").get("status") == "live" for index in range(len(cells))]
+    return {
+        "create_input": funding,
+        "create_fee_capacity": create_fee_capacity,
+        "create_tx": result,
+        "created_cells_live": live,
+        "cells": [
+            {
+                "tx_hash": result["tx_hash"],
+                "index": index,
+                "capacity": cell["capacity"],
+                "lock": cell["lock"],
+                "type": cell.get("type"),
+                "data_hex": "0x" + cell.get("data", b"").hex(),
+            }
+            for index, cell in enumerate(cells)
+        ],
+    }
+
+def run_token_action(action_record, always_success_dep):
+    action = action_record["action"]
+    name = action_record["name"]
+    code = deploy_code_cell(name, action_record["artifact"], always_success_dep)
+    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data", "args": "0x"}
+    cellscript_type = always_success_lock()
+    destination_lock = always_success_lock()
+    destination_lock_hash = decode_hex(script_hash(destination_lock), 32)
+    token_symbol = b"TOKEN001"
+    cell_deps = [always_success_dep, code["code_cell_dep"]]
+
+    result = {
+        "action": action,
+        "name": name,
+        "artifact": action_record["artifact"],
+        "code": code,
+        "cellscript_lock_hash": script_hash(cellscript_lock),
+        "destination_lock_hash": "0x" + destination_lock_hash.hex(),
+    }
+
+    if action == "mint":
+        initial = create_script_locked_cells(
+            "token.mint",
+            [
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": cellscript_type,
+                    "data": mint_authority_data(token_symbol, 1000, 10),
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [
+                {"capacity": hex_u64(100 * 100_000_000), "lock": destination_lock, "type": cellscript_type},
+                {"capacity": hex_u64(200 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type},
+            ],
+            [
+                "0x" + token_data(5, token_symbol).hex(),
+                "0x" + mint_authority_data(token_symbol, 1000, 15).hex(),
+            ],
+            cell_deps,
+            [entry_witness(destination_lock_hash, 5)],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [
+                {"capacity": hex_u64(100 * 100_000_000), "lock": destination_lock, "type": cellscript_type},
+                {"capacity": hex_u64(200 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type},
+            ],
+            [
+                "0x" + token_data(6, token_symbol).hex(),
+                "0x" + mint_authority_data(token_symbol, 1000, 15).hex(),
+            ],
+            cell_deps,
+            [entry_witness(destination_lock_hash, 5)],
+        )
+    elif action == "transfer_token":
+        initial = create_script_locked_cells(
+            "token.transfer",
+            [
+                {
+                    "capacity": 200 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": cellscript_type,
+                    "data": token_data(42, token_symbol),
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(200 * 100_000_000), "lock": destination_lock, "type": cellscript_type}],
+            ["0x" + token_data(42, token_symbol).hex()],
+            cell_deps,
+            [entry_witness(destination_lock_hash)],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(200 * 100_000_000), "lock": destination_lock, "type": cellscript_type}],
+            ["0x" + token_data(41, token_symbol).hex()],
+            cell_deps,
+            [entry_witness(destination_lock_hash)],
+        )
+    elif action == "burn":
+        initial = create_script_locked_cells(
+            "token.burn",
+            [
+                {
+                    "capacity": 100 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": cellscript_type,
+                    "data": token_data(7, token_symbol),
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(100 * 100_000_000), "lock": cellscript_lock, "type": None}],
+            ["0x"],
+            cell_deps,
+            [entry_witness()],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(100 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type}],
+            ["0x" + token_data(7, token_symbol).hex()],
+            cell_deps,
+            [entry_witness()],
+        )
+    elif action == "merge":
+        initial = create_script_locked_cells(
+            "token.merge",
+            [
+                {
+                    "capacity": 300 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": cellscript_type,
+                    "data": token_data(40, token_symbol),
+                },
+                {
+                    "capacity": 150 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": cellscript_type,
+                    "data": token_data(2, token_symbol),
+                },
+            ],
+            cell_deps,
+        )
+        valid_tx = transaction(
+            initial["cells"],
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": destination_lock, "type": cellscript_type}],
+            ["0x" + token_data(42, token_symbol).hex()],
+            cell_deps,
+            [entry_witness(destination_lock_hash), "0x"],
+        )
+        malformed_tx = transaction(
+            initial["cells"],
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": destination_lock, "type": cellscript_type}],
+            ["0x" + token_data(41, token_symbol).hex()],
+            cell_deps,
+            [entry_witness(destination_lock_hash), "0x"],
+        )
+    else:
+        raise RuntimeError(f"unsupported token action harness: {action}")
+
+    malformed_rejection = expect_dry_run_rejected(
+        malformed_tx,
+        f"{name} malformed action transaction",
+        ("Script", "script", "ValidationFailure", "error code", "VM", "Run result", "Invalid"),
+    )
+    for index, cell in enumerate(initial["cells"]):
+        assert_live(cell["tx_hash"], cell["index"], f"{name} input cell {index} after malformed transaction")
+
+    valid_dry_run = rpc("dry_run_transaction", [valid_tx])
+    commit = submit_and_commit(valid_tx, f"{name} valid action transaction")
+    output_live = [assert_live(commit["tx_hash"], index, f"{name} valid output {index}").get("status") == "live" for index in range(len(valid_tx["outputs"]))]
+    result.update({
+        "initial_cells": initial,
+        "malformed_transaction": malformed_rejection,
+        "valid_dry_run": valid_dry_run,
+        "valid_commit": commit,
+        "valid_outputs_live": output_live,
+        "status": "passed",
+    })
+    return result
+
+def run_nft_action(action_record, always_success_dep):
+    action = action_record["action"]
+    name = action_record["name"]
+    code = deploy_code_cell(name, action_record["artifact"], always_success_dep)
+    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data", "args": "0x"}
+    cellscript_type = always_success_lock()
+    destination_lock = always_success_lock()
+    current_owner = decode_hex(script_hash(cellscript_lock), 32)
+    destination_owner = decode_hex(script_hash(destination_lock), 32)
+    metadata_hash = bytes(range(32))
+    royalty_recipient = bytes(reversed(range(32)))
+    cell_deps = [always_success_dep, code["code_cell_dep"]]
+
+    result = {
+        "action": action,
+        "name": name,
+        "artifact": action_record["artifact"],
+        "code": code,
+        "cellscript_lock_hash": script_hash(cellscript_lock),
+        "destination_owner": "0x" + destination_owner.hex(),
+    }
+
+    if action == "transfer":
+        initial = create_script_locked_cells(
+            "nft.transfer",
+            [
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": cellscript_type,
+                    "data": nft_data(1, current_owner, metadata_hash, royalty_recipient, 250),
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type}],
+            ["0x" + nft_data(1, destination_owner, metadata_hash, royalty_recipient, 250).hex()],
+            cell_deps,
+            [entry_witness(destination_owner)],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type}],
+            ["0x" + nft_data(1, current_owner, metadata_hash, royalty_recipient, 250).hex()],
+            cell_deps,
+            [entry_witness(destination_owner)],
+        )
+    elif action == "burn":
+        initial = create_script_locked_cells(
+            "nft.burn",
+            [
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": cellscript_type,
+                    "data": nft_data(2, current_owner, metadata_hash, royalty_recipient, 250),
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": None}],
+            ["0x"],
+            cell_deps,
+            [entry_witness()],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type}],
+            ["0x" + nft_data(2, current_owner, metadata_hash, royalty_recipient, 250).hex()],
+            cell_deps,
+            [entry_witness()],
+        )
+    else:
+        raise RuntimeError(f"unsupported NFT action harness: {action}")
+
+    malformed_rejection = expect_dry_run_rejected(
+        malformed_tx,
+        f"{name} malformed action transaction",
+        ("Script", "script", "ValidationFailure", "error code", "VM", "Run result", "Invalid"),
+    )
+    for index, cell in enumerate(initial["cells"]):
+        assert_live(cell["tx_hash"], cell["index"], f"{name} input cell {index} after malformed transaction")
+
+    valid_dry_run = rpc("dry_run_transaction", [valid_tx])
+    commit = submit_and_commit(valid_tx, f"{name} valid action transaction")
+    output_live = [
+        assert_live(commit["tx_hash"], index, f"{name} valid output {index}").get("status") == "live"
+        for index in range(len(valid_tx["outputs"]))
+    ]
+    result.update({
+        "initial_cells": initial,
+        "malformed_transaction": malformed_rejection,
+        "valid_dry_run": valid_dry_run,
+        "valid_commit": commit,
+        "valid_outputs_live": output_live,
+        "status": "passed",
+    })
+    return result
+
+def run_timelock_action(action_record, always_success_dep):
+    action = action_record["action"]
+    name = action_record["name"]
+    code = deploy_code_cell(name, action_record["artifact"], always_success_dep)
+    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data", "args": "0x"}
+    cellscript_type = always_success_lock()
+    owner = decode_hex(script_hash(cellscript_lock), 32)
+    cell_deps = [always_success_dep, code["code_cell_dep"]]
+
+    result = {
+        "action": action,
+        "name": name,
+        "artifact": action_record["artifact"],
+        "code": code,
+        "cellscript_lock_hash": script_hash(cellscript_lock),
+        "owner": "0x" + owner.hex(),
+    }
+
+    if action == "extend_lock":
+        current_height = 50
+        initial_unlock_height = 100
+        additional_period = 10
+        created_at = 1
+        initial = create_script_locked_cells(
+            "timelock.extend_lock",
+            [
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": cellscript_type,
+                    "data": timelock_data(owner, 0, initial_unlock_height, created_at),
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type}],
+            ["0x" + timelock_data(owner, 0, initial_unlock_height + additional_period, created_at).hex()],
+            cell_deps,
+            [entry_witness(additional_period, owner, current_height)],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type}],
+            ["0x" + timelock_data(owner, 0, initial_unlock_height + additional_period + 1, created_at).hex()],
+            cell_deps,
+            [entry_witness(additional_period, owner, current_height)],
+        )
+    else:
+        raise RuntimeError(f"unsupported TimeLock action harness: {action}")
+
+    malformed_rejection = expect_dry_run_rejected(
+        malformed_tx,
+        f"{name} malformed action transaction",
+        ("Script", "script", "ValidationFailure", "error code", "VM", "Run result", "Invalid"),
+    )
+    for index, cell in enumerate(initial["cells"]):
+        assert_live(cell["tx_hash"], cell["index"], f"{name} input cell {index} after malformed transaction")
+
+    valid_dry_run = rpc("dry_run_transaction", [valid_tx])
+    commit = submit_and_commit(valid_tx, f"{name} valid action transaction")
+    output_live = [
+        assert_live(commit["tx_hash"], index, f"{name} valid output {index}").get("status") == "live"
+        for index in range(len(valid_tx["outputs"]))
+    ]
+    result.update({
+        "initial_cells": initial,
+        "malformed_transaction": malformed_rejection,
+        "valid_dry_run": valid_dry_run,
+        "valid_commit": commit,
+        "valid_outputs_live": output_live,
+        "status": "passed",
+    })
+    return result
+
 try:
     tip_before = rpc("get_tip_header")
     genesis = get_block_by_number(0)
@@ -791,6 +1502,24 @@ try:
         report["onchain"]["completed_artifacts"] = len(report["onchain"]["artifact_runs"])
         write_report()
 
+    for action_record in token_action_artifacts:
+        action_result = run_token_action(action_record, always_success_dep)
+        report["onchain"]["token_action_runs"].append(action_result)
+        report["onchain"]["completed_token_actions"] = len(report["onchain"]["token_action_runs"])
+        write_report()
+
+    for action_record in nft_action_artifacts:
+        action_result = run_nft_action(action_record, always_success_dep)
+        report["onchain"]["nft_action_runs"].append(action_result)
+        report["onchain"]["completed_nft_actions"] = len(report["onchain"]["nft_action_runs"])
+        write_report()
+
+    for action_record in timelock_action_artifacts:
+        action_result = run_timelock_action(action_record, always_success_dep)
+        report["onchain"]["timelock_action_runs"].append(action_result)
+        report["onchain"]["completed_timelock_actions"] = len(report["onchain"]["timelock_action_runs"])
+        write_report()
+
     tip_after = rpc("get_tip_header")
     report["status"] = "passed"
     report["onchain"]["status"] = "passed"
@@ -798,6 +1527,22 @@ try:
     report["onchain"]["all_artifacts_deployed_and_spent"] = True
     report["onchain"]["bundled_examples_deployed_and_spent"] = [
         run["name"] for run in report["onchain"]["artifact_runs"] if run["kind"].startswith("bundled-example-")
+    ]
+    report["onchain"]["token_actions_exercised"] = [run["action"] for run in report["onchain"]["token_action_runs"]]
+    report["onchain"]["all_token_actions_exercised"] = sorted(report["onchain"]["token_actions_exercised"]) == [
+        "burn",
+        "merge",
+        "mint",
+        "transfer_token",
+    ]
+    report["onchain"]["nft_actions_exercised"] = [run["action"] for run in report["onchain"]["nft_action_runs"]]
+    report["onchain"]["all_nft_actions_exercised"] = sorted(report["onchain"]["nft_actions_exercised"]) == [
+        "burn",
+        "transfer",
+    ]
+    report["onchain"]["timelock_actions_exercised"] = [run["action"] for run in report["onchain"]["timelock_action_runs"]]
+    report["onchain"]["all_timelock_actions_exercised"] = report["onchain"]["timelock_actions_exercised"] == [
+        "extend_lock",
     ]
     write_report()
 except Exception as error:

@@ -4,6 +4,7 @@ use crate::ast::{BinaryOp, UnaryOp};
 use crate::error::{CompileError, Result};
 use crate::ir::*;
 use crate::{ArtifactFormat, TargetProfile, ENTRY_WITNESS_ABI_MAGIC};
+use serde::Serialize;
 use std::collections::{BTreeSet, HashMap};
 use std::env;
 use std::fs;
@@ -63,7 +64,6 @@ struct RuntimeSyscallAbi {
     secp256k1_verify: u64,
     load_ecdsa_signature_hash: u64,
     source_group_input: u64,
-    source_group_output: u64,
     source_header_dep: u64,
 }
 
@@ -76,7 +76,6 @@ const SPORA_RUNTIME_SYSCALL_ABI: RuntimeSyscallAbi = RuntimeSyscallAbi {
     secp256k1_verify: SPORA_SECP256K1_VERIFY_SYSCALL_NUMBER,
     load_ecdsa_signature_hash: SPORA_LOAD_ECDSA_SIGNATURE_HASH_SYSCALL_NUMBER,
     source_group_input: CKB_SOURCE_GROUP_INPUT,
-    source_group_output: CKB_SOURCE_GROUP_OUTPUT,
     source_header_dep: CKB_SOURCE_HEADER_DEP,
 };
 
@@ -92,7 +91,6 @@ const CKB_RUNTIME_SYSCALL_ABI: RuntimeSyscallAbi = RuntimeSyscallAbi {
     secp256k1_verify: SPORA_SECP256K1_VERIFY_SYSCALL_NUMBER,
     load_ecdsa_signature_hash: SPORA_LOAD_ECDSA_SIGNATURE_HASH_SYSCALL_NUMBER,
     source_group_input: CKB_SOURCE_GROUP_FLAG | CKB_SOURCE_INPUT,
-    source_group_output: CKB_SOURCE_GROUP_FLAG | CKB_SOURCE_OUTPUT,
     source_header_dep: CKB_SOURCE_HEADER_DEP,
 };
 
@@ -108,6 +106,7 @@ struct SchemaFieldLayout {
     offset: usize,
     ty: IrType,
     fixed_size: Option<usize>,
+    fixed_enum_size: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +129,12 @@ enum ExpectedFixedByteSource {
     StackSlot { var_id: usize, width: usize },
     ParamBytes { var_id: usize, size_offset: usize, width: usize },
     LoadedBytes { var_id: usize, size_offset: usize, width: usize },
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SourcePointer {
+    LoadedStackPointer { var_id: usize, offset: usize },
+    StackAddress { offset: usize },
 }
 
 fn fixed_scalar_width(ty: &IrType, fixed_size: Option<usize>) -> Option<usize> {
@@ -161,6 +166,14 @@ fn fixed_byte_width(ty: &IrType, fixed_size: Option<usize>) -> Option<usize> {
     }
 }
 
+fn layout_fixed_scalar_width(layout: &SchemaFieldLayout) -> Option<usize> {
+    fixed_scalar_width(&layout.ty, layout.fixed_size).or(layout.fixed_enum_size)
+}
+
+fn layout_fixed_byte_width(layout: &SchemaFieldLayout) -> Option<usize> {
+    fixed_byte_width(&layout.ty, layout.fixed_size).or(layout.fixed_enum_size)
+}
+
 fn type_static_length(ty: &IrType) -> Option<usize> {
     match ty {
         IrType::Bool | IrType::U8 => Some(1),
@@ -186,6 +199,31 @@ fn operand_fixed_byte_width(operand: &IrOperand) -> Option<usize> {
     match ty {
         IrType::Address | IrType::Hash => Some(32),
         IrType::Array(inner, len) if matches!(inner.as_ref(), IrType::U8) => Some(*len),
+        _ => None,
+    }
+}
+
+fn collect_pure_const_returns(ir: &IrModule) -> HashMap<String, IrConst> {
+    ir.items
+        .iter()
+        .filter_map(|item| {
+            let IrItem::PureFn(function) = item else {
+                return None;
+            };
+            pure_const_return(&function.body).map(|value| (function.name.clone(), value))
+        })
+        .collect()
+}
+
+fn pure_const_return(body: &IrBody) -> Option<IrConst> {
+    let [block] = body.blocks.as_slice() else {
+        return None;
+    };
+    match (&block.instructions[..], &block.terminator) {
+        ([], IrTerminator::Return(Some(IrOperand::Const(value)))) => Some(value.clone()),
+        ([IrInstruction::LoadConst { dest, value }], IrTerminator::Return(Some(IrOperand::Var(var)))) if dest.id == var.id => {
+            Some(value.clone())
+        }
         _ => None,
     }
 }
@@ -253,11 +291,14 @@ fn aggregate_field_layout(ty: &IrType, field: &str) -> Option<SchemaFieldLayout>
             let field_ty = items.get(index)?.clone();
             let offset = items.iter().take(index).try_fold(0usize, |acc, item| type_static_length(item).map(|size| acc + size))?;
             let fixed_size = type_static_length(&field_ty);
-            Some(SchemaFieldLayout { offset, ty: field_ty, fixed_size })
+            Some(SchemaFieldLayout { offset, ty: field_ty, fixed_size, fixed_enum_size: None })
         }
-        IrType::Address | IrType::Hash if field == "0" => {
-            Some(SchemaFieldLayout { offset: 0, ty: IrType::Array(Box::new(IrType::U8), 32), fixed_size: Some(32) })
-        }
+        IrType::Address | IrType::Hash if field == "0" => Some(SchemaFieldLayout {
+            offset: 0,
+            ty: IrType::Array(Box::new(IrType::U8), 32),
+            fixed_size: Some(32),
+            fixed_enum_size: None,
+        }),
         _ => None,
     }
 }
@@ -342,6 +383,8 @@ pub struct CodeGenerator {
     next_collection_slot: usize,
     /// Named schema field layouts, keyed by type name then field name.
     type_layouts: HashMap<String, HashMap<String, SchemaFieldLayout>>,
+    /// Fieldless enum storage widths, keyed by enum name.
+    enum_fixed_sizes: HashMap<String, usize>,
     /// Fixed encoded size of named schemas when all fields have fixed-width layouts.
     type_fixed_sizes: HashMap<String, usize>,
     /// Named types declared as receipts.
@@ -374,6 +417,8 @@ pub struct CodeGenerator {
     prelude_scalar_immediates: HashMap<usize, u64>,
     /// Fixed-byte constant temporaries that can be recomputed byte-by-byte in the CKB-runtime prelude.
     prelude_fixed_byte_constants: HashMap<usize, Vec<u8>>,
+    /// Local pure functions proven to return one constant on every path.
+    pure_const_returns: HashMap<String, IrConst>,
     /// Per-CKB-runtime cell data buffers keyed by IR variable id.
     cell_buffer_offsets: HashMap<usize, usize>,
     /// Per-CKB-runtime cell size words keyed by IR variable id.
@@ -396,10 +441,14 @@ pub struct CodeGenerator {
     read_ref_order: Vec<usize>,
     /// Read-ref CellDep index keyed by IR destination variable id.
     read_ref_indices: HashMap<usize, usize>,
+    /// Mutable schema parameter variable ids keyed by source binding name.
+    mutate_param_ids: HashMap<String, usize>,
     /// Output index for source-level operations that materialize transaction Outputs.
     operation_output_indices: HashMap<usize, usize>,
     /// Operation destination ids whose transaction Output relation is fully verifier-covered.
     verified_operation_outputs: BTreeSet<usize>,
+    /// Function-local cold fail handlers keyed by returned verifier error code.
+    fail_handler_codes: BTreeSet<u64>,
     /// Unique label counter for runtime checks.
     next_runtime_label: usize,
 }
@@ -415,6 +464,7 @@ impl CodeGenerator {
             collection_region_start: 0,
             next_collection_slot: 0,
             type_layouts: HashMap::new(),
+            enum_fixed_sizes: HashMap::new(),
             type_fixed_sizes: HashMap::new(),
             receipt_type_names: BTreeSet::new(),
             lifecycle_states: HashMap::new(),
@@ -431,6 +481,7 @@ impl CodeGenerator {
             prelude_u64_value_sources: HashMap::new(),
             prelude_scalar_immediates: HashMap::new(),
             prelude_fixed_byte_constants: HashMap::new(),
+            pure_const_returns: HashMap::new(),
             cell_buffer_offsets: HashMap::new(),
             cell_buffer_size_offsets: HashMap::new(),
             output_type_hash_sources: HashMap::new(),
@@ -442,8 +493,10 @@ impl CodeGenerator {
             consume_type_names: HashMap::new(),
             read_ref_order: Vec::new(),
             read_ref_indices: HashMap::new(),
+            mutate_param_ids: HashMap::new(),
             operation_output_indices: HashMap::new(),
             verified_operation_outputs: BTreeSet::new(),
+            fail_handler_codes: BTreeSet::new(),
             next_runtime_label: 0,
         }
     }
@@ -454,6 +507,8 @@ impl CodeGenerator {
 
     pub fn generate(mut self, ir: &IrModule, format: ArtifactFormat) -> Result<Vec<u8>> {
         let has_entrypoint = ir.items.iter().any(|item| matches!(item, IrItem::Action(_) | IrItem::Lock(_)));
+        self.enum_fixed_sizes = ir.enum_fixed_sizes.clone();
+        self.pure_const_returns = collect_pure_const_returns(ir);
         for item in &ir.items {
             if let IrItem::TypeDef(type_def) = item {
                 self.register_type_def(type_def);
@@ -702,7 +757,14 @@ impl CodeGenerator {
             .fields
             .iter()
             .map(|field| {
-                (field.name.clone(), SchemaFieldLayout { offset: field.offset, ty: field.ty.clone(), fixed_size: field.fixed_size })
+                let fixed_enum_size = match &field.ty {
+                    IrType::Named(name) => self.enum_fixed_sizes.get(name).copied(),
+                    _ => None,
+                };
+                (
+                    field.name.clone(),
+                    SchemaFieldLayout { offset: field.offset, ty: field.ty.clone(), fixed_size: field.fixed_size, fixed_enum_size },
+                )
             })
             .collect();
         self.type_layouts.insert(type_def.name.clone(), fields);
@@ -759,11 +821,13 @@ impl CodeGenerator {
 
     fn generate_action(&mut self, action: &IrAction) -> Result<()> {
         self.current_function = Some(action.name.clone());
+        self.fail_handler_codes.clear();
         self.prepare_function_layout(&action.body, &action.params);
         self.next_virtual_output = 0;
         self.set_schema_pointer_params(&action.params);
         self.set_consumed_schema_pointers(&action.body);
         self.set_read_ref_schema_pointers(&action.body);
+        self.set_pointer_aliases(&action.body);
         self.set_schema_field_value_sources(&action.body);
         self.set_verified_operation_outputs(&action.body);
 
@@ -777,6 +841,7 @@ impl CodeGenerator {
         self.emit_param_spills(&action.params)?;
 
         self.generate_body(&action.body)?;
+        self.emit_shared_epilogue();
 
         self.current_function = None;
         self.schema_pointer_vars.clear();
@@ -802,11 +867,13 @@ impl CodeGenerator {
 
     fn generate_pure_fn(&mut self, function: &IrPureFn) -> Result<()> {
         self.current_function = Some(function.name.clone());
+        self.fail_handler_codes.clear();
         self.prepare_function_layout(&function.body, &function.params);
         self.next_virtual_output = 0;
         self.set_schema_pointer_params(&function.params);
         self.set_consumed_schema_pointers(&function.body);
         self.set_read_ref_schema_pointers(&function.body);
+        self.set_pointer_aliases(&function.body);
         self.set_schema_field_value_sources(&function.body);
         self.set_verified_operation_outputs(&function.body);
 
@@ -816,6 +883,7 @@ impl CodeGenerator {
         self.emit_prologue();
         self.emit_param_spills(&function.params)?;
         self.generate_body(&function.body)?;
+        self.emit_shared_epilogue();
 
         self.current_function = None;
         self.schema_pointer_vars.clear();
@@ -841,11 +909,13 @@ impl CodeGenerator {
 
     fn generate_lock(&mut self, lock: &IrLock) -> Result<()> {
         self.current_function = Some(lock.name.clone());
+        self.fail_handler_codes.clear();
         self.prepare_function_layout(&lock.body, &lock.params);
         self.next_virtual_output = 0;
         self.set_schema_pointer_params(&lock.params);
         self.set_consumed_schema_pointers(&lock.body);
         self.set_read_ref_schema_pointers(&lock.body);
+        self.set_pointer_aliases(&lock.body);
         self.set_schema_field_value_sources(&lock.body);
         self.set_verified_operation_outputs(&lock.body);
 
@@ -859,6 +929,7 @@ impl CodeGenerator {
         self.emit_param_spills(&lock.params)?;
 
         self.generate_body(&lock.body)?;
+        self.emit_shared_epilogue();
 
         self.current_function = None;
         self.schema_pointer_vars.clear();
@@ -922,6 +993,43 @@ impl CodeGenerator {
         }
     }
 
+    fn set_pointer_aliases(&mut self, body: &IrBody) {
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for block in &body.blocks {
+                for instruction in &block.instructions {
+                    let alias = match instruction {
+                        IrInstruction::Unary { dest, op: UnaryOp::Ref | UnaryOp::Deref, operand: IrOperand::Var(src) }
+                        | IrInstruction::Move { dest, src: IrOperand::Var(src) } => Some((dest, src)),
+                        _ => None,
+                    };
+                    let Some((dest, src)) = alias else {
+                        continue;
+                    };
+                    if self.schema_pointer_vars.contains(&src.id) && self.schema_pointer_vars.insert(dest.id) {
+                        changed = true;
+                    }
+                    if let Some(size_offset) = self.schema_pointer_size_offsets.get(&src.id).copied() {
+                        if self.schema_pointer_size_offsets.insert(dest.id, size_offset) != Some(size_offset) {
+                            changed = true;
+                        }
+                    }
+                    if let Some(size_offset) = self.fixed_byte_param_size_offsets.get(&src.id).copied() {
+                        if self.fixed_byte_param_size_offsets.insert(dest.id, size_offset) != Some(size_offset) {
+                            changed = true;
+                        }
+                    }
+                    if let Some(source) = self.aggregate_pointer_sources.get(&src.id).cloned() {
+                        if self.aggregate_pointer_sources.insert(dest.id, source).is_none() {
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn set_schema_field_value_sources(&mut self, body: &IrBody) {
         self.schema_field_value_sources.clear();
         self.prelude_u64_value_sources.clear();
@@ -938,6 +1046,18 @@ impl CodeGenerator {
                     }
                     IrInstruction::Call { dest: Some(dest), .. } if matches!(dest.ty, IrType::Tuple(_)) => {
                         self.tuple_call_return_vars.insert(dest.id, dest.ty.clone());
+                    }
+                    IrInstruction::Call { dest: Some(dest), func, .. } if self.pure_const_returns.contains_key(func) => {
+                        let value = self.pure_const_returns.get(func).cloned().expect("guarded pure const return");
+                        if let Some(value) = fixed_scalar_const_value(&value) {
+                            self.prelude_scalar_immediates.insert(dest.id, value);
+                            if dest.ty == IrType::U64 {
+                                self.prelude_u64_value_sources.insert(dest.id, PreludeU64ValueSource::Const(value));
+                            }
+                        }
+                        if let Some(bytes) = fixed_byte_const_bytes(&value) {
+                            self.prelude_fixed_byte_constants.insert(dest.id, bytes);
+                        }
                     }
                     IrInstruction::LoadConst { dest, value } => {
                         if let Some(value) = fixed_scalar_const_value(value) {
@@ -987,9 +1107,9 @@ impl CodeGenerator {
                             continue;
                         };
                         let layout = source.layout.clone();
-                        if fixed_byte_width(&layout.ty, layout.fixed_size).is_some() && layout.ty == dest.ty {
+                        if layout_fixed_byte_width(&layout).is_some() && layout.ty == dest.ty {
                             self.schema_field_value_sources.insert(dest.id, source.clone());
-                            if fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() {
+                            if layout_fixed_scalar_width(&layout).is_some() {
                                 self.prelude_u64_value_sources.insert(dest.id, PreludeU64ValueSource::Field(source));
                             }
                         }
@@ -1208,7 +1328,7 @@ impl CodeGenerator {
                     self.emit_claim_witness_authorization_domain_check(input_index, &pattern.binding, signer_source.as_ref());
                 }
                 if pattern.operation == "destroy" {
-                    self.emit_destroy_group_output_absence_scan(pattern);
+                    self.emit_destroy_group_output_absence_scan(pattern, input_index);
                 }
                 return Ok(());
             }
@@ -1220,7 +1340,7 @@ impl CodeGenerator {
             self.emit_claim_witness_authorization_domain_check(index, &pattern.binding, None);
         }
         if pattern.operation == "destroy" {
-            self.emit_destroy_group_output_absence_scan(pattern);
+            self.emit_destroy_group_output_absence_scan(pattern, index);
         }
         Ok(())
     }
@@ -1268,8 +1388,7 @@ impl CodeGenerator {
         } else {
             self.emit("# cellscript abi: output field verification incomplete for this create pattern");
             self.emit("# cellscript abi: fail closed because the output state is not fully verified");
-            self.emit("li a0, 5");
-            self.emit_epilogue();
+            self.emit_fail(5);
             return Ok(());
         }
 
@@ -1279,8 +1398,7 @@ impl CodeGenerator {
             }
             self.emit("# cellscript abi: output lock verification incomplete for this create pattern");
             self.emit("# cellscript abi: fail closed because the output lock is not fully verified");
-            self.emit("li a0, 10");
-            self.emit_epilogue();
+            self.emit_fail(10);
         }
 
         Ok(())
@@ -1291,6 +1409,7 @@ impl CodeGenerator {
             "# mutate replacement {} {} Input#{} -> Output#{}",
             pattern.binding, pattern.ty, pattern.input_index, pattern.output_index
         ));
+        self.emit_mutate_parameter_binding(pattern);
         if pattern.preserve_type_hash {
             self.emit_mutate_replacement_field_hash_check(pattern, CKB_CELL_FIELD_TYPE_HASH, "type_hash", 11);
         }
@@ -1299,8 +1418,33 @@ impl CodeGenerator {
         }
         self.emit_mutate_replacement_preserved_field_checks(pattern);
         self.emit_mutate_replacement_transition_checks(pattern);
+        self.emit_mutate_replacement_set_transition_checks(pattern);
         self.emit_mutate_replacement_u128_transition_checks(pattern);
         Ok(())
+    }
+
+    fn emit_mutate_parameter_binding(&mut self, pattern: &MutatePattern) {
+        let Some(var_id) = self.mutate_param_ids.get(&pattern.binding).copied() else {
+            return;
+        };
+        let Some(size_offset) = self.cell_buffer_size_offsets.get(&var_id).copied() else {
+            return;
+        };
+        let Some(buffer_offset) = self.cell_buffer_offsets.get(&var_id).copied() else {
+            return;
+        };
+        self.emit(format!("# cellscript abi: bind mutable param {} to Input#{} cell data", pattern.binding, pattern.input_index));
+        self.emit_load_cell_data_syscall_to_offsets(
+            "mutate_param_input",
+            CKB_SOURCE_INPUT,
+            pattern.input_index,
+            size_offset,
+            buffer_offset,
+            RUNTIME_CELL_BUFFER_SIZE,
+        );
+        self.emit_return_on_syscall_error(1);
+        self.emit_sp_addi("t0", buffer_offset);
+        self.emit(format!("sd t0, {}(sp)", var_id * 8));
     }
 
     fn generate_block(&mut self, block: &IrBlock) -> Result<()> {
@@ -1449,6 +1593,38 @@ impl CodeGenerator {
     }
 
     fn emit_epilogue(&mut self) {
+        if let Some(function) = &self.current_function {
+            self.emit(format!("j .L{}_epilogue", function));
+            return;
+        }
+        self.emit_epilogue_body();
+    }
+
+    fn emit_fail(&mut self, code: u64) {
+        if let Some(function) = &self.current_function {
+            self.fail_handler_codes.insert(code);
+            self.emit(format!("j .L{}_fail_{}", function, code));
+            return;
+        }
+        self.emit(format!("li a0, {}", code));
+        self.emit_epilogue_body();
+    }
+
+    fn emit_shared_epilogue(&mut self) {
+        let Some(function) = self.current_function.clone() else {
+            return;
+        };
+        let fail_codes = self.fail_handler_codes.iter().copied().collect::<Vec<_>>();
+        for code in fail_codes {
+            self.emit_label(&format!(".L{}_fail_{}", function, code));
+            self.emit(format!("li a0, {}", code));
+            self.emit(format!("j .L{}_epilogue", function));
+        }
+        self.emit_label(&format!(".L{}_epilogue", function));
+        self.emit_epilogue_body();
+    }
+
+    fn emit_epilogue_body(&mut self) {
         self.emit_stack_ld("ra", self.frame_size - 8);
         self.emit_stack_ld("fp", self.frame_size - 16);
         self.emit_large_addi("sp", "sp", self.frame_size as i64);
@@ -1518,6 +1694,7 @@ impl CodeGenerator {
         self.consume_type_names.clear();
         self.read_ref_order.clear();
         self.read_ref_indices.clear();
+        self.mutate_param_ids.clear();
         self.schema_pointer_size_offsets.clear();
         self.fixed_byte_param_size_offsets.clear();
         self.param_type_hash_pointer_offsets.clear();
@@ -1557,6 +1734,19 @@ impl CodeGenerator {
                 self.param_type_hash_size_offsets.insert(param.binding.id, next_cell_slot);
                 next_cell_slot += 8;
             }
+        }
+
+        for pattern in &body.mutate_set {
+            let Some(param) = params.iter().find(|param| param.name == pattern.binding) else {
+                continue;
+            };
+            self.mutate_param_ids.insert(pattern.binding.clone(), param.binding.id);
+            self.consume_type_names.insert(param.binding.id, pattern.ty.clone());
+            self.consume_indices.insert(param.binding.id, pattern.input_index);
+            self.schema_pointer_size_offsets.insert(param.binding.id, next_cell_slot);
+            self.cell_buffer_size_offsets.insert(param.binding.id, next_cell_slot);
+            self.cell_buffer_offsets.insert(param.binding.id, next_cell_slot + 8);
+            next_cell_slot += RUNTIME_CELL_SLOT_SIZE;
         }
 
         let mut consume_index = 0usize;
@@ -1776,32 +1966,29 @@ impl CodeGenerator {
     fn emit_return_on_syscall_error(&mut self, code: u64) {
         let ok_label = self.fresh_label("ckb_syscall_ok");
         self.emit(format!("beqz a0, {}", ok_label));
-        self.emit(format!("li a0, {}", code));
-        self.emit_epilogue();
+        self.emit_fail(code);
         self.emit_label(&ok_label);
     }
 
     fn emit_loaded_schema_bounds_check(&mut self, size_offset: usize, required_size: usize, context: &str) {
-        let ok_label = self.fresh_label("schema_bounds_ok");
         self.emit(format!("# cellscript abi: bounds check {} required={}", context, required_size));
-        self.emit_stack_ld("t1", size_offset);
-        self.emit(format!("li t2, {}", required_size));
-        self.emit("slt t1, t1, t2");
-        self.emit(format!("beqz t1, {}", ok_label));
-        self.emit("li a0, 2");
-        self.emit_epilogue();
+        let ok_label = self.fresh_label("schema_bounds_ok");
+        self.emit_stack_ld("a0", size_offset);
+        self.emit(format!("li a1, {}", required_size));
+        self.emit("call __cellscript_require_min_size");
+        self.emit(format!("beqz a0, {}", ok_label));
+        self.emit_fail(2);
         self.emit_label(&ok_label);
     }
 
     fn emit_loaded_schema_exact_size_check(&mut self, size_offset: usize, expected_size: usize, context: &str) {
-        let ok_label = self.fresh_label("schema_size_ok");
         self.emit(format!("# cellscript abi: exact size check {} expected={}", context, expected_size));
-        self.emit_stack_ld("t1", size_offset);
-        self.emit(format!("li t2, {}", expected_size));
-        self.emit("sub t1, t1, t2");
-        self.emit(format!("beqz t1, {}", ok_label));
-        self.emit("li a0, 4");
-        self.emit_epilogue();
+        let ok_label = self.fresh_label("schema_size_ok");
+        self.emit_stack_ld("a0", size_offset);
+        self.emit(format!("li a1, {}", expected_size));
+        self.emit("call __cellscript_require_exact_size");
+        self.emit(format!("beqz a0, {}", ok_label));
+        self.emit_fail(4);
         self.emit_label(&ok_label);
     }
 
@@ -1878,7 +2065,7 @@ impl CodeGenerator {
         let fields = self.type_layouts.get(type_name)?;
         CLAIM_SIGNER_PUBKEY_HASH_FIELDS.iter().find_map(|field| {
             let layout = fields.get(*field)?.clone();
-            (fixed_byte_width(&layout.ty, layout.fixed_size) == Some(20)).then(|| SchemaFieldValueSource {
+            (layout_fixed_byte_width(&layout) == Some(20)).then(|| SchemaFieldValueSource {
                 obj_var_id: var_id,
                 type_name: type_name.clone(),
                 field: (*field).to_string(),
@@ -1940,8 +2127,7 @@ impl CodeGenerator {
         self.emit(format!("li t1, {}", 66));
         self.emit("sub t2, t0, t1");
         self.emit(format!("beqz t2, {}", hash_type_from_witness_label));
-        self.emit("li a0, 17");
-        self.emit_epilogue();
+        self.emit_fail(17);
         self.emit_label(&hash_type_from_witness_label);
         self.emit_sp_addi("t4", buffer_offset);
         self.emit("lbu t3, 65(t4)");
@@ -1981,8 +2167,7 @@ impl CodeGenerator {
         self.emit("ecall");
         let ok_label = self.fresh_label("claim_signature_ok");
         self.emit(format!("beqz a0, {}", ok_label));
-        self.emit("li a0, 19");
-        self.emit_epilogue();
+        self.emit_fail(19);
         self.emit_label(&ok_label);
     }
 
@@ -2044,36 +2229,41 @@ impl CodeGenerator {
             self.emit("sub t2, t0, t1");
             self.emit(format!("bnez t2, {}", distinct_label));
         }
-        self.emit("li a0, 22");
-        self.emit_epilogue();
+        self.emit_fail(22);
         self.emit_label(&distinct_label);
     }
 
-    fn emit_destroy_group_output_absence_scan(&mut self, pattern: &CellPattern) {
-        let Some(type_hash) = pattern.type_hash else {
-            self.emit("# cellscript abi: destroy group-output scan unavailable because type_hash is unknown");
-            self.emit("li a0, 16");
-            self.emit_epilogue();
-            return;
-        };
+    fn emit_destroy_group_output_absence_scan(&mut self, pattern: &CellPattern, input_index: usize) {
+        let input_size_offset = self.runtime_scratch_size_offset();
+        let input_buffer_offset = self.runtime_scratch_buffer_offset();
+        let output_size_offset = self.runtime_scratch2_size_offset();
+        let output_buffer_offset = self.runtime_scratch2_buffer_offset();
+        let loop_label = self.fresh_label("destroy_output_scan");
+        let type_hash_label = self.fresh_label("destroy_output_type_hash");
+        let next_label = self.fresh_label("destroy_output_next");
+        let done_label = self.fresh_label("destroy_output_done");
 
-        let size_offset = self.runtime_scratch2_size_offset();
-        let buffer_offset = self.runtime_scratch2_buffer_offset();
-        let loop_label = self.fresh_label("destroy_group_output_scan");
-        let type_hash_label = self.fresh_label("destroy_group_output_type_hash");
-        let next_label = self.fresh_label("destroy_group_output_next");
-        let done_label = self.fresh_label("destroy_group_output_done");
-
-        self.emit(format!("# cellscript abi: destroy group output type-hash absence scan binding={} size=32", pattern.binding));
+        self.emit(format!("# cellscript abi: destroy output type-hash absence scan binding={} size=32", pattern.binding));
+        self.emit_load_cell_by_field_syscall_to_offsets(
+            "destroy_input_type_hash",
+            CKB_SOURCE_INPUT,
+            input_index,
+            CKB_CELL_FIELD_TYPE_HASH,
+            input_size_offset,
+            input_buffer_offset,
+            32,
+        );
+        self.emit_return_on_syscall_error(1);
+        self.emit_loaded_schema_exact_size_check(input_size_offset, 32, "destroy input type hash");
         self.emit("li t6, 0");
         self.emit_label(&loop_label);
         self.emit_load_cell_by_field_syscall_to_offsets_dynamic_index(
-            "destroy_group_output_type_hash",
-            self.runtime_abi().source_group_output,
+            "destroy_output_type_hash",
+            CKB_SOURCE_OUTPUT,
             "t6",
             CKB_CELL_FIELD_TYPE_HASH,
-            size_offset,
-            buffer_offset,
+            output_size_offset,
+            output_buffer_offset,
             32,
         );
         self.emit(format!("beqz a0, {}", type_hash_label));
@@ -2083,29 +2273,29 @@ impl CodeGenerator {
         self.emit(format!("li t0, {}", CKB_ITEM_MISSING));
         self.emit("sub t1, a0, t0");
         self.emit(format!("beqz t1, {}", next_label));
-        self.emit("li a0, 16");
-        self.emit_epilogue();
+        self.emit_fail(16);
 
         self.emit_label(&type_hash_label);
-        self.emit_loaded_schema_exact_size_check(size_offset, 32, "destroy group output type hash");
+        self.emit_loaded_schema_exact_size_check(output_size_offset, 32, "destroy output type hash");
         self.emit(format!(
-            "# cellscript abi: reject destroy replacement when GroupOutput#t6 TypeHash matches consumed {}",
+            "# cellscript abi: reject destroy replacement when Output#t6 TypeHash matches consumed {}",
             pattern.binding
         ));
-        self.emit_sp_addi("t4", buffer_offset);
-        for (byte_index, byte) in type_hash.iter().enumerate() {
+        self.emit_sp_addi("t4", output_buffer_offset);
+        self.emit_sp_addi("t5", input_buffer_offset);
+        for byte_index in 0..32 {
             self.emit(format!("lbu t0, {}(t4)", byte_index));
-            self.emit(format!("li t1, {}", byte));
+            self.emit(format!("lbu t1, {}(t5)", byte_index));
             self.emit("sub t2, t0, t1");
             self.emit(format!("bnez t2, {}", next_label));
         }
-        self.emit("li a0, 16");
-        self.emit_epilogue();
+        self.emit_fail(16);
 
         self.emit_label(&next_label);
         self.emit("addi t6, t6, 1");
         self.emit(format!("j {}", loop_label));
         self.emit_label(&done_label);
+        self.emit("li a0, 0");
     }
 
     fn mutate_preserved_field_layouts(&self, pattern: &MutatePattern) -> Vec<(String, SchemaFieldLayout, usize)> {
@@ -2120,14 +2310,49 @@ impl CodeGenerator {
             .iter()
             .filter_map(|field| {
                 let layout = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get(field)).cloned()?;
-                let width = fixed_byte_width(&layout.ty, layout.fixed_size)?;
+                let width = layout_fixed_byte_width(&layout)?;
                 (layout.offset + width <= RUNTIME_SCRATCH_BUFFER_SIZE).then(|| (field.clone(), layout, width))
             })
             .collect()
     }
 
+    fn mutate_transition_exclusion_ranges(&self, pattern: &MutatePattern) -> Option<Vec<(usize, usize)>> {
+        if pattern.transitions.len() != pattern.fields.len() {
+            return None;
+        }
+        let mut ranges = Vec::new();
+        for transition in &pattern.transitions {
+            let layout = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get(&transition.field))?;
+            let width = layout_fixed_byte_width(&layout)?;
+            if layout.offset + width > RUNTIME_SCRATCH_BUFFER_SIZE {
+                return None;
+            }
+            ranges.push((layout.offset, layout.offset + width));
+        }
+        ranges.sort_unstable();
+        let mut merged: Vec<(usize, usize)> = Vec::new();
+        for (start, end) in ranges {
+            if start >= end {
+                continue;
+            }
+            if let Some(last) = merged.last_mut() {
+                if start <= last.1 {
+                    last.1 = last.1.max(end);
+                    continue;
+                }
+            }
+            merged.push((start, end));
+        }
+        Some(merged)
+    }
+
     fn emit_mutate_replacement_preserved_field_checks(&mut self, pattern: &MutatePattern) {
         let preserved_fields = self.mutate_preserved_field_layouts(pattern);
+        if !pattern.preserved_fields.is_empty() && preserved_fields.len() != pattern.preserved_fields.len() {
+            if self.emit_mutate_replacement_data_except_transition_checks(pattern) {
+                return;
+            }
+        }
         if preserved_fields.is_empty() {
             return;
         }
@@ -2174,17 +2399,94 @@ impl CodeGenerator {
                 "# cellscript abi: verify mutate preserved field {}.{} Input#{} == Output#{} offset={} size={}",
                 pattern.ty, field, pattern.input_index, pattern.output_index, layout.offset, width
             ));
+            let mismatch_label = self.fresh_label("mutate_preserved_byte_mismatch");
             for byte_index in 0..width {
                 self.emit(format!("lbu t0, {}(t4)", layout.offset + byte_index));
                 self.emit(format!("lbu t1, {}(t5)", layout.offset + byte_index));
                 self.emit("sub t2, t0, t1");
-                let ok_label = self.fresh_label("mutate_preserved_byte_ok");
-                self.emit(format!("beqz t2, {}", ok_label));
-                self.emit("li a0, 13");
-                self.emit_epilogue();
-                self.emit_label(&ok_label);
+                self.emit(format!("bnez t2, {}", mismatch_label));
             }
+            self.emit_fixed_byte_mismatch_fail(&mismatch_label, 13);
         }
+    }
+
+    fn emit_mutate_replacement_data_except_transition_checks(&mut self, pattern: &MutatePattern) -> bool {
+        let Some(exclusion_ranges) = self.mutate_transition_exclusion_ranges(pattern) else {
+            return false;
+        };
+        if exclusion_ranges.is_empty() {
+            return false;
+        }
+        let input_size_offset = self.runtime_scratch_size_offset();
+        let input_buffer_offset = self.runtime_scratch_buffer_offset();
+        let output_size_offset = self.runtime_scratch2_size_offset();
+        let output_buffer_offset = self.runtime_scratch2_buffer_offset();
+        self.emit_load_cell_data_syscall_to_offsets(
+            "mutate_input_preserved_data",
+            CKB_SOURCE_INPUT,
+            pattern.input_index,
+            input_size_offset,
+            input_buffer_offset,
+            RUNTIME_SCRATCH_BUFFER_SIZE,
+        );
+        self.emit_return_on_syscall_error(1);
+        self.emit_load_cell_data_syscall_to_offsets(
+            "mutate_output_preserved_data",
+            CKB_SOURCE_OUTPUT,
+            pattern.output_index,
+            output_size_offset,
+            output_buffer_offset,
+            RUNTIME_SCRATCH_BUFFER_SIZE,
+        );
+        self.emit_return_on_syscall_error(1);
+        let size_ok_label = self.fresh_label("mutate_preserved_data_size_ok");
+        self.emit_stack_ld("t0", input_size_offset);
+        self.emit_stack_ld("t1", output_size_offset);
+        self.emit("sub t2, t0, t1");
+        self.emit(format!("beqz t2, {}", size_ok_label));
+        self.emit_fail(13);
+        self.emit_label(&size_ok_label);
+
+        self.emit(format!(
+            "# cellscript abi: verify mutate preserved data {} Input#{} == Output#{} except transition ranges {:?}",
+            pattern.ty, pattern.input_index, pattern.output_index, exclusion_ranges
+        ));
+        let loop_label = self.fresh_label("mutate_preserved_data_loop");
+        let compare_label = self.fresh_label("mutate_preserved_data_compare");
+        let skip_label = self.fresh_label("mutate_preserved_data_skip");
+        let done_label = self.fresh_label("mutate_preserved_data_done");
+        let mismatch_label = self.fresh_label("mutate_preserved_data_mismatch");
+        self.emit_sp_addi("a3", input_buffer_offset);
+        self.emit_sp_addi("a4", output_buffer_offset);
+        self.emit("li t6, 0");
+        self.emit_label(&loop_label);
+        self.emit("sltu t2, t6, t0");
+        self.emit(format!("beqz t2, {}", done_label));
+        for (range_index, (start, end)) in exclusion_ranges.iter().enumerate() {
+            let next_range_label = self.fresh_label(&format!("mutate_preserved_data_next_range_{}", range_index));
+            self.emit(format!("li t3, {}", start));
+            self.emit("sltu t2, t6, t3");
+            self.emit(format!("bnez t2, {}", compare_label));
+            self.emit(format!("li t3, {}", end));
+            self.emit("sltu t2, t6, t3");
+            self.emit(format!("beqz t2, {}", next_range_label));
+            self.emit(format!("j {}", skip_label));
+            self.emit_label(&next_range_label);
+        }
+        self.emit_label(&compare_label);
+        self.emit("add t3, a3, t6");
+        self.emit("lbu t4, 0(t3)");
+        self.emit("add t3, a4, t6");
+        self.emit("lbu t5, 0(t3)");
+        self.emit("sub t2, t4, t5");
+        self.emit(format!("bnez t2, {}", mismatch_label));
+        self.emit_label(&skip_label);
+        self.emit("addi t6, t6, 1");
+        self.emit(format!("j {}", loop_label));
+        self.emit_label(&mismatch_label);
+        self.emit_fail(13);
+        self.emit_label(&done_label);
+        true
     }
 
     fn mutate_u128_transition_layouts(&self, pattern: &MutatePattern) -> Vec<(MutateFieldTransition, SchemaFieldLayout)> {
@@ -2198,6 +2500,9 @@ impl CodeGenerator {
             .transitions
             .iter()
             .filter_map(|transition| {
+                if transition.op == MutateTransitionOp::Set {
+                    return None;
+                }
                 let layout = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get(&transition.field)).cloned()?;
                 // Only u128 fields (16 bytes) that don't fit in a single register.
                 if layout.ty != IrType::U128 || layout.fixed_size != Some(16) {
@@ -2226,12 +2531,44 @@ impl CodeGenerator {
             .transitions
             .iter()
             .filter_map(|transition| {
+                if transition.op == MutateTransitionOp::Set {
+                    return None;
+                }
                 let layout = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get(&transition.field)).cloned()?;
                 let width = fixed_register_width(&layout.ty, layout.fixed_size)?;
                 if layout.offset + width > RUNTIME_SCRATCH_BUFFER_SIZE {
                     return None;
                 }
                 if self.prelude_u64_operand_source(&transition.operand).is_none() {
+                    return None;
+                }
+                Some((transition.clone(), layout, width))
+            })
+            .collect()
+    }
+
+    fn mutate_set_transition_layouts(&self, pattern: &MutatePattern) -> Vec<(MutateFieldTransition, SchemaFieldLayout, usize)> {
+        let Some(type_size) = self.type_fixed_sizes.get(&pattern.ty).copied() else {
+            return Vec::new();
+        };
+        if type_size > RUNTIME_SCRATCH_BUFFER_SIZE {
+            return Vec::new();
+        }
+        pattern
+            .transitions
+            .iter()
+            .filter_map(|transition| {
+                if transition.op != MutateTransitionOp::Set {
+                    return None;
+                }
+                let layout = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get(&transition.field)).cloned()?;
+                let width = layout_fixed_byte_width(&layout)?;
+                if layout.offset + width > RUNTIME_SCRATCH_BUFFER_SIZE {
+                    return None;
+                }
+                if layout_fixed_scalar_width(&layout).is_none()
+                    && self.expected_fixed_byte_source(&transition.operand, width).is_none()
+                {
                     return None;
                 }
                 Some((transition.clone(), layout, width))
@@ -2306,15 +2643,58 @@ impl CodeGenerator {
             match transition.op {
                 MutateTransitionOp::Add => self.emit("add t1, t0, t1"),
                 MutateTransitionOp::Sub => self.emit("sub t1, t0, t1"),
+                MutateTransitionOp::Set => {
+                    unreachable!("set transitions are verified by emit_mutate_replacement_set_transition_checks")
+                }
             }
             self.emit_sp_addi("t4", output_buffer_offset);
             self.emit_unaligned_scalar_load("t4", "t0", "t2", layout.offset, width);
             self.emit("sub t2, t0, t1");
             let ok_label = self.fresh_label("mutate_transition_ok");
             self.emit(format!("beqz t2, {}", ok_label));
-            self.emit("li a0, 14");
-            self.emit_epilogue();
+            self.emit_fail(14);
             self.emit_label(&ok_label);
+        }
+    }
+
+    fn emit_mutate_replacement_set_transition_checks(&mut self, pattern: &MutatePattern) {
+        let transitions = self.mutate_set_transition_layouts(pattern);
+        if transitions.is_empty() {
+            return;
+        }
+        let output_size_offset = self.runtime_scratch2_size_offset();
+        let output_buffer_offset = self.runtime_scratch2_buffer_offset();
+        self.emit_load_cell_data_syscall_to_offsets(
+            "mutate_output_set_transition",
+            CKB_SOURCE_OUTPUT,
+            pattern.output_index,
+            output_size_offset,
+            output_buffer_offset,
+            RUNTIME_SCRATCH_BUFFER_SIZE,
+        );
+        self.emit_return_on_syscall_error(1);
+        if let Some(expected_size) = self.type_fixed_sizes.get(&pattern.ty).copied() {
+            self.emit_loaded_schema_exact_size_check(
+                output_size_offset,
+                expected_size,
+                &format!("{} mutate set transition output", pattern.ty),
+            );
+        }
+        self.emit(format!("# cellscript abi: verify mutate set transition fields {} Output#{}", pattern.ty, pattern.output_index));
+        for (transition, layout, width) in transitions {
+            self.emit(format!(
+                "# cellscript abi: verify mutate set transition field {}.{} Output#{} offset={} size={}",
+                pattern.ty, transition.field, pattern.output_index, layout.offset, width
+            ));
+            if !self.emit_loaded_field_bytes_equals_expected(
+                output_size_offset,
+                output_buffer_offset,
+                &layout,
+                &transition.operand,
+                &format!("{} set.{}", pattern.ty, transition.field),
+            ) {
+                self.emit_fail(14);
+            }
         }
     }
 
@@ -2412,6 +2792,9 @@ impl CodeGenerator {
                     self.emit("sltu t2, t0, t1"); // borrow = 1 if subtraction underflowed
                     self.emit("sub t6, t3, t2"); // expected_hi = input_hi - borrow
                 }
+                MutateTransitionOp::Set => {
+                    unreachable!("set transitions are verified by emit_mutate_replacement_set_transition_checks")
+                }
             }
 
             // Load actual output low 64 bits into t0, high 64 bits into t3
@@ -2425,8 +2808,7 @@ impl CodeGenerator {
             self.emit("sub t1, t3, t6"); // diff_hi = actual_hi - expected_hi
             self.emit("or t2, t2, t1"); // combined diff = diff_lo | diff_hi
             self.emit(format!("beqz t2, {}", ok_label));
-            self.emit("li a0, 14");
-            self.emit_epilogue();
+            self.emit_fail(14);
             self.emit_label(&ok_label);
         }
     }
@@ -2439,7 +2821,7 @@ impl CodeGenerator {
         expected: &IrOperand,
         context: &str,
     ) {
-        let Some(width) = fixed_scalar_width(&layout.ty, layout.fixed_size) else {
+        let Some(width) = layout_fixed_scalar_width(&layout) else {
             return;
         };
         self.emit_loaded_schema_bounds_check(size_offset, layout.offset + width, context);
@@ -2450,9 +2832,90 @@ impl CodeGenerator {
         self.emit("sub t2, t0, t1");
         let ok_label = self.fresh_label("output_field_ok");
         self.emit(format!("beqz t2, {}", ok_label));
-        self.emit("li a0, 3");
-        self.emit_epilogue();
+        self.emit_fail(3);
         self.emit_label(&ok_label);
+    }
+
+    fn emit_loaded_fixed_bytes_against_source(
+        &mut self,
+        output_buffer_offset: usize,
+        output_field_offset: usize,
+        source: &ExpectedFixedByteSource,
+        width: usize,
+        fail_code: u64,
+    ) {
+        let mismatch_label = self.fresh_label("fixed_byte_mismatch");
+        self.emit_sp_addi("t4", output_buffer_offset);
+        match source {
+            ExpectedFixedByteSource::SchemaField(source) => {
+                self.emit_loaded_fixed_bytes_helper_call(
+                    output_buffer_offset,
+                    output_field_offset,
+                    SourcePointer::LoadedStackPointer { var_id: source.obj_var_id, offset: source.layout.offset },
+                    width,
+                    &mismatch_label,
+                );
+            }
+            ExpectedFixedByteSource::Const(bytes) => {
+                if width >= 8 && bytes.iter().take(width).all(|byte| *byte == 0) {
+                    self.emit_sp_addi("a0", output_buffer_offset + output_field_offset);
+                    self.emit(format!("li a1, {}", width));
+                    self.emit("call __cellscript_memzero_fixed");
+                    self.emit(format!("bnez a0, {}", mismatch_label));
+                } else {
+                    for (byte_index, byte) in bytes.iter().take(width).enumerate() {
+                        self.emit(format!("lbu t0, {}(t4)", output_field_offset + byte_index));
+                        self.emit(format!("li t1, {}", byte));
+                        self.emit("sub t2, t0, t1");
+                        self.emit(format!("bnez t2, {}", mismatch_label));
+                    }
+                }
+            }
+            ExpectedFixedByteSource::StackSlot { var_id, .. } => {
+                self.emit_loaded_fixed_bytes_helper_call(
+                    output_buffer_offset,
+                    output_field_offset,
+                    SourcePointer::StackAddress { offset: var_id * 8 },
+                    width,
+                    &mismatch_label,
+                );
+            }
+            ExpectedFixedByteSource::ParamBytes { var_id, .. } | ExpectedFixedByteSource::LoadedBytes { var_id, .. } => {
+                self.emit_loaded_fixed_bytes_helper_call(
+                    output_buffer_offset,
+                    output_field_offset,
+                    SourcePointer::LoadedStackPointer { var_id: *var_id, offset: 0 },
+                    width,
+                    &mismatch_label,
+                );
+            }
+        }
+        self.emit_fixed_byte_mismatch_fail(&mismatch_label, fail_code);
+    }
+
+    fn emit_loaded_fixed_bytes_helper_call(
+        &mut self,
+        output_buffer_offset: usize,
+        output_field_offset: usize,
+        source: SourcePointer,
+        width: usize,
+        mismatch_label: &str,
+    ) {
+        self.emit_sp_addi("a0", output_buffer_offset + output_field_offset);
+        match source {
+            SourcePointer::LoadedStackPointer { var_id, offset } => {
+                self.emit(format!("ld a1, {}(sp)", var_id * 8));
+                if offset != 0 {
+                    self.emit_large_addi("a1", "a1", offset as i64);
+                }
+            }
+            SourcePointer::StackAddress { offset } => {
+                self.emit_sp_addi("a1", offset);
+            }
+        }
+        self.emit(format!("li a2, {}", width));
+        self.emit("call __cellscript_memcmp_fixed");
+        self.emit(format!("bnez a0, {}", mismatch_label));
     }
 
     fn emit_loaded_field_bytes_equals_expected(
@@ -2463,11 +2926,11 @@ impl CodeGenerator {
         expected: &IrOperand,
         context: &str,
     ) -> bool {
-        if fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() {
+        if layout_fixed_scalar_width(&layout).is_some() {
             self.emit_loaded_field_equals_expected(size_offset, buffer_offset, layout, expected, context);
             return true;
         }
-        let Some(width) = fixed_byte_width(&layout.ty, layout.fixed_size) else {
+        let Some(width) = layout_fixed_byte_width(&layout) else {
             return false;
         };
         let Some(source) = self.expected_fixed_byte_source(expected, width) else {
@@ -2491,53 +2954,39 @@ impl CodeGenerator {
                     "# cellscript abi: expected bytes field {}.{} offset={} size={}",
                     source.type_name, source.field, source.layout.offset, width
                 ));
-                self.emit_sp_addi("t4", buffer_offset);
-                self.emit(format!("ld t5, {}(sp)", source.obj_var_id * 8));
-                for byte_index in 0..width {
-                    self.emit(format!("lbu t0, {}(t4)", layout.offset + byte_index));
-                    self.emit(format!("lbu t1, {}(t5)", source.layout.offset + byte_index));
-                    self.emit("sub t2, t0, t1");
-                    let ok_label = self.fresh_label("output_byte_ok");
-                    self.emit(format!("beqz t2, {}", ok_label));
-                    self.emit("li a0, 3");
-                    self.emit_epilogue();
-                    self.emit_label(&ok_label);
-                }
+                self.emit_loaded_fixed_bytes_against_source(
+                    buffer_offset,
+                    layout.offset,
+                    &ExpectedFixedByteSource::SchemaField(source),
+                    width,
+                    3,
+                );
             }
             ExpectedFixedByteSource::Const(bytes) => {
                 self.emit(format!(
                     "# cellscript abi: verify output bytes field {} offset={} size={} against const",
                     context, layout.offset, width
                 ));
-                self.emit_sp_addi("t4", buffer_offset);
-                for (byte_index, byte) in bytes.iter().enumerate() {
-                    self.emit(format!("lbu t0, {}(t4)", layout.offset + byte_index));
-                    self.emit(format!("li t1, {}", byte));
-                    self.emit("sub t2, t0, t1");
-                    let ok_label = self.fresh_label("output_byte_ok");
-                    self.emit(format!("beqz t2, {}", ok_label));
-                    self.emit("li a0, 3");
-                    self.emit_epilogue();
-                    self.emit_label(&ok_label);
-                }
+                self.emit_loaded_fixed_bytes_against_source(
+                    buffer_offset,
+                    layout.offset,
+                    &ExpectedFixedByteSource::Const(bytes),
+                    width,
+                    3,
+                );
             }
             ExpectedFixedByteSource::StackSlot { var_id, width } => {
                 self.emit(format!(
                     "# cellscript abi: verify output bytes field {} offset={} size={} against stack slot var{}",
                     context, layout.offset, width, var_id
                 ));
-                self.emit_sp_addi("t4", buffer_offset);
-                self.emit_sp_addi("t5", var_id * 8);
-                for byte_index in 0..width {
-                    self.emit(format!("lbu t0, {}(t4)", layout.offset + byte_index));
-                    self.emit(format!("lbu t1, {}(t5)", byte_index));
-                    self.emit("sub t2, t0, t1");
-                    let ok_label = self.fresh_label("output_byte_ok");
-                    self.emit(format!("beqz t2, {}", ok_label));
-                    self.emit("li a0, 3");
-                    self.emit_epilogue();
-                    self.emit_label(&ok_label);
-                }
+                self.emit_loaded_fixed_bytes_against_source(
+                    buffer_offset,
+                    layout.offset,
+                    &ExpectedFixedByteSource::StackSlot { var_id, width },
+                    width,
+                    3,
+                );
             }
             ExpectedFixedByteSource::ParamBytes { var_id, size_offset, width } => {
                 self.emit_loaded_schema_exact_size_check(size_offset, width, &format!("param var{}", var_id));
@@ -2545,18 +2994,13 @@ impl CodeGenerator {
                     "# cellscript abi: verify output bytes field {} offset={} size={} against fixed-byte param var{}",
                     context, layout.offset, width, var_id
                 ));
-                self.emit_sp_addi("t4", buffer_offset);
-                self.emit(format!("ld t5, {}(sp)", var_id * 8));
-                for byte_index in 0..width {
-                    self.emit(format!("lbu t0, {}(t4)", layout.offset + byte_index));
-                    self.emit(format!("lbu t1, {}(t5)", byte_index));
-                    self.emit("sub t2, t0, t1");
-                    let ok_label = self.fresh_label("output_byte_ok");
-                    self.emit(format!("beqz t2, {}", ok_label));
-                    self.emit("li a0, 3");
-                    self.emit_epilogue();
-                    self.emit_label(&ok_label);
-                }
+                self.emit_loaded_fixed_bytes_against_source(
+                    buffer_offset,
+                    layout.offset,
+                    &ExpectedFixedByteSource::ParamBytes { var_id, size_offset, width },
+                    width,
+                    3,
+                );
             }
             ExpectedFixedByteSource::LoadedBytes { var_id, size_offset, width } => {
                 self.emit_loaded_schema_exact_size_check(size_offset, width, &format!("loaded bytes var{}", var_id));
@@ -2564,18 +3008,13 @@ impl CodeGenerator {
                     "# cellscript abi: verify output bytes field {} offset={} size={} against loaded bytes var{}",
                     context, layout.offset, width, var_id
                 ));
-                self.emit_sp_addi("t4", buffer_offset);
-                self.emit(format!("ld t5, {}(sp)", var_id * 8));
-                for byte_index in 0..width {
-                    self.emit(format!("lbu t0, {}(t4)", layout.offset + byte_index));
-                    self.emit(format!("lbu t1, {}(t5)", byte_index));
-                    self.emit("sub t2, t0, t1");
-                    let ok_label = self.fresh_label("output_byte_ok");
-                    self.emit(format!("beqz t2, {}", ok_label));
-                    self.emit("li a0, 3");
-                    self.emit_epilogue();
-                    self.emit_label(&ok_label);
-                }
+                self.emit_loaded_fixed_bytes_against_source(
+                    buffer_offset,
+                    layout.offset,
+                    &ExpectedFixedByteSource::LoadedBytes { var_id, size_offset, width },
+                    width,
+                    3,
+                );
             }
         }
         true
@@ -2625,6 +3064,35 @@ impl CodeGenerator {
         }
     }
 
+    fn emit_fixed_byte_source_pointer_to(&mut self, dest_reg: &str, source: &ExpectedFixedByteSource) -> bool {
+        match source {
+            ExpectedFixedByteSource::SchemaField(source) => {
+                self.emit(format!("ld {}, {}(sp)", dest_reg, source.obj_var_id * 8));
+                if source.layout.offset != 0 {
+                    self.emit_large_addi(dest_reg, dest_reg, source.layout.offset as i64);
+                }
+                true
+            }
+            ExpectedFixedByteSource::StackSlot { var_id, .. } => {
+                self.emit_sp_addi(dest_reg, var_id * 8);
+                true
+            }
+            ExpectedFixedByteSource::ParamBytes { var_id, .. } | ExpectedFixedByteSource::LoadedBytes { var_id, .. } => {
+                self.emit(format!("ld {}, {}(sp)", dest_reg, var_id * 8));
+                true
+            }
+            ExpectedFixedByteSource::Const(_) => false,
+        }
+    }
+
+    fn emit_fixed_byte_mismatch_fail(&mut self, mismatch_label: &str, fail_code: u64) {
+        let done_label = self.fresh_label("fixed_byte_verify_done");
+        self.emit(format!("j {}", done_label));
+        self.emit_label(mismatch_label);
+        self.emit_fail(fail_code);
+        self.emit_label(&done_label);
+    }
+
     fn emit_fixed_byte_comparison(&mut self, dest: &IrVar, op: BinaryOp, left: &IrOperand, right: &IrOperand) -> bool {
         let Some(width) = operand_fixed_byte_width(left) else {
             return false;
@@ -2641,6 +3109,9 @@ impl CodeGenerator {
         self.emit(format!("# cellscript abi: fixed-byte {:?} comparison size={}", op, width));
         self.emit_prepare_fixed_byte_source(&left_source, width, "left fixed-byte comparison");
         self.emit_prepare_fixed_byte_source(&right_source, width, "right fixed-byte comparison");
+        if width >= 8 && self.emit_fixed_byte_comparison_helper(dest, op, &left_source, &right_source, width) {
+            return true;
+        }
         let mismatch_label = self.fresh_label("fixed_byte_mismatch");
         let done_label = self.fresh_label("fixed_byte_done");
         for byte_index in 0..width {
@@ -2660,6 +3131,50 @@ impl CodeGenerator {
         true
     }
 
+    fn emit_fixed_byte_comparison_helper(
+        &mut self,
+        dest: &IrVar,
+        op: BinaryOp,
+        left_source: &ExpectedFixedByteSource,
+        right_source: &ExpectedFixedByteSource,
+        width: usize,
+    ) -> bool {
+        match (left_source, right_source) {
+            (ExpectedFixedByteSource::Const(bytes), source) if bytes.iter().take(width).all(|byte| *byte == 0) => {
+                if !self.emit_fixed_byte_source_pointer_to("a0", source) {
+                    return false;
+                }
+                self.emit(format!("li a1, {}", width));
+                self.emit("call __cellscript_memzero_fixed");
+            }
+            (source, ExpectedFixedByteSource::Const(bytes)) if bytes.iter().take(width).all(|byte| *byte == 0) => {
+                if !self.emit_fixed_byte_source_pointer_to("a0", source) {
+                    return false;
+                }
+                self.emit(format!("li a1, {}", width));
+                self.emit("call __cellscript_memzero_fixed");
+            }
+            (ExpectedFixedByteSource::Const(_), _) | (_, ExpectedFixedByteSource::Const(_)) => return false,
+            _ => {
+                if !self.emit_fixed_byte_source_pointer_to("a0", left_source) {
+                    return false;
+                }
+                if !self.emit_fixed_byte_source_pointer_to("a1", right_source) {
+                    return false;
+                }
+                self.emit(format!("li a2, {}", width));
+                self.emit("call __cellscript_memcmp_fixed");
+            }
+        }
+        if matches!(op, BinaryOp::Eq) {
+            self.emit("seqz t3, a0");
+        } else {
+            self.emit("snez t3, a0");
+        }
+        self.emit(format!("sd t3, {}(sp)", dest.id * 8));
+        true
+    }
+
     fn expected_fixed_byte_source(&self, operand: &IrOperand, expected_width: usize) -> Option<ExpectedFixedByteSource> {
         match operand {
             IrOperand::Const(value) => {
@@ -2669,7 +3184,7 @@ impl CodeGenerator {
             IrOperand::Var(var) if fixed_byte_width(&var.ty, type_static_length(&var.ty)).is_some() => {
                 let var_width = fixed_byte_width(&var.ty, type_static_length(&var.ty))?;
                 if let Some(source) = self.schema_field_value_sources.get(&var.id).cloned() {
-                    let source_width = fixed_byte_width(&source.layout.ty, source.layout.fixed_size)?;
+                    let source_width = layout_fixed_byte_width(&source.layout)?;
                     if source_width == expected_width {
                         return Some(ExpectedFixedByteSource::SchemaField(source));
                     }
@@ -2860,8 +3375,7 @@ impl CodeGenerator {
                 self.emit(format!("# cellscript abi: expected expression u64 {:?}", op));
                 let Some(temp_offset) = self.runtime_expr_temp_offset(depth) else {
                     self.emit("# cellscript abi: fail closed because expression verifier temp stack is exhausted");
-                    self.emit("li a0, 15");
-                    self.emit_epilogue();
+                    self.emit_fail(15);
                     return;
                 };
                 self.emit_prelude_u64_value_source_to_t1_at_depth(left, depth + 1);
@@ -2880,8 +3394,7 @@ impl CodeGenerator {
                 self.emit("# cellscript abi: expected expression u64 min");
                 let Some(temp_offset) = self.runtime_expr_temp_offset(depth) else {
                     self.emit("# cellscript abi: fail closed because expression verifier temp stack is exhausted");
-                    self.emit("li a0, 15");
-                    self.emit_epilogue();
+                    self.emit_fail(15);
                     return;
                 };
                 self.emit_prelude_u64_value_source_to_t1_at_depth(left, depth + 1);
@@ -2913,7 +3426,7 @@ impl CodeGenerator {
 
     fn emit_schema_field_source_to_t1(&mut self, source: &SchemaFieldValueSource) {
         let context = format!("{}.{}", source.type_name, source.field);
-        let Some(width) = fixed_scalar_width(&source.layout.ty, source.layout.fixed_size) else {
+        let Some(width) = layout_fixed_scalar_width(&source.layout) else {
             self.emit("li t1, 0");
             return;
         };
@@ -2941,8 +3454,7 @@ impl CodeGenerator {
         }
         pattern.fields.iter().all(|(field, value)| {
             layouts.get(field).is_some_and(|layout| {
-                fixed_byte_width(&layout.ty, layout.fixed_size)
-                    .is_some_and(|width| self.is_prelude_available_fixed_value(value, width))
+                layout_fixed_byte_width(&layout).is_some_and(|width| self.is_prelude_available_fixed_value(value, width))
             })
         })
     }
@@ -2997,7 +3509,7 @@ impl CodeGenerator {
         self.emit_return_on_syscall_error(1);
         self.emit_loaded_schema_exact_size_check(size_offset, 32, "output lock hash");
         self.emit("# cellscript abi: verify output lock hash offset=0 size=32");
-        let layout = SchemaFieldLayout { offset: 0, ty: IrType::Hash, fixed_size: Some(32) };
+        let layout = SchemaFieldLayout { offset: 0, ty: IrType::Hash, fixed_size: Some(32), fixed_enum_size: None };
         self.emit_loaded_field_bytes_equals_expected(size_offset, buffer_offset, &layout, expected, "output lock hash")
     }
 
@@ -3018,7 +3530,7 @@ impl CodeGenerator {
         let Some(state_layout) = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get("state")).cloned() else {
             return;
         };
-        let Some(width) = fixed_scalar_width(&state_layout.ty, state_layout.fixed_size) else {
+        let Some(width) = layout_fixed_scalar_width(&state_layout) else {
             return;
         };
         let Some(expected_size) = self.type_fixed_sizes.get(&pattern.ty).copied() else {
@@ -3035,8 +3547,7 @@ impl CodeGenerator {
         self.emit(format!("li t3, {}", state_count));
         self.emit("sltu t2, t0, t3");
         self.emit(format!("bnez t2, {}", old_range_ok_label));
-        self.emit("li a0, 9");
-        self.emit_epilogue();
+        self.emit_fail(9);
         self.emit_label(&old_range_ok_label);
 
         self.emit_sp_addi("t4", output_buffer_offset);
@@ -3045,16 +3556,14 @@ impl CodeGenerator {
         self.emit("sub t2, t1, t0");
         let ok_label = self.fresh_label("lifecycle_transition_ok");
         self.emit(format!("beqz t2, {}", ok_label));
-        self.emit("li a0, 7");
-        self.emit_epilogue();
+        self.emit_fail(7);
         self.emit_label(&ok_label);
 
         let range_ok_label = self.fresh_label("lifecycle_state_range_ok");
         self.emit(format!("li t3, {}", state_count));
         self.emit("sltu t2, t1, t3");
         self.emit(format!("bnez t2, {}", range_ok_label));
-        self.emit("li a0, 8");
-        self.emit_epilogue();
+        self.emit_fail(8);
         self.emit_label(&range_ok_label);
     }
 
@@ -3078,7 +3587,7 @@ impl CodeGenerator {
         let Some(state_layout) = self.type_layouts.get(&pattern.ty).and_then(|fields| fields.get("state")).cloned() else {
             return;
         };
-        let Some(width) = fixed_scalar_width(&state_layout.ty, state_layout.fixed_size) else {
+        let Some(width) = layout_fixed_scalar_width(&state_layout) else {
             return;
         };
         let Some(expected_size) = self.type_fixed_sizes.get(&pattern.ty).copied() else {
@@ -3101,8 +3610,7 @@ impl CodeGenerator {
         self.emit("sub t2, t0, t3");
         let input_ok_label = self.fresh_label("settle_input_final_state_ok");
         self.emit(format!("beqz t2, {}", input_ok_label));
-        self.emit("li a0, 20");
-        self.emit_epilogue();
+        self.emit_fail(20);
         self.emit_label(&input_ok_label);
 
         self.emit_sp_addi("t4", output_buffer_offset);
@@ -3110,8 +3618,7 @@ impl CodeGenerator {
         self.emit("sub t2, t1, t3");
         let output_ok_label = self.fresh_label("settle_output_final_state_ok");
         self.emit(format!("beqz t2, {}", output_ok_label));
-        self.emit("li a0, 21");
-        self.emit_epilogue();
+        self.emit_fail(21);
         self.emit_label(&output_ok_label);
     }
 
@@ -3362,8 +3869,7 @@ impl CodeGenerator {
             // Final fallback: emit a fail-closed trap with specific error code
             self.emit(format!("# binary {:?} over fixed-byte operands (unresolved)", op));
             self.emit("# cellscript abi: fail closed because fixed-byte operand sources are not available");
-            self.emit("li a0, 18");
-            self.emit_epilogue();
+            self.emit_fail(18);
             return Ok(());
         }
 
@@ -3444,8 +3950,7 @@ impl CodeGenerator {
 
         self.emit(format!("# field access .{} (unresolved)", field));
         self.emit("# cellscript abi: fail closed because field offset is not computable from available type layout");
-        self.emit("li a0, 16");
-        self.emit_epilogue();
+        self.emit_fail(16);
         Ok(())
     }
 
@@ -3462,7 +3967,7 @@ impl CodeGenerator {
         let Some(layout) = self.type_layouts.get(type_name).and_then(|fields| fields.get(field)).cloned() else {
             return false;
         };
-        let Some(width) = fixed_byte_width(&layout.ty, layout.fixed_size) else {
+        let Some(width) = layout_fixed_byte_width(&layout) else {
             return false;
         };
 
@@ -3475,7 +3980,7 @@ impl CodeGenerator {
             self.emit_loaded_schema_bounds_check(size_offset, layout.offset + width, &format!("{}.{}", type_name, field));
         }
         self.emit(format!("ld t4, {}(sp)", var.id * 8));
-        if fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() {
+        if layout_fixed_scalar_width(&layout).is_some() {
             self.emit_unaligned_scalar_load("t4", "t0", "t2", layout.offset, width);
         } else {
             self.emit(format!("addi t0, t4, {}", layout.offset));
@@ -3495,7 +4000,7 @@ impl CodeGenerator {
         let Some(layout) = aggregate_field_layout(&source_ty, field) else {
             return false;
         };
-        let Some(width) = fixed_byte_width(&layout.ty, layout.fixed_size) else {
+        let Some(width) = layout_fixed_byte_width(&layout) else {
             return false;
         };
 
@@ -3508,7 +4013,7 @@ impl CodeGenerator {
             width
         ));
         self.emit(format!("ld t4, {}(sp)", var.id * 8));
-        if fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() {
+        if layout_fixed_scalar_width(&layout).is_some() {
             self.emit_unaligned_scalar_load("t4", "t0", "t2", layout.offset, width);
         } else {
             self.emit(format!("addi t0, t4, {}", layout.offset));
@@ -3547,7 +4052,7 @@ impl CodeGenerator {
         let Some(layout) = self.type_layouts.get(type_name).and_then(|fields| fields.get(field)).cloned() else {
             return false;
         };
-        let Some(width) = fixed_byte_width(&layout.ty, layout.fixed_size) else {
+        let Some(width) = layout_fixed_byte_width(&layout) else {
             return false;
         };
 
@@ -3564,7 +4069,7 @@ impl CodeGenerator {
 
         // Load the object pointer from the stack slot
         self.emit(format!("ld t4, {}(sp)", var.id * 8));
-        if fixed_scalar_width(&layout.ty, layout.fixed_size).is_some() {
+        if layout_fixed_scalar_width(&layout).is_some() {
             self.emit_unaligned_scalar_load("t4", "t0", "t2", layout.offset, width);
         } else {
             self.emit(format!("addi t0, t4, {}", layout.offset));
@@ -3583,8 +4088,7 @@ impl CodeGenerator {
 
         self.emit("# index access (unresolved)");
         self.emit("# cellscript abi: fail closed because element layout is not statically computable");
-        self.emit("li a0, 17");
-        self.emit_epilogue();
+        self.emit_fail(17);
         Ok(())
     }
 
@@ -3667,8 +4171,7 @@ impl CodeGenerator {
         self.emit(format!("li t2, {}", len));
         self.emit("slt t3, t1, t2");
         self.emit(format!("bnez t3, {}", bounds_ok));
-        self.emit("li a0, 2");
-        self.emit_epilogue();
+        self.emit_fail(2);
         self.emit_label(&bounds_ok);
 
         // Compute offset = index * element_width
@@ -3698,8 +4201,7 @@ impl CodeGenerator {
             self.emit_stack_ld("t0", size_offset);
         } else {
             self.emit("# cellscript abi: fail closed because dynamic length is not available");
-            self.emit("li a0, 19");
-            self.emit_epilogue();
+            self.emit_fail(19);
             return Ok(());
         }
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
@@ -3773,8 +4275,7 @@ impl CodeGenerator {
 
         self.emit("# type_hash (unresolved)");
         self.emit("# cellscript abi: fail closed because type_hash source cell cannot be determined");
-        self.emit("li a0, 20");
-        self.emit_epilogue();
+        self.emit_fail(20);
         Ok(())
     }
 
@@ -3852,8 +4353,7 @@ impl CodeGenerator {
         // needed in the verifier path – the prelude already verified the output.
         self.emit("# cellscript abi: collection push is not needed for verifier execution");
         self.emit("# cellscript abi: if this path is reached, the source program uses dynamic collections");
-        self.emit("li a0, 21");
-        self.emit_epilogue();
+        self.emit_fail(21);
         Ok(())
     }
 
@@ -3863,8 +4363,7 @@ impl CodeGenerator {
         self.emit_symbolic_operand_comment("slice", slice);
         self.emit("# cellscript abi: collection extend is not needed for verifier execution");
         self.emit("# cellscript abi: if this path is reached, the source program uses dynamic collections");
-        self.emit("li a0, 21");
-        self.emit_epilogue();
+        self.emit_fail(21);
         Ok(())
     }
 
@@ -4103,8 +4602,7 @@ impl CodeGenerator {
             "# cellscript abi: call {} param {} requires ABI arg{} beyond register call lowering",
             func, label, abi_index
         ));
-        self.emit("li a0, 25");
-        self.emit_epilogue();
+        self.emit_fail(25);
         None
     }
 
@@ -4187,8 +4685,7 @@ impl CodeGenerator {
         // Non-Var consume: this should not happen in valid IR, but fail with
         // a specific error code instead of blocking ELF emission.
         self.emit("# cellscript abi: fail closed because consume operand is not a variable");
-        self.emit("li a0, 22");
-        self.emit_epilogue();
+        self.emit_fail(22);
         Ok(())
     }
 
@@ -4231,8 +4728,7 @@ impl CodeGenerator {
             return Ok(());
         }
         self.emit("# cellscript abi: fail closed because transfer output relation is unknown");
-        self.emit("li a0, 23");
-        self.emit_epilogue();
+        self.emit_fail(23);
         Ok(())
     }
 
@@ -4241,13 +4737,12 @@ impl CodeGenerator {
         self.emit("# destroy");
         if let IrOperand::Var(var) = operand {
             self.emit(format!("sd zero, {}(sp)", var.id * 8));
-            self.emit("# cellscript abi: destroy consumed input is checked by GroupOutput absence scan");
+            self.emit("# cellscript abi: destroy consumed input is checked by Output absence scan");
             return Ok(());
         }
         // Non-Var destroy: this should not happen in valid IR, fail with specific error.
         self.emit("# cellscript abi: fail closed because destroy operand is not a variable");
-        self.emit("li a0, 22");
-        self.emit_epilogue();
+        self.emit_fail(22);
         Ok(())
     }
 
@@ -4296,8 +4791,7 @@ impl CodeGenerator {
             return Ok(());
         }
         self.emit("# cellscript abi: fail closed because claim output relation is unknown");
-        self.emit("li a0, 23");
-        self.emit_epilogue();
+        self.emit_fail(23);
         Ok(())
     }
 
@@ -4317,8 +4811,7 @@ impl CodeGenerator {
             return Ok(());
         }
         self.emit("# cellscript abi: fail closed because settle output relation is unknown");
-        self.emit("li a0, 23");
-        self.emit_epilogue();
+        self.emit_fail(23);
         Ok(())
     }
 
@@ -4336,6 +4829,9 @@ impl CodeGenerator {
 
     fn generate_runtime_support(&mut self) {
         self.emit_section(".text");
+        self.emit_runtime_memcmp_fixed();
+        self.emit_runtime_memzero_fixed();
+        self.emit_runtime_size_guards();
         self.emit_runtime_header_field_u64(
             "__env_current_daa_score",
             "daa_score",
@@ -4371,6 +4867,67 @@ impl CodeGenerator {
             self.options.target_profile == TargetProfile::Ckb,
             "ckb::input_since is rejected outside the ckb target profile",
         );
+    }
+
+    fn emit_runtime_memcmp_fixed(&mut self) {
+        self.emit_global("__cellscript_memcmp_fixed");
+        self.emit_label("__cellscript_memcmp_fixed");
+        self.emit("# cellscript abi: fixed-byte helper compares a0/a1 for a2 bytes; returns a0=0 when equal");
+        let loop_label = ".L__cellscript_memcmp_fixed_loop";
+        let mismatch_label = ".L__cellscript_memcmp_fixed_mismatch";
+        let equal_label = ".L__cellscript_memcmp_fixed_equal";
+        self.emit(format!("beqz a2, {}", equal_label));
+        self.emit_label(loop_label);
+        self.emit("lbu t0, 0(a0)");
+        self.emit("lbu t1, 0(a1)");
+        self.emit("sub t2, t0, t1");
+        self.emit(format!("bnez t2, {}", mismatch_label));
+        self.emit("addi a0, a0, 1");
+        self.emit("addi a1, a1, 1");
+        self.emit("addi a2, a2, -1");
+        self.emit(format!("bnez a2, {}", loop_label));
+        self.emit_label(equal_label);
+        self.emit("li a0, 0");
+        self.emit("ret");
+        self.emit_label(mismatch_label);
+        self.emit("li a0, 1");
+        self.emit("ret");
+    }
+
+    fn emit_runtime_memzero_fixed(&mut self) {
+        self.emit_global("__cellscript_memzero_fixed");
+        self.emit_label("__cellscript_memzero_fixed");
+        self.emit("# cellscript abi: fixed-byte helper checks a0 for a1 zero bytes; returns a0=0 when all zero");
+        let loop_label = ".L__cellscript_memzero_fixed_loop";
+        let mismatch_label = ".L__cellscript_memzero_fixed_mismatch";
+        let equal_label = ".L__cellscript_memzero_fixed_equal";
+        self.emit(format!("beqz a1, {}", equal_label));
+        self.emit_label(loop_label);
+        self.emit("lbu t0, 0(a0)");
+        self.emit(format!("bnez t0, {}", mismatch_label));
+        self.emit("addi a0, a0, 1");
+        self.emit("addi a1, a1, -1");
+        self.emit(format!("bnez a1, {}", loop_label));
+        self.emit_label(equal_label);
+        self.emit("li a0, 0");
+        self.emit("ret");
+        self.emit_label(mismatch_label);
+        self.emit("li a0, 1");
+        self.emit("ret");
+    }
+
+    fn emit_runtime_size_guards(&mut self) {
+        self.emit_global("__cellscript_require_min_size");
+        self.emit_label("__cellscript_require_min_size");
+        self.emit("# cellscript abi: returns a0=0 when actual size a0 is at least required size a1");
+        self.emit("slt a0, a0, a1");
+        self.emit("ret");
+
+        self.emit_global("__cellscript_require_exact_size");
+        self.emit_label("__cellscript_require_exact_size");
+        self.emit("# cellscript abi: returns a0=0 when actual size a0 equals expected size a1");
+        self.emit("sub a0, a0, a1");
+        self.emit("ret");
     }
 
     fn emit_runtime_header_field_u64(&mut self, symbol: &str, field_name: &str, field_id: u64, enabled: bool, disabled_reason: &str) {
@@ -4450,6 +5007,11 @@ impl CodeGenerator {
 pub fn generate(ir: &IrModule, options: &CodegenOptions, format: ArtifactFormat) -> Result<Vec<u8>> {
     let generator = CodeGenerator::new(options.clone());
     generator.generate(ir, format)
+}
+
+pub fn analyze_backend_shape(assembly: &str) -> Result<BackendShapeMetrics> {
+    let lines = assembly.lines().map(str::to_string).collect::<Vec<_>>();
+    MachineLayoutPlan::build(&lines).map(|plan| plan.metrics.into())
 }
 
 fn first_entrypoint(ir: &IrModule) -> Option<(&str, &[IrParam])> {
@@ -4533,9 +5095,10 @@ fn named_type_name(ty: &IrType) -> Option<&str> {
 
 fn consumed_operand_var(instruction: &IrInstruction) -> Option<&IrVar> {
     let operand = match instruction {
-        IrInstruction::Consume { operand } | IrInstruction::Transfer { operand, .. } | IrInstruction::Settle { operand, .. } => {
-            operand
-        }
+        IrInstruction::Consume { operand }
+        | IrInstruction::Transfer { operand, .. }
+        | IrInstruction::Destroy { operand }
+        | IrInstruction::Settle { operand, .. } => operand,
         IrInstruction::Claim { receipt, .. } => receipt,
         _ => return None,
     };
@@ -4560,7 +5123,7 @@ enum SectionKind {
 
 #[derive(Debug, Clone)]
 enum AsmOp {
-    Label,
+    Label(String),
     Instruction(Instruction),
     Word(u32),
     Byte(u8),
@@ -4579,6 +5142,88 @@ struct SectionLayout {
     text_base: u64,
     text_user_base: u64,
     rodata_base: u64,
+}
+
+impl SectionLayout {
+    fn for_text_user_size(text_user_size: usize) -> Self {
+        let rodata_offset = align_up(START_TRAMPOLINE_SIZE + text_user_size, 8);
+        Self {
+            text_base: ELF_BASE_ADDR,
+            text_user_base: ELF_BASE_ADDR + START_TRAMPOLINE_SIZE as u64,
+            rodata_base: ELF_BASE_ADDR + rodata_offset as u64,
+        }
+    }
+
+    fn rodata_offset(&self) -> Result<usize> {
+        usize::try_from(self.rodata_base - self.text_base)
+            .map_err(|_| CompileError::new("ELF rodata offset does not fit usize", crate::error::Span::default()))
+    }
+}
+
+#[derive(Debug)]
+struct MachineLayoutPlan {
+    parsed: ParsedAssembly,
+    layout: SectionLayout,
+    cfg: MachineCfg,
+    order: MachineLayoutOrder,
+    metrics: BackendLayoutMetrics,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct BackendLayoutMetrics {
+    text_size: usize,
+    rodata_size: usize,
+    executable_text_op_count: usize,
+    covered_text_op_count: usize,
+    relaxed_branch_count: usize,
+    max_cond_branch_abs_distance: u64,
+    machine_block_count: usize,
+    max_machine_block_size: usize,
+    conditional_branch_block_count: usize,
+    labeled_machine_block_count: usize,
+    machine_cfg_edge_count: usize,
+    unreachable_machine_block_count: usize,
+    layout_order_block_count: usize,
+    layout_order_text_size: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct BackendShapeMetrics {
+    pub text_size: usize,
+    pub rodata_size: usize,
+    pub executable_text_op_count: usize,
+    pub covered_text_op_count: usize,
+    pub relaxed_branch_count: usize,
+    pub max_cond_branch_abs_distance: u64,
+    pub machine_block_count: usize,
+    pub max_machine_block_size: usize,
+    pub conditional_branch_block_count: usize,
+    pub labeled_machine_block_count: usize,
+    pub machine_cfg_edge_count: usize,
+    pub unreachable_machine_block_count: usize,
+    pub layout_order_block_count: usize,
+    pub layout_order_text_size: usize,
+}
+
+impl From<BackendLayoutMetrics> for BackendShapeMetrics {
+    fn from(metrics: BackendLayoutMetrics) -> Self {
+        Self {
+            text_size: metrics.text_size,
+            rodata_size: metrics.rodata_size,
+            executable_text_op_count: metrics.executable_text_op_count,
+            covered_text_op_count: metrics.covered_text_op_count,
+            relaxed_branch_count: metrics.relaxed_branch_count,
+            max_cond_branch_abs_distance: metrics.max_cond_branch_abs_distance,
+            machine_block_count: metrics.machine_block_count,
+            max_machine_block_size: metrics.max_machine_block_size,
+            conditional_branch_block_count: metrics.conditional_branch_block_count,
+            labeled_machine_block_count: metrics.labeled_machine_block_count,
+            machine_cfg_edge_count: metrics.machine_cfg_edge_count,
+            unreachable_machine_block_count: metrics.unreachable_machine_block_count,
+            layout_order_block_count: metrics.layout_order_block_count,
+            layout_order_text_size: metrics.layout_order_text_size,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -4660,19 +5305,34 @@ fn assembly_with_external_call_stubs(lines: &[String]) -> Option<Vec<String>> {
 }
 
 fn assemble_elf_internal(lines: &[String]) -> Result<Vec<u8>> {
-    let parsed = ParsedAssembly::from_lines(lines)?;
+    let plan = MachineLayoutPlan::build(lines)?;
+    let parsed = &plan.parsed;
+    let layout = plan.layout;
+    let _layout_control_metrics = (
+        plan.metrics.executable_text_op_count,
+        plan.metrics.covered_text_op_count,
+        plan.metrics.relaxed_branch_count,
+        plan.metrics.max_cond_branch_abs_distance,
+        plan.metrics.machine_block_count,
+        plan.metrics.max_machine_block_size,
+        plan.metrics.conditional_branch_block_count,
+        plan.metrics.labeled_machine_block_count,
+        plan.metrics.machine_cfg_edge_count,
+        plan.metrics.unreachable_machine_block_count,
+        plan.metrics.layout_order_block_count,
+        plan.metrics.layout_order_text_size,
+        plan.cfg.blocks.len(),
+        plan.cfg.edges.len(),
+        plan.order.block_order.len(),
+        plan.order.placed_blocks.len(),
+        plan.order.text_size,
+    );
     let entry_label = parsed.entry_label.as_deref().ok_or_else(|| {
         CompileError::new("ELF target requires at least one action or lock entry point", crate::error::Span::default())
     })?;
-
-    let text_user_size = parsed.section_size(SectionKind::Text);
-    let rodata_size = parsed.section_size(SectionKind::Rodata);
-    let rodata_offset = align_up(START_TRAMPOLINE_SIZE + text_user_size, 8);
-    let layout = SectionLayout {
-        text_base: ELF_BASE_ADDR,
-        text_user_base: ELF_BASE_ADDR + START_TRAMPOLINE_SIZE as u64,
-        rodata_base: ELF_BASE_ADDR + rodata_offset as u64,
-    };
+    let text_user_size = plan.metrics.text_size;
+    let rodata_size = plan.metrics.rodata_size;
+    let rodata_offset = layout.rodata_offset()?;
 
     let mut text_bytes = Vec::with_capacity(START_TRAMPOLINE_SIZE + text_user_size);
     if entry_requires_explicit_parameter_abi(lines, entry_label) {
@@ -4955,11 +5615,23 @@ struct ParsedAssembly {
     text_size: usize,
     rodata_size: usize,
     symbols: HashMap<String, SymbolDef>,
+    global_text_labels: BTreeSet<String>,
     entry_label: Option<String>,
+    relaxed_text_branches: BTreeSet<usize>,
 }
 
 impl ParsedAssembly {
     fn from_lines(lines: &[String]) -> Result<Self> {
+        Self::from_lines_with_branch_mode(lines, BranchSizeMode::Exact(&BTreeSet::new()))
+    }
+
+    fn from_lines_relaxed(lines: &[String], layout: &SectionLayout) -> Result<Self> {
+        let conservative = Self::from_lines_with_branch_mode(lines, BranchSizeMode::Conservative)?;
+        let relaxed_text_branches = conservative.relaxed_branch_indices(layout)?;
+        Self::from_lines_with_branch_mode(lines, BranchSizeMode::Exact(&relaxed_text_branches))
+    }
+
+    fn from_lines_with_branch_mode(lines: &[String], branch_size_mode: BranchSizeMode<'_>) -> Result<Self> {
         let mut current_section = SectionKind::Text;
         let mut text_size = 0usize;
         let mut rodata_size = 0usize;
@@ -4967,6 +5639,7 @@ impl ParsedAssembly {
         let mut rodata_ops = Vec::new();
         let mut symbols = HashMap::new();
         let mut globals = BTreeSet::new();
+        let mut global_text_labels = BTreeSet::new();
         let mut entry_label = None;
         let mut fallback_entry = None;
 
@@ -4994,6 +5667,7 @@ impl ParsedAssembly {
                 SectionKind::Text => (&mut text_ops, &mut text_size),
                 SectionKind::Rodata => (&mut rodata_ops, &mut rodata_size),
             };
+            let op_index = ops.len();
 
             if let Some(label) = clean.strip_suffix(':') {
                 let label = label.trim().to_string();
@@ -5002,6 +5676,7 @@ impl ParsedAssembly {
                     return Err(CompileError::new(format!("duplicate assembly label '{}'", label), crate::error::Span::default()));
                 }
                 if current_section == SectionKind::Text && globals.contains(&label) {
+                    global_text_labels.insert(label.clone());
                     if fallback_entry.is_none() {
                         fallback_entry = Some(label.clone());
                     }
@@ -5009,16 +5684,41 @@ impl ParsedAssembly {
                         entry_label = Some(label.clone());
                     }
                 }
-                ops.push(AsmOp::Label);
+                ops.push(AsmOp::Label(label));
                 continue;
             }
 
             let op = parse_asm_op(clean)?;
-            *offset += op_size(&op, *offset);
+            *offset += op_size(&op, *offset, current_section, op_index, branch_size_mode);
             ops.push(op);
         }
 
-        Ok(Self { text_ops, rodata_ops, text_size, rodata_size, symbols, entry_label: entry_label.or(fallback_entry) })
+        Ok(Self {
+            text_ops,
+            rodata_ops,
+            text_size,
+            rodata_size,
+            symbols,
+            global_text_labels,
+            entry_label: entry_label.or(fallback_entry),
+            relaxed_text_branches: branch_size_mode.relaxed_text_branches().cloned().unwrap_or_default(),
+        })
+    }
+
+    fn relaxed_branch_indices(&self, layout: &SectionLayout) -> Result<BTreeSet<usize>> {
+        let mut relaxed = BTreeSet::new();
+        let mut offset = 0usize;
+        for (index, op) in self.text_ops.iter().enumerate() {
+            if let AsmOp::Instruction(inst @ (Instruction::Beqz { .. } | Instruction::Bnez { .. })) = op {
+                let pc = layout.text_user_base + offset as u64;
+                let target = branch_target(inst, self, layout)?;
+                if !signed_bits_fit(relative_offset(pc, target)?, 13) {
+                    relaxed.insert(index);
+                }
+            }
+            offset += op_size(op, offset, SectionKind::Text, index, BranchSizeMode::Conservative);
+        }
+        Ok(relaxed)
     }
 
     fn section_size(&self, section: SectionKind) -> usize {
@@ -5049,9 +5749,9 @@ impl ParsedAssembly {
             SectionKind::Rodata => layout.rodata_base,
         };
 
-        for op in ops {
+        for (op_index, op) in ops.iter().enumerate() {
             match op {
-                AsmOp::Label => {}
+                AsmOp::Label(_) => {}
                 AsmOp::Word(word) => out.extend_from_slice(&word.to_le_bytes()),
                 AsmOp::Byte(byte) => out.push(*byte),
                 AsmOp::Ascii(bytes) => out.extend_from_slice(bytes),
@@ -5061,12 +5761,380 @@ impl ParsedAssembly {
                         CompileError::new("assembly output offset is smaller than section base bias", crate::error::Span::default())
                     })?;
                     let pc = section_base + section_offset as u64;
-                    encode_instruction(out, inst, pc, self, layout)?;
+                    encode_instruction(
+                        out,
+                        inst,
+                        pc,
+                        self,
+                        layout,
+                        section == SectionKind::Text && self.relaxed_text_branches.contains(&op_index),
+                    )?;
                 }
             }
         }
 
         Ok(())
+    }
+}
+
+impl MachineLayoutPlan {
+    fn build(lines: &[String]) -> Result<Self> {
+        let preliminary = ParsedAssembly::from_lines_with_branch_mode(lines, BranchSizeMode::Conservative)?;
+        let preliminary_layout = SectionLayout::for_text_user_size(preliminary.section_size(SectionKind::Text));
+        let parsed = ParsedAssembly::from_lines_relaxed(lines, &preliminary_layout)?;
+        let layout = SectionLayout::for_text_user_size(parsed.section_size(SectionKind::Text));
+        let cfg = machine_cfg(&parsed)?;
+        let coverage = validate_machine_block_coverage(&parsed, &cfg)?;
+        let order = machine_layout_order(&cfg)?;
+        let metrics = parsed.layout_metrics(&layout, &cfg, &order, coverage)?;
+        Ok(Self { parsed, layout, cfg, order, metrics })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TextOpLayout {
+    op_index: usize,
+    offset: usize,
+    size: usize,
+}
+
+#[derive(Debug, Clone)]
+struct MachineBlock {
+    label: Option<String>,
+    op_start: usize,
+    op_end: usize,
+    byte_start: usize,
+    byte_size: usize,
+    terminator: MachineTerminator,
+}
+
+#[derive(Debug, Clone)]
+struct MachineCfg {
+    blocks: Vec<MachineBlock>,
+    edges: Vec<MachineCfgEdge>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct MachineBlockCoverage {
+    executable_text_op_count: usize,
+    covered_text_op_count: usize,
+}
+
+#[derive(Debug, Clone)]
+struct MachineLayoutOrder {
+    block_order: Vec<usize>,
+    placed_blocks: Vec<MachinePlacedBlock>,
+    text_size: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MachinePlacedBlock {
+    block_index: usize,
+    byte_start: usize,
+    byte_size: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MachineCfgEdge {
+    from: usize,
+    to: usize,
+    kind: MachineCfgEdgeKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MachineCfgEdgeKind {
+    Fallthrough,
+    Jump,
+    ConditionalTaken,
+    ConditionalFallthrough,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MachineTerminator {
+    Fallthrough,
+    Jump { target: String },
+    ConditionalBranch { target: String },
+    Return,
+}
+
+fn text_op_layouts(parsed: &ParsedAssembly) -> Vec<TextOpLayout> {
+    let mut offset = 0usize;
+    let mut layouts = Vec::with_capacity(parsed.text_ops.len());
+    for (op_index, op) in parsed.text_ops.iter().enumerate() {
+        let size = op_size(op, offset, SectionKind::Text, op_index, BranchSizeMode::Exact(&parsed.relaxed_text_branches));
+        layouts.push(TextOpLayout { op_index, offset, size });
+        offset += size;
+    }
+    layouts
+}
+
+fn machine_blocks(parsed: &ParsedAssembly) -> Vec<MachineBlock> {
+    let layouts = text_op_layouts(parsed);
+    let mut blocks = Vec::new();
+    let mut block_start = 0usize;
+    let mut block_label = None;
+
+    for (op_index, op) in parsed.text_ops.iter().enumerate() {
+        if let AsmOp::Label(label) = op {
+            if block_has_executable_ops(&parsed.text_ops[block_start..op_index]) {
+                blocks.push(build_machine_block(parsed, &layouts, block_start, op_index, block_label.take()));
+                block_start = op_index;
+            }
+            if block_label.is_none() {
+                block_label = Some(label.clone());
+            }
+            continue;
+        }
+
+        if instruction_terminator(op).is_some() {
+            blocks.push(build_machine_block(parsed, &layouts, block_start, op_index + 1, block_label.take()));
+            block_start = op_index + 1;
+        }
+    }
+
+    if block_start < parsed.text_ops.len() && block_has_executable_ops(&parsed.text_ops[block_start..]) {
+        blocks.push(build_machine_block(parsed, &layouts, block_start, parsed.text_ops.len(), block_label));
+    }
+
+    blocks
+}
+
+fn machine_cfg(parsed: &ParsedAssembly) -> Result<MachineCfg> {
+    let blocks = machine_blocks(parsed);
+    let label_to_block = machine_label_to_block(parsed, &blocks);
+    let mut edges = Vec::new();
+
+    for (index, block) in blocks.iter().enumerate() {
+        match &block.terminator {
+            MachineTerminator::Fallthrough => {
+                if index + 1 < blocks.len() {
+                    edges.push(MachineCfgEdge { from: index, to: index + 1, kind: MachineCfgEdgeKind::Fallthrough });
+                }
+            }
+            MachineTerminator::Jump { target } => {
+                edges.push(MachineCfgEdge {
+                    from: index,
+                    to: machine_cfg_target_block(target, &label_to_block)?,
+                    kind: MachineCfgEdgeKind::Jump,
+                });
+            }
+            MachineTerminator::ConditionalBranch { target } => {
+                edges.push(MachineCfgEdge {
+                    from: index,
+                    to: machine_cfg_target_block(target, &label_to_block)?,
+                    kind: MachineCfgEdgeKind::ConditionalTaken,
+                });
+                if index + 1 < blocks.len() {
+                    edges.push(MachineCfgEdge { from: index, to: index + 1, kind: MachineCfgEdgeKind::ConditionalFallthrough });
+                }
+            }
+            MachineTerminator::Return => {}
+        }
+    }
+
+    Ok(MachineCfg { blocks, edges })
+}
+
+fn validate_machine_block_coverage(parsed: &ParsedAssembly, cfg: &MachineCfg) -> Result<MachineBlockCoverage> {
+    let executable_text_op_count = parsed.text_ops.iter().filter(|op| !matches!(op, AsmOp::Label(_))).count();
+    let mut covered = BTreeSet::new();
+
+    for block in &cfg.blocks {
+        if block.op_start >= block.op_end || block.op_end > parsed.text_ops.len() {
+            return Err(CompileError::new(
+                format!("machine block has invalid op range {}..{}", block.op_start, block.op_end),
+                crate::error::Span::default(),
+            ));
+        }
+        if !block_has_executable_ops(&parsed.text_ops[block.op_start..block.op_end]) {
+            return Err(CompileError::new("machine block contains no executable instructions", crate::error::Span::default()));
+        }
+        for op_index in block.op_start..block.op_end {
+            if matches!(parsed.text_ops[op_index], AsmOp::Label(_)) {
+                continue;
+            }
+            if !covered.insert(op_index) {
+                return Err(CompileError::new(
+                    format!("machine block coverage overlaps text op {}", op_index),
+                    crate::error::Span::default(),
+                ));
+            }
+        }
+    }
+
+    if covered.len() != executable_text_op_count {
+        return Err(CompileError::new(
+            format!("machine blocks cover {} executable text ops but assembly contains {}", covered.len(), executable_text_op_count),
+            crate::error::Span::default(),
+        ));
+    }
+
+    Ok(MachineBlockCoverage { executable_text_op_count, covered_text_op_count: covered.len() })
+}
+
+fn machine_layout_order(cfg: &MachineCfg) -> Result<MachineLayoutOrder> {
+    let block_order = (0..cfg.blocks.len()).collect::<Vec<_>>();
+    build_machine_layout_order(cfg, block_order)
+}
+
+fn build_machine_layout_order(cfg: &MachineCfg, block_order: Vec<usize>) -> Result<MachineLayoutOrder> {
+    validate_machine_layout_order(cfg, &block_order)?;
+    let mut byte_start = 0usize;
+    let mut placed_blocks = Vec::with_capacity(block_order.len());
+    for &block_index in &block_order {
+        let block = &cfg.blocks[block_index];
+        placed_blocks.push(MachinePlacedBlock { block_index, byte_start, byte_size: block.byte_size });
+        byte_start += block.byte_size;
+    }
+    Ok(MachineLayoutOrder { block_order, placed_blocks, text_size: byte_start })
+}
+
+fn validate_machine_layout_order(cfg: &MachineCfg, block_order: &[usize]) -> Result<()> {
+    if block_order.len() != cfg.blocks.len() {
+        return Err(CompileError::new(
+            format!("machine layout order contains {} blocks but CFG contains {}", block_order.len(), cfg.blocks.len()),
+            crate::error::Span::default(),
+        ));
+    }
+
+    let mut seen = BTreeSet::new();
+    for &block_index in block_order {
+        if block_index >= cfg.blocks.len() {
+            return Err(CompileError::new(
+                format!("machine layout order references missing block {}", block_index),
+                crate::error::Span::default(),
+            ));
+        }
+        if !seen.insert(block_index) {
+            return Err(CompileError::new(
+                format!("machine layout order repeats block {}", block_index),
+                crate::error::Span::default(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn machine_label_to_block(parsed: &ParsedAssembly, blocks: &[MachineBlock]) -> HashMap<String, usize> {
+    let mut label_to_block = HashMap::new();
+    for (label, symbol) in &parsed.symbols {
+        if symbol.section != SectionKind::Text {
+            continue;
+        }
+        if let Some((block_index, _)) = blocks.iter().enumerate().find(|(_, block)| block.byte_start == symbol.offset) {
+            label_to_block.insert(label.clone(), block_index);
+        }
+    }
+    label_to_block
+}
+
+fn machine_cfg_target_block(target: &str, label_to_block: &HashMap<String, usize>) -> Result<usize> {
+    label_to_block.get(target).copied().ok_or_else(|| {
+        CompileError::new(format!("assembly branch target '{}' does not start a machine block", target), crate::error::Span::default())
+    })
+}
+
+fn unreachable_machine_block_count(parsed: &ParsedAssembly, cfg: &MachineCfg) -> usize {
+    if cfg.blocks.is_empty() {
+        return 0;
+    }
+    let label_to_block = machine_label_to_block(parsed, &cfg.blocks);
+    let mut roots = parsed.global_text_labels.iter().filter_map(|label| label_to_block.get(label).copied()).collect::<Vec<_>>();
+    if roots.is_empty() {
+        roots.push(0);
+    }
+    let mut reachable = BTreeSet::new();
+    let mut stack = roots;
+    while let Some(block) = stack.pop() {
+        if !reachable.insert(block) {
+            continue;
+        }
+        for edge in cfg.edges.iter().filter(|edge| edge.from == block) {
+            stack.push(edge.to);
+        }
+    }
+    cfg.blocks.len().saturating_sub(reachable.len())
+}
+
+fn block_has_executable_ops(ops: &[AsmOp]) -> bool {
+    ops.iter().any(|op| !matches!(op, AsmOp::Label(_)))
+}
+
+fn build_machine_block(
+    parsed: &ParsedAssembly,
+    layouts: &[TextOpLayout],
+    op_start: usize,
+    op_end: usize,
+    label: Option<String>,
+) -> MachineBlock {
+    let byte_start = layouts.get(op_start).map(|layout| layout.offset).unwrap_or(0);
+    let byte_end =
+        op_end.checked_sub(1).and_then(|last| layouts.get(last).map(|layout| layout.offset + layout.size)).unwrap_or(byte_start);
+    let terminator =
+        parsed.text_ops[op_start..op_end].iter().rev().find_map(instruction_terminator).unwrap_or(MachineTerminator::Fallthrough);
+    MachineBlock { label, op_start, op_end, byte_start, byte_size: byte_end.saturating_sub(byte_start), terminator }
+}
+
+fn instruction_terminator(op: &AsmOp) -> Option<MachineTerminator> {
+    match op {
+        AsmOp::Instruction(Instruction::Jump { label }) => Some(MachineTerminator::Jump { target: label.clone() }),
+        AsmOp::Instruction(Instruction::Beqz { label, .. } | Instruction::Bnez { label, .. }) => {
+            Some(MachineTerminator::ConditionalBranch { target: label.clone() })
+        }
+        AsmOp::Instruction(Instruction::Ret) => Some(MachineTerminator::Return),
+        _ => None,
+    }
+}
+
+impl ParsedAssembly {
+    fn layout_metrics(
+        &self,
+        layout: &SectionLayout,
+        machine_cfg: &MachineCfg,
+        machine_order: &MachineLayoutOrder,
+        coverage: MachineBlockCoverage,
+    ) -> Result<BackendLayoutMetrics> {
+        let text_op_layouts = text_op_layouts(self);
+        let text_size = text_op_layouts.iter().map(|op| op.size).sum();
+        let mut max_cond_branch_abs_distance = 0u64;
+        for op_layout in text_op_layouts {
+            let AsmOp::Instruction(inst @ (Instruction::Beqz { .. } | Instruction::Bnez { .. })) = &self.text_ops[op_layout.op_index]
+            else {
+                continue;
+            };
+            let pc = layout.text_user_base + op_layout.offset as u64;
+            let target = branch_target(inst, self, layout)?;
+            let distance = relative_offset(pc, target)?.unsigned_abs();
+            max_cond_branch_abs_distance = max_cond_branch_abs_distance.max(distance);
+        }
+        let machine_block_count = machine_cfg.blocks.len();
+        let max_machine_block_size = machine_cfg.blocks.iter().map(|block| block.byte_size).max().unwrap_or_default();
+        let conditional_branch_block_count =
+            machine_cfg.blocks.iter().filter(|block| matches!(block.terminator, MachineTerminator::ConditionalBranch { .. })).count();
+        let labeled_machine_block_count = machine_cfg.blocks.iter().filter(|block| block.label.is_some()).count();
+        let machine_cfg_edge_count = machine_cfg.edges.len();
+        let unreachable_machine_block_count = unreachable_machine_block_count(self, machine_cfg);
+        let layout_order_block_count = machine_order.block_order.len();
+        let layout_order_text_size = machine_order.text_size;
+        let _covered_text_ops = machine_cfg.blocks.iter().map(|block| block.op_end.saturating_sub(block.op_start)).sum::<usize>();
+        let _first_block_byte_start = machine_cfg.blocks.first().map(|block| block.byte_start).unwrap_or_default();
+        Ok(BackendLayoutMetrics {
+            text_size,
+            rodata_size: self.section_size(SectionKind::Rodata),
+            executable_text_op_count: coverage.executable_text_op_count,
+            covered_text_op_count: coverage.covered_text_op_count,
+            relaxed_branch_count: self.relaxed_text_branches.len(),
+            max_cond_branch_abs_distance,
+            machine_block_count,
+            max_machine_block_size,
+            conditional_branch_block_count,
+            labeled_machine_block_count,
+            machine_cfg_edge_count,
+            unreachable_machine_block_count,
+            layout_order_block_count,
+            layout_order_text_size,
+        })
     }
 }
 
@@ -5209,7 +6277,36 @@ fn parse_instruction(line: &str) -> Result<Instruction> {
     }
 }
 
-fn encode_instruction(out: &mut Vec<u8>, inst: &Instruction, pc: u64, parsed: &ParsedAssembly, layout: &SectionLayout) -> Result<()> {
+#[derive(Debug, Clone, Copy)]
+enum BranchSizeMode<'a> {
+    Conservative,
+    Exact(&'a BTreeSet<usize>),
+}
+
+impl<'a> BranchSizeMode<'a> {
+    fn relaxed_text_branches(self) -> Option<&'a BTreeSet<usize>> {
+        match self {
+            Self::Conservative => None,
+            Self::Exact(branches) => Some(branches),
+        }
+    }
+}
+
+fn branch_target(inst: &Instruction, parsed: &ParsedAssembly, layout: &SectionLayout) -> Result<u64> {
+    match inst {
+        Instruction::Beqz { label, .. } | Instruction::Bnez { label, .. } => parsed.symbol_address(label, layout),
+        _ => Err(CompileError::new("instruction is not a conditional branch", crate::error::Span::default())),
+    }
+}
+
+fn encode_instruction(
+    out: &mut Vec<u8>,
+    inst: &Instruction,
+    pc: u64,
+    parsed: &ParsedAssembly,
+    layout: &SectionLayout,
+    relaxed_branch: bool,
+) -> Result<()> {
     match inst {
         Instruction::Addi { rd, rs1, imm } => out.extend_from_slice(&encode_i_type(0x13, *rd, 0b000, *rs1, *imm)?.to_le_bytes()),
         Instruction::Add { rd, rs1, rs2 } => {
@@ -5273,12 +6370,22 @@ fn encode_instruction(out: &mut Vec<u8>, inst: &Instruction, pc: u64, parsed: &P
         }
         Instruction::Beqz { rs, label } => {
             let target = parsed.symbol_address(label, layout)?;
-            out.extend_from_slice(&encode_b_type(0x63, 0b000, *rs, 0, relative_offset(pc, target)?)?.to_le_bytes());
+            if relaxed_branch {
+                out.extend_from_slice(&encode_b_type(0x63, 0b001, *rs, 0, 8)?.to_le_bytes());
+                out.extend_from_slice(&encode_j_type(0x6f, 0, relative_offset(pc + 4, target)?)?.to_le_bytes());
+            } else {
+                out.extend_from_slice(&encode_b_type(0x63, 0b000, *rs, 0, relative_offset(pc, target)?)?.to_le_bytes());
+            }
         }
         Instruction::Bnez { rs, label } => {
             let target = parsed.symbol_address(label, layout)?;
-            // bnez rs, label = bne rs, x0, label (funct3=001, rs1=rs, rs2=x0)
-            out.extend_from_slice(&encode_b_type(0x63, 0b001, *rs, 0, relative_offset(pc, target)?)?.to_le_bytes());
+            if relaxed_branch {
+                out.extend_from_slice(&encode_b_type(0x63, 0b000, *rs, 0, 8)?.to_le_bytes());
+                out.extend_from_slice(&encode_j_type(0x6f, 0, relative_offset(pc + 4, target)?)?.to_le_bytes());
+            } else {
+                // bnez rs, label = bne rs, x0, label (funct3=001, rs1=rs, rs2=x0)
+                out.extend_from_slice(&encode_b_type(0x63, 0b001, *rs, 0, relative_offset(pc, target)?)?.to_le_bytes());
+            }
         }
         Instruction::Ret => out.extend_from_slice(&encode_i_type(0x67, 0, 0b000, 1, 0)?.to_le_bytes()),
         Instruction::Ecall => out.extend_from_slice(&encode_ecall().to_le_bytes()),
@@ -5320,12 +6427,17 @@ fn encode_call_sequence(out: &mut Vec<u8>, pc: u64, target: u64) -> Result<()> {
     Ok(())
 }
 
-fn op_size(op: &AsmOp, current_offset: usize) -> usize {
+fn op_size(op: &AsmOp, current_offset: usize, section: SectionKind, op_index: usize, branch_size_mode: BranchSizeMode<'_>) -> usize {
     match op {
-        AsmOp::Label => 0,
+        AsmOp::Label(_) => 0,
         AsmOp::Instruction(Instruction::Li { imm, .. }) => li_sequence_size(*imm),
         AsmOp::Instruction(Instruction::La { .. }) => 8,
         AsmOp::Instruction(Instruction::Call { .. }) => 8,
+        AsmOp::Instruction(Instruction::Beqz { .. } | Instruction::Bnez { .. }) => match branch_size_mode {
+            BranchSizeMode::Conservative => 8,
+            BranchSizeMode::Exact(relaxed) if section == SectionKind::Text && relaxed.contains(&op_index) => 8,
+            BranchSizeMode::Exact(_) => 4,
+        },
         AsmOp::Instruction(_) => 4,
         AsmOp::Word(_) => 4,
         AsmOp::Byte(_) => 1,
@@ -5571,15 +6683,19 @@ fn encode_ecall() -> u32 {
 }
 
 fn encode_signed_bits(value: i64, bits: u32) -> Result<u32> {
-    let min = -(1i64 << (bits - 1));
-    let max = (1i64 << (bits - 1)) - 1;
-    if value < min || value > max {
+    if !signed_bits_fit(value, bits) {
         return Err(CompileError::new(
             format!("immediate '{}' does not fit {}-bit signed field", value, bits),
             crate::error::Span::default(),
         ));
     }
     Ok((value as i32 as u32) & ((1u32 << bits) - 1))
+}
+
+fn signed_bits_fit(value: i64, bits: u32) -> bool {
+    let min = -(1i64 << (bits - 1));
+    let max = (1i64 << (bits - 1)) - 1;
+    value >= min && value <= max
 }
 
 fn split_hi_lo(value: i64) -> Result<(i64, i64)> {
@@ -5655,4 +6771,213 @@ fn padding_for(offset: usize, align: usize) -> usize {
 fn pad_to_alignment(out: &mut Vec<u8>, align: usize) {
     let pad = padding_for(out.len(), align);
     out.resize(out.len() + pad, 0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn internal_assembler_relaxes_out_of_range_conditional_branch() {
+        let mut lines = vec![
+            ".section .text".to_string(),
+            ".global entry".to_string(),
+            "entry:".to_string(),
+            "li a0, 0".to_string(),
+            "beqz a0, far_target".to_string(),
+        ];
+        for _ in 0..1500 {
+            lines.push("addi t0, t0, 0".to_string());
+        }
+        lines.push("far_target:".to_string());
+        lines.push("ret".to_string());
+
+        let elf = assemble_elf_internal(&lines).expect("internal assembler should relax long conditional branches");
+        assert!(elf.starts_with(b"\x7fELF"));
+    }
+
+    #[test]
+    fn machine_layout_plan_reports_branch_relaxation_metrics() {
+        let mut lines = vec![
+            ".section .text".to_string(),
+            ".global entry".to_string(),
+            "entry:".to_string(),
+            "li a0, 0".to_string(),
+            "beqz a0, far_target".to_string(),
+        ];
+        for _ in 0..1500 {
+            lines.push("addi t0, t0, 0".to_string());
+        }
+        lines.push("far_target:".to_string());
+        lines.push("ret".to_string());
+
+        let plan = MachineLayoutPlan::build(&lines).expect("machine layout plan");
+        assert_eq!(plan.metrics.relaxed_branch_count, 1);
+        assert!(
+            plan.metrics.max_cond_branch_abs_distance > 4096,
+            "synthetic branch should exceed RV64 B-type range: {:?}",
+            plan.metrics
+        );
+        assert_eq!(plan.metrics.text_size, plan.parsed.section_size(SectionKind::Text));
+        assert_eq!(plan.metrics.covered_text_op_count, plan.metrics.executable_text_op_count);
+        assert!(plan.metrics.executable_text_op_count > 1500, "synthetic text ops should be visible: {:?}", plan.metrics);
+        assert_eq!(plan.metrics.layout_order_block_count, plan.metrics.machine_block_count);
+        assert_eq!(plan.metrics.layout_order_text_size, plan.metrics.text_size);
+        assert_eq!(plan.metrics.conditional_branch_block_count, 1);
+        assert!(plan.metrics.machine_cfg_edge_count >= 2, "far branch CFG edges should be visible: {:?}", plan.metrics);
+        assert_eq!(plan.metrics.unreachable_machine_block_count, 0);
+        assert!(plan.metrics.machine_block_count >= 2, "far branch should produce multiple machine blocks: {:?}", plan.metrics);
+        assert!(
+            plan.metrics.max_machine_block_size > 4096,
+            "large fallthrough block should be visible in layout metrics: {:?}",
+            plan.metrics
+        );
+    }
+
+    #[test]
+    fn machine_layout_plan_builds_explicit_machine_blocks() {
+        let lines = vec![
+            ".section .text".to_string(),
+            ".global entry".to_string(),
+            "entry:".to_string(),
+            "li a0, 0".to_string(),
+            "beqz a0, done".to_string(),
+            "li a0, 1".to_string(),
+            "j done".to_string(),
+            "done:".to_string(),
+            "ret".to_string(),
+        ];
+
+        let plan = MachineLayoutPlan::build(&lines).expect("machine layout plan");
+        let cfg = &plan.cfg;
+        let blocks = &cfg.blocks;
+        assert_eq!(blocks.len(), 3, "expected entry, fallthrough, and done blocks: {:?}", blocks);
+        assert_eq!(blocks[0].label.as_deref(), Some("entry"));
+        assert_eq!(blocks[0].terminator, MachineTerminator::ConditionalBranch { target: "done".to_string() });
+        assert_eq!(blocks[1].terminator, MachineTerminator::Jump { target: "done".to_string() });
+        assert_eq!(blocks[2].label.as_deref(), Some("done"));
+        assert_eq!(blocks[2].terminator, MachineTerminator::Return);
+
+        assert_eq!(cfg.blocks.len(), 3);
+        assert_eq!(plan.order.block_order, vec![0, 1, 2]);
+        assert_eq!(plan.order.placed_blocks.len(), 3);
+        assert_eq!(
+            plan.order.placed_blocks,
+            vec![
+                MachinePlacedBlock { block_index: 0, byte_start: 0, byte_size: cfg.blocks[0].byte_size },
+                MachinePlacedBlock { block_index: 1, byte_start: cfg.blocks[0].byte_size, byte_size: cfg.blocks[1].byte_size },
+                MachinePlacedBlock {
+                    block_index: 2,
+                    byte_start: cfg.blocks[0].byte_size + cfg.blocks[1].byte_size,
+                    byte_size: cfg.blocks[2].byte_size
+                },
+            ]
+        );
+        assert_eq!(plan.order.text_size, plan.metrics.text_size);
+        assert_eq!(plan.metrics.executable_text_op_count, 5);
+        assert_eq!(plan.metrics.covered_text_op_count, 5);
+        assert_eq!(plan.metrics.layout_order_block_count, 3);
+        assert_eq!(
+            cfg.edges,
+            vec![
+                MachineCfgEdge { from: 0, to: 2, kind: MachineCfgEdgeKind::ConditionalTaken },
+                MachineCfgEdge { from: 0, to: 1, kind: MachineCfgEdgeKind::ConditionalFallthrough },
+                MachineCfgEdge { from: 1, to: 2, kind: MachineCfgEdgeKind::Jump },
+            ]
+        );
+        assert_eq!(unreachable_machine_block_count(&plan.parsed, cfg), 0);
+    }
+
+    #[test]
+    fn machine_layout_order_rejects_missing_duplicate_or_unknown_blocks() {
+        let lines = vec![
+            ".section .text".to_string(),
+            ".global entry".to_string(),
+            "entry:".to_string(),
+            "li a0, 0".to_string(),
+            "beqz a0, done".to_string(),
+            "li a0, 1".to_string(),
+            "j done".to_string(),
+            "done:".to_string(),
+            "ret".to_string(),
+        ];
+
+        let plan = MachineLayoutPlan::build(&lines).expect("machine layout plan");
+        assert!(validate_machine_layout_order(&plan.cfg, &[0, 1]).is_err());
+        assert!(validate_machine_layout_order(&plan.cfg, &[0, 1, 1]).is_err());
+        assert!(validate_machine_layout_order(&plan.cfg, &[0, 1, 3]).is_err());
+        let permuted = build_machine_layout_order(&plan.cfg, vec![2, 0, 1]).expect("permuted layout order should be valid");
+        assert_eq!(permuted.block_order, vec![2, 0, 1]);
+        assert_eq!(permuted.placed_blocks[0].block_index, 2);
+        assert_eq!(permuted.placed_blocks[0].byte_start, 0);
+        assert_eq!(permuted.placed_blocks[1].byte_start, plan.cfg.blocks[2].byte_size);
+        assert_eq!(permuted.text_size, plan.order.text_size);
+    }
+
+    #[test]
+    fn machine_layout_plan_rejects_branch_target_outside_text() {
+        let lines = vec![
+            ".section .text".to_string(),
+            ".global entry".to_string(),
+            "entry:".to_string(),
+            "li a0, 0".to_string(),
+            "beqz a0, data_label".to_string(),
+            "ret".to_string(),
+            ".section .rodata".to_string(),
+            "data_label:".to_string(),
+            ".word 1".to_string(),
+        ];
+
+        let err = MachineLayoutPlan::build(&lines).expect_err("branch targets outside text blocks should be rejected");
+        assert!(err.message.contains("does not start a machine block"), "unexpected error for invalid CFG target: {}", err.message);
+    }
+
+    #[test]
+    fn generated_functions_use_shared_epilogue_tail() {
+        let ir = IrModule {
+            name: "shape_test".to_string(),
+            items: vec![IrItem::Action(IrAction {
+                name: "shape".to_string(),
+                params: vec![],
+                return_type: Some(IrType::U64),
+                effect_class: EffectClass::Pure,
+                scheduler_hints: SchedulerHints::default(),
+                body: IrBody {
+                    consume_set: vec![],
+                    read_refs: vec![],
+                    create_set: vec![],
+                    mutate_set: vec![],
+                    write_intents: vec![],
+                    blocks: vec![IrBlock {
+                        id: BlockId(0),
+                        instructions: vec![],
+                        terminator: IrTerminator::Return(Some(IrOperand::Const(IrConst::U64(7)))),
+                    }],
+                },
+            })],
+            external_type_defs: vec![],
+            external_callable_abis: vec![],
+            enum_fixed_sizes: HashMap::new(),
+        };
+        let assembly = CodeGenerator::new(CodegenOptions::default()).generate(&ir, ArtifactFormat::RiscvAssembly).unwrap();
+        let assembly = String::from_utf8(assembly).unwrap();
+        let shape_start = assembly.find("shape:\n").expect("shape function label");
+        let runtime_start =
+            assembly[shape_start..].find(".section .text").map(|offset| shape_start + offset).unwrap_or(assembly.len());
+        let shape_assembly = &assembly[shape_start..runtime_start];
+
+        assert!(shape_assembly.contains("j .Lshape_epilogue"), "return sites should jump to the shared epilogue:\n{}", shape_assembly);
+        assert_eq!(
+            shape_assembly.matches(".Lshape_epilogue:").count(),
+            1,
+            "a function should emit one shared epilogue label:\n{}",
+            shape_assembly
+        );
+        assert_eq!(
+            shape_assembly.matches("ret").count(),
+            1,
+            "a function should emit one physical return in its shared epilogue:\n{}",
+            shape_assembly
+        );
+    }
 }

@@ -11,6 +11,7 @@ pub struct IrModule {
     pub items: Vec<IrItem>,
     pub external_type_defs: Vec<IrTypeDef>,
     pub external_callable_abis: Vec<IrCallableAbi>,
+    pub enum_fixed_sizes: HashMap<String, usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -186,6 +187,7 @@ pub struct MutateFieldTransition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MutateTransitionOp {
+    Set,
     Add,
     Sub,
 }
@@ -324,6 +326,7 @@ impl IrGenerator {
                 items: Vec::new(),
                 external_type_defs: Vec::new(),
                 external_callable_abis: Vec::new(),
+                enum_fixed_sizes: HashMap::new(),
             },
             var_counter: 0,
             block_counter: 0,
@@ -408,6 +411,9 @@ impl IrGenerator {
                         e.name.clone(),
                         e.variants.iter().enumerate().map(|(index, variant)| (variant.name.clone(), index as u64)).collect(),
                     );
+                    if e.variants.iter().all(|variant| variant.fields.is_empty()) && e.variants.len() <= u8::MAX as usize + 1 {
+                        self.module.enum_fixed_sizes.insert(e.name.clone(), 1);
+                    }
                 }
                 Item::Action(action) => {
                     let return_type = action.return_type.as_ref().map(ast_type_to_ir);
@@ -642,6 +648,9 @@ impl IrGenerator {
             IrType::Unit => Some(0),
             IrType::Named(name) => {
                 let base_name = name.split('<').next().unwrap_or(name.as_str());
+                if let Some(size) = self.module.enum_fixed_sizes.get(base_name).copied() {
+                    return Some(size);
+                }
                 if !seen.insert(base_name.to_string()) {
                     return None;
                 }
@@ -2531,7 +2540,7 @@ impl IrGenerator {
                         _ => return None,
                     }
                 }
-                _ => return None,
+                _ => (MutateTransitionOp::Set, self.transition_operand_from_expr(value_expr, vars)?),
             },
         };
         Some(MutateFieldTransition { field: target_field.to_string(), op, operand })

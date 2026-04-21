@@ -54,7 +54,7 @@ schema migration system.
 | `consume` and direct input data loading | V1-complete | Operation-tagged consumed input metadata and checked input data-load components exist for covered shapes. |
 | `create` and output field verification | V1-bounded | Fixed scalar and schema-backed fixed-byte output verification is covered; unsupported lock/field shapes fail closed or expose stable blocker classes. |
 | `transfer` | V1-bounded | Capability checks, operation provenance, supported output field preservation, destination lock/address binding, and blocker classes exist. General multi-cell conservation and unsupported output relations remain bounded. |
-| `destroy` | V1-bounded | Named cell-backed destroy can check grouped-output absence for covered shapes. Broader burn policy remains outside full semantic closure. |
+| `destroy` | V1-bounded | Named cell-backed destroy can check transaction Output TypeHash absence against the consumed Input's real CKB TypeHash for covered shapes. Broader burn policy remains outside full semantic closure. |
 | `claim` | V1-bounded | Supported receipt claim output relation, witness envelope/domain checks, explicit signer-field ECDSA checks, and checked source predicates are covered. Generalized authorization remains runtime-required when unsupported. |
 | `settle` | V1-bounded | Supported settle output relation and lifecycle final-state checks are covered. Non-lifecycle/general finalization policy remains runtime-required/post-v1. |
 | Lifecycle annotations | V1-bounded | Declaration checks, metadata, static create/reset checks, and fixed-scalar transition checks are covered. Arbitrary lifecycle formulas are not complete. |

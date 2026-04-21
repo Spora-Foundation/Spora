@@ -533,7 +533,8 @@ scripts/ckb_cellscript_acceptance.sh
 - 使用 `../ckb/test/template` 复制出临时 CKB integration devnet；该模板是 Dummy PoW、本地测试链，开启 `IntegrationTest` RPC，并带 always-success system cell。
 - 如果 `CKB_BIN` 未指定且 `../ckb/target/debug/ckb` 不存在，脚本会在父目录执行 `cargo build --bin ckb`。
 - 编译一个纯 no-arg CellScript baseline，以及固定 7 个 bundled examples：`amm_pool.cell`、`launch.cell`、`multisig.cell`、`nft.cell`、`timelock.cell`、`token.cell`、`vesting.cell`。
-- bundled examples 的通用链上 spend 使用 acceptance-only smoke entry，因为 strict business artifact 需要 action-specific witness、Input cell data、Output cell data 和依赖 wiring。smoke 路径会复制完整 examples 目录并追加 `action main() -> u64 { 0 }`，同时设置 `CELLSCRIPT_CKB_ACCEPTANCE_SMOKE_ALLOW_UNPORTABLE_EXAMPLES=1`。编译器只在 env 值精确为 `1`、target profile 是 `ckb`、且模块存在 no-arg `main() -> u64` 时接受该 bypass。这只证明 artifact packaging、CKB-VM 入口、code-cell dep resolution 和 lock-script invocation；原始业务 action 的 strict CKB lowering/sidecar verification 仍单独记录。
+- bundled examples 的通用链上 spend 使用 acceptance-only smoke entry，因为大多数 strict business artifact 仍需要 action-specific witness、Input cell data、Output cell data 和依赖 wiring。smoke 路径会复制完整 examples 目录并追加 `action main() -> u64 { 0 }`，同时设置 `CELLSCRIPT_CKB_ACCEPTANCE_SMOKE_ALLOW_UNPORTABLE_EXAMPLES=1`。编译器只在 env 值精确为 `1`、target profile 是 `ckb`、且模块存在 no-arg `main() -> u64` 时接受该 bypass。这只证明 artifact packaging、CKB-VM 入口、code-cell dep resolution 和 lock-script invocation；原始业务 action 的 strict CKB lowering/sidecar verification 仍单独记录。
+- `token.cell` 已升级为 action-specific CKB on-chain harness：脚本为 `mint`、`transfer_token`、`burn`、`merge` 分别生成 strict CKB artifact，部署真实 code cell，构造 `CSARGv1\0` witness、typed input cell data、typed output cell data、type/dependency wiring，并提交 valid transaction；每个 action 还构造 malformed transaction，必须被脚本逻辑拒绝。
 - 调用 `cellc verify-artifact --expect-target-profile ckb` 校验每个 sidecar。
 - 硬校验每个 artifact 是 ELF，且没有 Spora `SPORABI` trailer。
 - 启动真实 CKB 节点，通过 JSON-RPC `generate_block` 出块，使用 CKB `send_test_transaction` 构造三段链上流程：
@@ -565,7 +566,7 @@ compile-only 模式不要求父目录存在 CKB checkout，也不会解析或构
 边界：
 
 - 这是 CKB 本地 integration devnet 验收，不是 mainnet/testnet 兼容声明。
-- 当前证明 v1 pure baseline 和 bundled example smoke artifact 能被真实 CKB 节点加载、作为 code cell 依赖、执行并花费；strict-admitted bundled examples 另行证明 strict original CKB compile + sidecar verification。复杂 stateful CellScript 业务合约的原始 action 链上执行仍以 fail-closed/post-v1 builder 范围管理。
+- 当前证明 v1 pure baseline 和 bundled example smoke artifact 能被真实 CKB 节点加载、作为 code cell 依赖、执行并花费；strict-admitted bundled examples 另行证明 strict original CKB compile + sidecar verification。`token.cell` 的 `mint`、`transfer_token`、`burn`、`merge` 已有真实 CKB action transaction harness；其余复杂 stateful CellScript 业务合约的原始 action 链上执行仍以 fail-closed/post-v1 builder 范围管理。
 - 该脚本只修改 Spora `target/` 临时目录，不修改父目录 CKB 仓库；父目录只用于读取模板和构建/运行 `ckb`。
 - 该验收不能替代 Spora profile 验收；每次修复 CKB 路径后仍需跑 Spora `cellscript`/smoke 回归，确保双 profile 没有互相污染。
 
@@ -591,7 +592,7 @@ compile-only 模式不要求父目录存在 CKB checkout，也不会解析或构
 
 2026-04-21 收口：
 
-- `scripts/cellscript_phase4_release_gate.sh quick/full/v1` 已接入 `scripts/ckb_cellscript_acceptance.sh --compile-only`。CI/release gate 现在会检查 CKB-profile ELF、sidecar target profile、无 `SPORABI` trailer；但不会要求 CI runner 旁边有父目录 CKB checkout。
+- `scripts/cellscript_phase4_release_gate.sh quick/full/v1` 已接入 `scripts/ckb_cellscript_acceptance.sh --compile-only`。CI/release gate 现在会检查 CKB-profile ELF、sidecar target profile、无 `SPORABI` trailer；但不会要求 CI runner 旁边有父目录 CKB checkout。脚本现在从 Cargo JSON artifact 读取真实 `cellc` executable，避免因 target-dir、并发构建或路径猜测导致假阴性。
 - `.github/workflows/cellscript-v1.yml` 已把 `scripts/ckb_cellscript_acceptance.sh` 和本计划文档加入触发路径。
 - `scripts/cellscript_phase4_release_gate.sh quick` 通过。
 - `scripts/cellscript_phase4_release_gate.sh v1` 通过。
@@ -602,7 +603,13 @@ compile-only 模式不要求父目录存在 CKB checkout，也不会解析或构
 - 扩展到全部 bundled examples 并硬化 strict-original 边界后，`scripts/ckb_cellscript_acceptance.sh` 完整链上模式通过，报告为 `/Users/arthur/RustroverProjects/Spora/target/ckb-cellscript-acceptance/20260421-115555-16636/ckb-cellscript-acceptance-report.json`。该报告中 8 个 artifact 均完成 code-cell deploy、locked probe create、malformed missing-dep dry-run reject、valid spend dry-run、actual spend commit；7 个 bundled examples 均出现在 `onchain.bundled_examples_deployed_and_spent`。
 - strict original example 编译边界已经硬化：报告必须给出 `strict_original_ckb_compile_policy_fail_closed`，并保持 `strict_original_ckb_compile_unexpected_failures = []`。这保证原始复杂业务 action 暂未进入 CKB v1 admitted subset 时只能按 target-profile policy fail-closed，不能因为 import/backend/codegen/panic 类非预期错误被 smoke artifact 路径掩盖。
 - 本轮 CKB example matrix 暴露并修复了真实问题：CKB GroupInput 64-bit source 常量需要内置 assembler 支持 64-bit `li`；ELF `_start` 必须通过 `_cellscript_entry` tail-call 选择 no-arg `main`，不能误执行第一个带参业务 action；跨 example helper 调用必须生成 fail-closed unresolved-call stub，避免 `launch.cell` 因外部 linker undefined symbol 落入内置 assembler 异常路径；内置 ELF assembler 的 LOAD segment 布局改为 CKB/GNU linker 风格。以上修复不改变 Spora profile 的 syscall、hash、scheduler witness 或 `SPORABI` packaging。
-- 后续 strict-admission 收口：`token.cell` 的 strict original artifact 已不再被 CKB profile policy 拒绝，报告会把它列入 `bundled_examples_strict_admitted` 并校验 strict sidecar。通用 CKB on-chain spend 仍使用 smoke artifact；原始 `token.cell` business action 的链上执行需要下一步 action-specific witness/input/output harness。修复点是 resource conservation classifier 现在能识别 `amount` 求和合并加固定 identity 字段复制，并要求 source 中有显式 equality guard，例如 `a.symbol == b.symbol`；没有 equality guard 的多字段资源合并仍保持 `runtime-required` 并被 CKB profile 拒绝。
+- 后续 strict-admission 收口：`token.cell` 的 strict original artifact 已不再被 CKB profile policy 拒绝，报告会把它列入 `bundled_examples_strict_admitted` 并校验 strict sidecar。`token.cell` business action 的链上执行已由 action-specific CKB harness 覆盖 `mint`、`transfer_token`、`burn`、`merge`。修复点包括 resource conservation classifier 能识别 `amount` 求和合并加固定 identity 字段复制，并要求 source 中有显式 equality guard，例如 `a.symbol == b.symbol`；没有 equality guard 的多字段资源合并仍保持 `runtime-required` 并被 CKB profile 拒绝。
+
+2026-04-21 action-specific CKB harness 暴露并修复：
+
+- `&mut` schema 参数的 prelude 只验证 mutate input/output，没有把参数绑定到 loaded Input cell data，导致后续字段访问仍使用 null entry ABI length；现已在 mutate prelude 中重绑真实 input data。
+- `destroy` 操作没有进入 consumed schema pointer binding，`burn(token)` 中的 `token.amount` 会读取 null ABI length；现已把 `Destroy` 纳入 consumed operand 绑定。
+- destroy absence scan 使用静态 CellScript type hash 且 syscall loop 结束后保留 `INDEX_OUT_OF_BOUND` 返回码；现已改为读取 consumed Input 的真实 CKB TypeHash，扫描 transaction Outputs，并在成功结束时清零返回码。
 
 ## 11. CellScript 合约部署和使用验收
 
@@ -698,7 +705,7 @@ v1 当前状态：
 
 - `nft_core_actions_expose_action_specific_builder_metadata` 覆盖 `mint` 创建 `NFT` 并 mutate `Collection.total_supply`、`transfer` mutate `NFT.owner`、`burn` destroy `NFT`。
 - 测试断言对应 runtime requirements：create-output fields、mutable-cell transition、destroy input data、destroy output absence。
-- 完整 NFT mint/transfer/burn on-chain 成功交易构造仍依赖 post-v1 action transaction/witness builder。
+- CKB acceptance 已补充 fixed-width NFT `transfer` / `burn` 的 action-specific on-chain harness：真实部署 strict CKB artifact，构造 NFT cell data、witness、Input/Output、CellDep，成功路径必须 commit，malformed owner / recreated TypeHash 必须被脚本拒绝。`mint` 仍依赖 `Collection` 的动态 `String` 字段和完整 action transaction/witness builder，保留 post-v1。
 
 ### 11.4 Timelock 合约
 
@@ -1145,7 +1152,7 @@ scripts/devnet_acceptance.sh --profile cellscript --keep-artifacts
 7. 已完成：新增 CellScript compile/deploy/use helper，并在 smoke 中覆盖 no-op Spora ELF 部署和真实 VM spend。
 8. 已完成：新增 `spora-devnet-probe`，external-boot 会真实验证 gRPC、wRPC Borsh、wRPC JSON、prealloc cellindex 和模板块提交。
 9. 已完成：relaxed mass policy 接入 `--relaynonstd` / `--blockmaxmass=100000000`，显式 opt-in 适用于所有网络，smoke 覆盖全部 bundled examples 的真实 code-cell 部署和 malformed spend 负例。
-10. 已完成 v1 范围：接入 `token.cell` mint/transfer/burn/merge，以及 nft/timelock/vesting/multisig 的 action-specific metadata/runtime input requirement 验收；完整 on-chain economic action builder 保留 post-v1。
+10. 已完成 v1 范围：接入 `token.cell` mint/transfer/burn/merge 的真实 CKB action harness，接入 fixed-width `nft.cell` transfer/burn 的真实 CKB action harness，接入 fixed-width `timelock.cell` extend_lock 的真实 CKB action harness，以及 nft/timelock/vesting/multisig 的 action-specific metadata/runtime input requirement 验收；动态集合、动态字符串和完整 on-chain economic action builder 保留 post-v1。
 11. 已完成：`scripts/devnet_acceptance.sh --profile cellscript` 已覆盖 package manager init/check/build/info/add/remove/install/local dependency，并已汇总进 full profile JSON 报告。
 12. 已完成：full profile 接入两节点传播验收，smoke 接入 scheduler tamper 负例；scheduler conflict policy 继续由 consensus/mining release-gate 单测覆盖。
 13. 已完成：新增 `Spora Devnet Acceptance` CI workflow，PR/push 跑 smoke，nightly/manual release 跑 full。

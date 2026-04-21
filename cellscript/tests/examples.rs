@@ -1,11 +1,214 @@
 use camino::Utf8PathBuf;
-use cellscript::{compile_file, ArtifactFormat, CompileOptions, PoolPrimitiveMetadata};
+use cellscript::{
+    codegen::{analyze_backend_shape, BackendShapeMetrics},
+    compile_file, ArtifactFormat, CompileOptions, PoolPrimitiveMetadata,
+};
 
 const BUNDLED_EXAMPLES: [&str; 7] =
     ["amm_pool.cell", "launch.cell", "multisig.cell", "nft.cell", "timelock.cell", "token.cell", "vesting.cell"];
 
+const BUNDLED_EXAMPLE_ELF_SIZE_BUDGETS: [(&str, usize); 7] = [
+    ("amm_pool.cell", 56 * 1024),
+    ("launch.cell", 48 * 1024),
+    ("multisig.cell", 40 * 1024),
+    ("nft.cell", 64 * 1024),
+    ("timelock.cell", 40 * 1024),
+    ("token.cell", 24 * 1024),
+    ("vesting.cell", 36 * 1024),
+];
+
+const BUNDLED_EXAMPLE_ASM_SHAPE_BUDGETS: [(&str, AssemblyShapeBudget); 7] = [
+    (
+        "amm_pool.cell",
+        AssemblyShapeBudget {
+            max_lines: 9_000,
+            max_fail_handlers: 32,
+            max_shared_epilogues: 8,
+            max_text_bytes: 56 * 1024,
+            max_relaxed_branches: 128,
+            max_cond_branch_abs_distance: 1024 * 1024,
+            max_machine_blocks: 9_000,
+            max_machine_block_bytes: 16 * 1024,
+            max_cfg_edges: 18_000,
+            max_unreachable_machine_blocks: 512,
+        },
+    ),
+    (
+        "launch.cell",
+        AssemblyShapeBudget {
+            max_lines: 5_000,
+            max_fail_handlers: 16,
+            max_shared_epilogues: 4,
+            max_text_bytes: 48 * 1024,
+            max_relaxed_branches: 128,
+            max_cond_branch_abs_distance: 1024 * 1024,
+            max_machine_blocks: 5_000,
+            max_machine_block_bytes: 16 * 1024,
+            max_cfg_edges: 10_000,
+            max_unreachable_machine_blocks: 512,
+        },
+    ),
+    (
+        "multisig.cell",
+        AssemblyShapeBudget {
+            max_lines: 7_800,
+            max_fail_handlers: 64,
+            max_shared_epilogues: 20,
+            max_text_bytes: 40 * 1024,
+            max_relaxed_branches: 128,
+            max_cond_branch_abs_distance: 1024 * 1024,
+            max_machine_blocks: 7_800,
+            max_machine_block_bytes: 16 * 1024,
+            max_cfg_edges: 15_600,
+            max_unreachable_machine_blocks: 512,
+        },
+    ),
+    (
+        "nft.cell",
+        AssemblyShapeBudget {
+            max_lines: 10_000,
+            max_fail_handlers: 64,
+            max_shared_epilogues: 18,
+            max_text_bytes: 64 * 1024,
+            max_relaxed_branches: 128,
+            max_cond_branch_abs_distance: 1024 * 1024,
+            max_machine_blocks: 10_000,
+            max_machine_block_bytes: 16 * 1024,
+            max_cfg_edges: 20_000,
+            max_unreachable_machine_blocks: 512,
+        },
+    ),
+    (
+        "timelock.cell",
+        AssemblyShapeBudget {
+            max_lines: 7_000,
+            max_fail_handlers: 60,
+            max_shared_epilogues: 22,
+            max_text_bytes: 40 * 1024,
+            max_relaxed_branches: 128,
+            max_cond_branch_abs_distance: 1024 * 1024,
+            max_machine_blocks: 7_000,
+            max_machine_block_bytes: 16 * 1024,
+            max_cfg_edges: 14_000,
+            max_unreachable_machine_blocks: 512,
+        },
+    ),
+    (
+        "token.cell",
+        AssemblyShapeBudget {
+            max_lines: 2_800,
+            max_fail_handlers: 24,
+            max_shared_epilogues: 6,
+            max_text_bytes: 24 * 1024,
+            max_relaxed_branches: 64,
+            max_cond_branch_abs_distance: 1024 * 1024,
+            max_machine_blocks: 2_800,
+            max_machine_block_bytes: 8 * 1024,
+            max_cfg_edges: 5_600,
+            max_unreachable_machine_blocks: 512,
+        },
+    ),
+    (
+        "vesting.cell",
+        AssemblyShapeBudget {
+            max_lines: 4_400,
+            max_fail_handlers: 28,
+            max_shared_epilogues: 6,
+            max_text_bytes: 36 * 1024,
+            max_relaxed_branches: 64,
+            max_cond_branch_abs_distance: 1024 * 1024,
+            max_machine_blocks: 4_400,
+            max_machine_block_bytes: 8 * 1024,
+            max_cfg_edges: 8_800,
+            max_unreachable_machine_blocks: 512,
+        },
+    ),
+];
+
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+struct AssemblyShapeBudget {
+    max_lines: usize,
+    max_fail_handlers: usize,
+    max_shared_epilogues: usize,
+    max_text_bytes: usize,
+    max_relaxed_branches: usize,
+    max_cond_branch_abs_distance: u64,
+    max_machine_blocks: usize,
+    max_machine_block_bytes: usize,
+    max_cfg_edges: usize,
+    max_unreachable_machine_blocks: usize,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct BackendShapeReportRow {
+    example: &'static str,
+    line_count: usize,
+    fail_handlers: usize,
+    shared_epilogues: usize,
+    fixed_byte_compare_helpers: usize,
+    fixed_byte_zero_helpers: usize,
+    min_size_guard_helpers: usize,
+    exact_size_guard_helpers: usize,
+    leaked_assembler_overflow_diagnostic: bool,
+    budget: AssemblyShapeBudget,
+    metrics: BackendShapeMetrics,
+}
+
 fn example_path(name: &str) -> Utf8PathBuf {
     Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples").join(name)
+}
+
+fn bundled_example_elf_size_budget(name: &str) -> usize {
+    BUNDLED_EXAMPLE_ELF_SIZE_BUDGETS
+        .iter()
+        .find_map(|(example, budget)| (*example == name).then_some(*budget))
+        .expect("missing bundled example ELF size budget")
+}
+
+fn bundled_example_asm_shape_budget(name: &str) -> AssemblyShapeBudget {
+    BUNDLED_EXAMPLE_ASM_SHAPE_BUDGETS
+        .iter()
+        .find_map(|(example, budget)| (*example == name).then_some(*budget))
+        .expect("missing bundled example assembly shape budget")
+}
+
+fn count_lines_containing(assembly: &str, needle: &str) -> usize {
+    assembly.lines().filter(|line| line.contains(needle)).count()
+}
+
+fn count_lines_with_prefix_and_contains(assembly: &str, prefix: &str, needle: &str) -> usize {
+    assembly.lines().filter(|line| line.starts_with(prefix) && line.contains(needle)).count()
+}
+
+fn bundled_example_backend_shape_report_rows() -> Vec<BackendShapeReportRow> {
+    BUNDLED_EXAMPLES
+        .into_iter()
+        .map(|example| {
+            let result = compile_file(
+                example_path(example),
+                CompileOptions { target: Some("riscv64-asm".to_string()), ..CompileOptions::default() },
+            )
+            .unwrap_or_else(|e| panic!("{} should compile to assembly: {}", example, e.message));
+            let assembly = std::str::from_utf8(&result.artifact_bytes)
+                .unwrap_or_else(|e| panic!("{} emitted invalid utf-8 assembly: {}", example, e));
+            let metrics =
+                analyze_backend_shape(assembly).unwrap_or_else(|e| panic!("{} backend shape analysis failed: {}", example, e));
+
+            BackendShapeReportRow {
+                example,
+                line_count: assembly.lines().count(),
+                fail_handlers: count_lines_with_prefix_and_contains(assembly, ".L", "_fail_"),
+                shared_epilogues: count_lines_with_prefix_and_contains(assembly, ".L", "_epilogue:"),
+                fixed_byte_compare_helpers: count_lines_containing(assembly, "__cellscript_memcmp_fixed:"),
+                fixed_byte_zero_helpers: count_lines_containing(assembly, "__cellscript_memzero_fixed:"),
+                min_size_guard_helpers: count_lines_containing(assembly, "__cellscript_require_min_size:"),
+                exact_size_guard_helpers: count_lines_containing(assembly, "__cellscript_require_exact_size:"),
+                leaked_assembler_overflow_diagnostic: assembly.contains("immediate '"),
+                budget: bundled_example_asm_shape_budget(example),
+                metrics,
+            }
+        })
+        .collect()
 }
 
 #[allow(dead_code)]
@@ -258,6 +461,20 @@ fn assert_runtime_requirement(action: &cellscript::ActionMetadata, feature: &str
     );
 }
 
+fn assert_no_runtime_requirement(action: &cellscript::ActionMetadata, feature: &str, component: &str, context: &str) {
+    assert!(
+        !action
+            .transaction_runtime_input_requirements
+            .iter()
+            .any(|requirement| { requirement.feature == feature && requirement.component == component }),
+        "{} should not expose {} runtime requirement for {}: {:?}",
+        context,
+        component,
+        feature,
+        action.transaction_runtime_input_requirements
+    );
+}
+
 #[test]
 fn bundled_examples_compile_to_non_empty_assembly() {
     for example in BUNDLED_EXAMPLES {
@@ -293,6 +510,142 @@ fn bundled_examples_compile_to_elf() {
         .unwrap_or_else(|e| panic!("{} should compile to ELF: {}", example, e.message));
 
         assert!(!result.artifact_bytes.is_empty(), "ELF artifact for {} should be non-empty", example);
+        assert!(
+            result.artifact_bytes.len() <= bundled_example_elf_size_budget(example),
+            "ELF artifact for {} grew past its backend shape budget: {} > {} bytes",
+            example,
+            result.artifact_bytes.len(),
+            bundled_example_elf_size_budget(example)
+        );
+    }
+}
+
+#[test]
+fn bundled_examples_stay_within_backend_shape_budgets() {
+    for row in bundled_example_backend_shape_report_rows() {
+        let example = row.example;
+        let budget = row.budget;
+        let backend_shape = row.metrics;
+
+        assert!(
+            row.line_count <= budget.max_lines,
+            "{} assembly grew past its backend shape budget: {} > {} lines",
+            example,
+            row.line_count,
+            budget.max_lines
+        );
+        assert!(
+            row.fail_handlers <= budget.max_fail_handlers,
+            "{} emitted too many shared fail handlers: {} > {}",
+            example,
+            row.fail_handlers,
+            budget.max_fail_handlers
+        );
+        assert!(
+            row.shared_epilogues <= budget.max_shared_epilogues,
+            "{} emitted too many shared epilogues: {} > {}",
+            example,
+            row.shared_epilogues,
+            budget.max_shared_epilogues
+        );
+        assert_eq!(
+            backend_shape.covered_text_op_count, backend_shape.executable_text_op_count,
+            "{} machine-block coverage should cover every executable text op exactly once: {:?}",
+            example, backend_shape
+        );
+        assert_eq!(
+            backend_shape.layout_order_block_count, backend_shape.machine_block_count,
+            "{} layout order should include every machine block: {:?}",
+            example, backend_shape
+        );
+        assert_eq!(
+            backend_shape.layout_order_text_size, backend_shape.text_size,
+            "{} planned layout size should match text size: {:?}",
+            example, backend_shape
+        );
+        assert!(
+            backend_shape.text_size <= budget.max_text_bytes,
+            "{} text section grew past its backend shape budget: {} > {} bytes ({:?})",
+            example,
+            backend_shape.text_size,
+            budget.max_text_bytes,
+            backend_shape
+        );
+        assert!(
+            backend_shape.relaxed_branch_count <= budget.max_relaxed_branches,
+            "{} emitted too many relaxed conditional branches: {} > {} ({:?})",
+            example,
+            backend_shape.relaxed_branch_count,
+            budget.max_relaxed_branches,
+            backend_shape
+        );
+        assert!(
+            backend_shape.max_cond_branch_abs_distance <= budget.max_cond_branch_abs_distance,
+            "{} conditional branch displacement grew past its backend budget: {} > {} ({:?})",
+            example,
+            backend_shape.max_cond_branch_abs_distance,
+            budget.max_cond_branch_abs_distance,
+            backend_shape
+        );
+        assert!(
+            backend_shape.machine_block_count <= budget.max_machine_blocks,
+            "{} machine block count grew past its backend shape budget: {} > {} ({:?})",
+            example,
+            backend_shape.machine_block_count,
+            budget.max_machine_blocks,
+            backend_shape
+        );
+        assert!(
+            backend_shape.max_machine_block_size <= budget.max_machine_block_bytes,
+            "{} machine block size grew past its backend shape budget: {} > {} bytes ({:?})",
+            example,
+            backend_shape.max_machine_block_size,
+            budget.max_machine_block_bytes,
+            backend_shape
+        );
+        assert!(
+            backend_shape.machine_cfg_edge_count <= budget.max_cfg_edges,
+            "{} CFG edge count grew past its backend shape budget: {} > {} ({:?})",
+            example,
+            backend_shape.machine_cfg_edge_count,
+            budget.max_cfg_edges,
+            backend_shape
+        );
+        assert!(
+            backend_shape.unreachable_machine_block_count <= budget.max_unreachable_machine_blocks,
+            "{} unreachable machine block count grew past its backend shape budget: {} > {} ({:?})",
+            example,
+            backend_shape.unreachable_machine_block_count,
+            budget.max_unreachable_machine_blocks,
+            backend_shape
+        );
+        assert_eq!(row.fixed_byte_compare_helpers, 1, "{} should emit one fixed-byte comparison helper", example);
+        assert_eq!(row.fixed_byte_zero_helpers, 1, "{} should emit one fixed-byte zero helper", example);
+        assert_eq!(row.min_size_guard_helpers, 1, "{} should emit one minimum-size guard helper", example);
+        assert_eq!(row.exact_size_guard_helpers, 1, "{} should emit one exact-size guard helper", example);
+        assert!(
+            !row.leaked_assembler_overflow_diagnostic,
+            "{} assembly should not contain a leaked assembler overflow diagnostic",
+            example
+        );
+    }
+}
+
+#[test]
+fn bundled_examples_backend_shape_report_serializes() {
+    let rows = bundled_example_backend_shape_report_rows();
+    assert_eq!(rows.len(), BUNDLED_EXAMPLES.len(), "backend shape report should cover every bundled example");
+    for (row, expected) in rows.iter().zip(BUNDLED_EXAMPLES) {
+        assert_eq!(row.example, expected, "backend shape report should preserve bundled example order");
+    }
+
+    let json = serde_json::to_string_pretty(&rows).expect("backend shape report should serialize to JSON");
+    assert!(json.contains("\"max_machine_block_bytes\""), "shape report should include machine-block size budgets");
+    assert!(json.contains("\"unreachable_machine_block_count\""), "shape report should include unreachable-block metrics");
+    assert!(json.contains("\"fixed_byte_compare_helpers\""), "shape report should include helper dedup metrics");
+
+    if let Ok(path) = std::env::var("CELLSCRIPT_BACKEND_SHAPE_REPORT") {
+        std::fs::write(&path, json).unwrap_or_else(|e| panic!("failed to write backend shape report to {}: {}", path, e));
     }
 }
 
@@ -568,6 +921,7 @@ fn token_mint_authority_mutation_is_explicit() {
 #[test]
 fn nft_core_actions_expose_action_specific_builder_metadata() {
     let result = compile_file(example_path("nft.cell"), CompileOptions::default()).expect("nft example should compile");
+    let asm = String::from_utf8(result.artifact_bytes.clone()).expect("nft asm should be utf8");
 
     let mint = action(&result.metadata, "mint");
     assert_eq!(mint.effect_class, "Creating");
@@ -576,13 +930,25 @@ fn nft_core_actions_expose_action_specific_builder_metadata() {
     assert_create(mint, "NFT", "nft mint");
     assert_mutate_field(mint, "Collection", "collection", "total_supply", "nft mint");
     assert_runtime_requirement(mint, "create-output:NFT:create_NFT", "checked-runtime", "create-output-fields", "nft mint");
-    assert_runtime_requirement(mint, "mutable-cell:Collection", "runtime-required", "mutate-field-transition", "nft mint");
+    assert_no_runtime_requirement(mint, "mutable-cell:Collection", "mutate-field-equality", "nft mint");
+    assert!(
+        asm.contains("# cellscript abi: verify mutate preserved data Collection Input#0 == Output#1 except transition ranges"),
+        "nft mint should verify dynamic Collection preserved data except total_supply transition:\n{}",
+        asm
+    );
 
     let transfer = action(&result.metadata, "transfer");
     assert_eq!(transfer.effect_class, "Mutating");
     assert!(transfer.fail_closed_runtime_features.is_empty(), "nft transfer should not carry fail-closed debt");
     assert_mutate_field(transfer, "NFT", "nft", "owner", "nft transfer");
-    assert_runtime_requirement(transfer, "mutable-cell:NFT", "runtime-required", "mutate-field-transition", "nft transfer");
+    assert!(
+        !transfer
+            .transaction_runtime_input_requirements
+            .iter()
+            .any(|requirement| { requirement.feature == "mutable-cell:NFT" && requirement.status == "runtime-required" }),
+        "nft transfer should have no remaining mutable-cell runtime-required debt: {:?}",
+        transfer.transaction_runtime_input_requirements
+    );
 
     let burn = action(&result.metadata, "burn");
     assert_eq!(burn.effect_class, "Destroying");
@@ -595,6 +961,7 @@ fn nft_core_actions_expose_action_specific_builder_metadata() {
 #[test]
 fn timelock_core_actions_expose_time_and_release_metadata() {
     let result = compile_file(example_path("timelock.cell"), CompileOptions::default()).expect("timelock example should compile");
+    let asm = String::from_utf8(result.artifact_bytes.clone()).expect("timelock asm should be utf8");
 
     let create_absolute_lock = action(&result.metadata, "create_absolute_lock");
     assert_eq!(create_absolute_lock.effect_class, "Creating");
@@ -602,9 +969,28 @@ fn timelock_core_actions_expose_time_and_release_metadata() {
     assert_runtime_requirement(
         create_absolute_lock,
         "create-output:TimeLock:create_TimeLock",
-        "runtime-required",
+        "checked-runtime",
         "create-output-fields",
         "timelock create_absolute_lock",
+    );
+    let create_relative_lock = action(&result.metadata, "create_relative_lock");
+    assert_create(create_relative_lock, "TimeLock", "timelock create_relative_lock");
+    assert_runtime_requirement(
+        create_relative_lock,
+        "create-output:TimeLock:create_TimeLock",
+        "checked-runtime",
+        "create-output-fields",
+        "timelock create_relative_lock",
+    );
+
+    let request_release = action(&result.metadata, "request_release");
+    assert_create(request_release, "ReleaseRequest", "timelock request_release");
+    assert_runtime_requirement(
+        request_release,
+        "create-output:ReleaseRequest:create_ReleaseRequest",
+        "checked-runtime",
+        "create-output-fields",
+        "timelock request_release",
     );
 
     let execute_release = action(&result.metadata, "execute_release");
@@ -641,22 +1027,39 @@ fn timelock_core_actions_expose_time_and_release_metadata() {
         "create-output-fields",
         "timelock execute_release",
     );
+    let execute_emergency_release = action(&result.metadata, "execute_emergency_release");
+    assert_create(execute_emergency_release, "ReleaseRecord", "timelock execute_emergency_release");
+    assert_runtime_requirement(
+        execute_emergency_release,
+        "create-output:ReleaseRecord:create_ReleaseRecord",
+        "checked-runtime",
+        "create-output-fields",
+        "timelock execute_emergency_release",
+    );
 
     let extend_lock = action(&result.metadata, "extend_lock");
     assert!(extend_lock.fail_closed_runtime_features.is_empty(), "extend_lock should not carry fail-closed debt");
     assert_mutate_field(extend_lock, "TimeLock", "time_lock", "unlock_height", "timelock extend_lock");
-    assert_runtime_requirement(
-        extend_lock,
-        "mutable-cell:TimeLock",
-        "runtime-required",
-        "mutate-field-transition",
-        "timelock extend_lock",
+    assert_no_runtime_requirement(extend_lock, "mutable-cell:TimeLock", "mutate-field-equality", "timelock extend_lock");
+    assert!(
+        asm.contains("# cellscript abi: verify mutate preserved fields TimeLock Input#0 == Output#0")
+            && asm.contains("# cellscript abi: verify mutate preserved field TimeLock.lock_type Input#0 == Output#0 offset=32 size=1")
+            && asm.contains("# cellscript abi: verify output field TimeLock set.unlock_height offset=33 size=8"),
+        "timelock extend_lock should verify fieldless enum preservation and unlock_height transition:\n{}",
+        asm
+    );
+    assert!(
+        !asm.contains("call can_unlock schema param time_lock has no tracked ABI length")
+            && !asm.contains("call hash_lock schema param time_lock has no tracked ABI length"),
+        "timelock helper calls should preserve schema pointer length through ref/deref aliases:\n{}",
+        asm
     );
 }
 
 #[test]
 fn multisig_core_actions_expose_threshold_lifecycle_metadata() {
     let result = compile_file(example_path("multisig.cell"), CompileOptions::default()).expect("multisig example should compile");
+    let asm = String::from_utf8(result.artifact_bytes.clone()).expect("multisig asm should be utf8");
 
     let create_wallet = action(&result.metadata, "create_wallet");
     assert_eq!(create_wallet.effect_class, "Creating");
@@ -680,12 +1083,16 @@ fn multisig_core_actions_expose_threshold_lifecycle_metadata() {
         "create-output-fields",
         "multisig propose_transfer",
     );
-    assert_runtime_requirement(
+    assert_no_runtime_requirement(
         propose_transfer,
         "mutable-cell:MultisigWallet",
-        "runtime-required",
-        "mutate-field-transition",
+        "mutate-field-equality",
         "multisig propose_transfer",
+    );
+    assert!(
+        asm.contains("# cellscript abi: verify mutate preserved data MultisigWallet Input#0 == Output#1 except transition ranges"),
+        "multisig propose_transfer should verify dynamic wallet preserved data except nonce transition:\n{}",
+        asm
     );
 
     let add_signature = action(&result.metadata, "add_signature");

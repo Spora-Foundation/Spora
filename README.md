@@ -24,11 +24,16 @@ interaction style. APIs and internal module boundaries may still change.
 - The CKB strict profile uses CKB syscall, source, hash, header, and Molecule rules.
 - Molecule is the shared VM/CellScript ABI; legacy Borsh remains only on explicit legacy-only paths.
 - The CKB strict profile does not accept Borsh as a public wire format.
+- CellScript includes a beta package manager built around `Cell.toml`, local path/git dependencies, `Cell.lock`, package checks, and artifact policy gates.
+- CellScript also includes beta language tooling: an in-crate LSP service for semantic editor features and a VS Code extension for syntax highlighting, snippets, diagnostics, and compiler-backed validation hooks.
 - CKB load-script syscall identity is pinned for the strict profile:
 
 ```rust
 pub const CKB_SYSCALL_LOAD_SCRIPT: u64 = 2052;
 ```
+
+See [`cellscript/README.md`](cellscript/README.md) for the language syntax,
+example contracts, package manager commands, and editor setup.
 
 ## Architecture
 

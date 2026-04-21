@@ -108,6 +108,64 @@ become Cells unless they are explicitly created as `resource`, `shared`, or
 
 ## Example
 
+CellScript syntax is deliberately close to the Cell transaction shape. A module
+contains schema declarations and executable entries. Persistent values are
+declared as `resource`, `shared`, or `receipt`; executable logic is declared as
+`action` or `lock`; transaction effects are written with explicit lifecycle
+operations.
+
+Common declaration forms:
+
+```cellscript
+module spora::example
+
+struct Config {
+    threshold: u64
+}
+
+resource Token has store, transfer, destroy {
+    amount: u64
+    symbol: [u8; 8]
+}
+
+shared Pool has store {
+    token_reserve: u64
+    spora_reserve: u64
+}
+
+receipt VestingGrant has store, claim {
+    beneficiary: Address
+    amount: u64
+    unlock_epoch: u64
+}
+
+lock owner_only(owner: Address, signature: Signature) {
+    assert_invariant(verify_signature(owner, signature), "invalid signature")
+}
+```
+
+Common statement and effect forms:
+
+```cellscript
+action move_token(token: Token, to: Address) -> Token {
+    assert_invariant(token.amount > 0, "empty token")
+
+    consume token
+
+    create Token {
+        amount: token.amount,
+        symbol: token.symbol
+    } with_lock(to)
+}
+```
+
+The compiler treats `consume`, `create`, `transfer`, `destroy`, `claim`,
+`settle`, and `read_ref` as Cell effects, not ordinary function calls. Those
+effects are reflected in metadata so Spora scheduling, CKB admission policy,
+schema decoding, and artifact verification can audit the generated script.
+
+A complete fungible-token example:
+
 ```cellscript
 module spora::fungible_token
 
@@ -147,6 +205,18 @@ action burn(token: Token) {
     destroy token
 }
 ```
+
+The repository also includes bundled protocol examples:
+
+| Example | Demonstrates |
+|---|---|
+| `examples/token.cell` | Mint, transfer, burn, and guarded same-symbol token merge. |
+| `examples/timelock.cell` | Time-gated state transitions and delayed claim paths. |
+| `examples/multisig.cell` | Authorization thresholds and signature-oriented lock logic. |
+| `examples/nft.cell` | Unique assets, metadata, and ownership transfer. |
+| `examples/vesting.cell` | Receipt-style grants and claim lifecycle. |
+| `examples/amm_pool.cell` | Shared pool state and swap/liquidity effects. |
+| `examples/launch.cell` | Launch/pool composition patterns. |
 
 ## Comparison
 
@@ -194,6 +264,16 @@ cellc check --target-profile ckb
 cellc check --target-profile portable-cell
 ```
 
+Initialize and maintain a package:
+
+```bash
+cellc init token-package
+cd token-package
+cellc add shared-types --path ../shared-types
+cellc info
+cellc build --target riscv64-elf --target-profile spora
+```
+
 Emit metadata:
 
 ```bash
@@ -228,6 +308,29 @@ deny_runtime_obligations = false
 
 Command-line flags can tighten policy checks for a build or CI job.
 
+## Package Manager Beta
+
+CellScript ships a beta package manager in `cellc`. It is intentionally local
+and fail-closed while the registry protocol is still post-v1 work.
+
+Supported today:
+
+- `cellc init` creates an application or library package with `Cell.toml`.
+- `cellc build`, `cellc check`, `cellc metadata`, and `cellc test` accept a
+  package directory or manifest as input.
+- `cellc add --path` and `cellc add --git` record dependencies in `Cell.toml`.
+- Local path dependencies are resolved recursively and included in module
+  loading, source hashing, and metadata.
+- `Cell.lock` captures resolved dependency identity for reproducible checks.
+- `cellc info --json` exposes package metadata for CI and tooling.
+
+Still beta:
+
+- Registry `publish`, `install`, `update`, and `login` are command-shaped but
+  fail closed until the registry backend and trust model are finalized.
+- Package names, lockfile fields, and registry authentication are not stable
+  production interfaces yet.
+
 ## CLI Reference
 
 | Command | Purpose |
@@ -242,6 +345,7 @@ Command-line flags can tighten policy checks for a build or CI job.
 | `cellc fmt` | Format `.cell` sources or check formatting. |
 | `cellc init` | Create a package skeleton. |
 | `cellc add` / `cellc remove` | Mutate local package dependencies. |
+| `cellc publish` / `cellc install` / `cellc update` / `cellc login` | Beta registry-shaped commands; registry-backed operation still fails closed. |
 | `cellc info` | Print manifest and package information. |
 | `cellc repl` | Start the interactive REPL. |
 | `cellc run` | Run supported ELF entrypoints through the optional VM runner or simulator path. |
@@ -264,9 +368,17 @@ Common options:
 
 ## Editor Support
 
-The repository includes a VS Code extension for `.cell` syntax highlighting,
-language configuration, snippets, formatting integration, diagnostics, hover,
-definition, references, and metadata-oriented code actions:
+CellScript includes beta language tooling:
+
+- The compiler crate exposes an in-process LSP service for diagnostics,
+  completions, hover, definition, references, rename, formatting, and
+  metadata-oriented code actions.
+- The repository includes a VS Code extension for `.cell` syntax highlighting,
+  language configuration, snippets, open/save diagnostics, and compiler-backed
+  formatting/validation hooks.
+- The editor integration is beta. It is suitable for local authoring and
+  compiler feedback, but the language-server transport and extension packaging
+  are still expected to evolve.
 
 - [`editors/vscode-cellscript`](editors/vscode-cellscript)
 
@@ -280,14 +392,6 @@ cellscript/
 └── editors/
     └── vscode-cellscript/
 ```
-
-## Further Reading
-
-- [`docs/SPORA_DSL_DESIGN_PROPOSAL_CN.md`](../docs/SPORA_DSL_DESIGN_PROPOSAL_CN.md)
-- [`docs/CELLSCRIPT_CKB_COMPATIBILITY_DECISION.md`](../docs/CELLSCRIPT_CKB_COMPATIBILITY_DECISION.md)
-- [`docs/CELLSCRIPT_COMPATIBILITY_MATRIX.md`](../docs/CELLSCRIPT_COMPATIBILITY_MATRIX.md)
-- [`docs/CELLSCRIPT_V1_RELEASE_SCOPE.md`](../docs/CELLSCRIPT_V1_RELEASE_SCOPE.md)
-- [`docs/CELLSCRIPT_V1_FEATURE_COMPLETENESS_AUDIT.md`](../docs/CELLSCRIPT_V1_FEATURE_COMPLETENESS_AUDIT.md)
 
 ## License
 
