@@ -22,8 +22,11 @@ interaction style. APIs and internal module boundaries may still change.
 
 - CellScript supports Spora and CKB through explicit target profiles; CKB remains bounded to the admitted pure subset for v1.
 - The CKB strict profile uses CKB syscall, source, hash, header, and Molecule rules.
+- CKB strict profile 使用 CKB syscall/source/hash/header/Molecule 规则。
 - Molecule is the shared VM/CellScript ABI; legacy Borsh remains only on explicit legacy-only paths.
+- 采用 Molecule 作为 VM/CellScript 公共 ABI。
 - The CKB strict profile does not accept Borsh as a public wire format.
+- CKB strict profile 不接受 Borsh 作为公开 wire format。
 - CellScript includes a beta package manager built around `Cell.toml`, local path/git dependencies, `Cell.lock`, package checks, and artifact policy gates.
 - CellScript also includes beta language tooling: an in-crate LSP service for semantic editor features and a VS Code extension for syntax highlighting, snippets, diagnostics, and compiler-backed validation hooks.
 - CKB load-script syscall identity is pinned for the strict profile:
@@ -125,7 +128,7 @@ graph LR
 
 ## Requirements
 
-- Rust 1.82 or newer.
+- Rust 1.85 or newer.
 - `pkg-config`, OpenSSL, Clang, and libclang.
 - On macOS, the checked-in `.cargo/config.toml` expects LLVM libraries under
   `/opt/homebrew/opt/llvm/lib`.

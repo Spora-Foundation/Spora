@@ -363,12 +363,18 @@ check_v1_release_process_docs() {
 
 check_v1_ci_workflow() {
     local workflow=".github/workflows/cellscript-v1.yml"
+    local standalone_workflow="cellscript/.github/workflows/ci.yml"
+    local devnet_workflow=".github/workflows/spora-devnet-acceptance.yml"
     local required=(
         "name: CellScript V1 Gate"
         "workflow_dispatch:"
         "rustup toolchain install 1.85.0 --profile minimal --component rustfmt"
         "CARGO_TARGET_DIR: /tmp/spora-v1-release-gate-target"
+        "CELLSCRIPT_BACKEND_SHAPE_REPORT:"
         "./scripts/cellscript_phase4_release_gate.sh v1"
+        "actions/upload-artifact@v4"
+        "target/cellscript-backend-shape/"
+        "target/ckb-cellscript-acceptance/"
     )
     local forbidden=(
         "./scripts/cellscript_phase4_release_gate.sh quick"
@@ -377,6 +383,14 @@ check_v1_ci_workflow() {
 
     if [[ ! -f "$workflow" ]]; then
         printf 'missing v1 CI workflow: %s\n' "$workflow" >&2
+        exit 1
+    fi
+    if [[ ! -f "$standalone_workflow" ]]; then
+        printf 'missing CellScript standalone CI workflow: %s\n' "$standalone_workflow" >&2
+        exit 1
+    fi
+    if [[ ! -f "$devnet_workflow" ]]; then
+        printf 'missing Spora devnet acceptance workflow: %s\n' "$devnet_workflow" >&2
         exit 1
     fi
 
@@ -392,6 +406,33 @@ check_v1_ci_workflow() {
         if rg --quiet --fixed-strings "$pattern" "$workflow"; then
             printf 'v1 CI workflow must run the v1 gate, not a weaker mode: %s\n' "$pattern" >&2
             rg -n --fixed-strings "$pattern" "$workflow" >&2
+            exit 1
+        fi
+    done
+
+    local standalone_required=(
+        "CELLSCRIPT_BACKEND_SHAPE_REPORT: /tmp/cellscript-backend-shape/backend-shape-report.json"
+        "actions/upload-artifact@v4"
+        "cellscript-backend-shape-report"
+        "/tmp/cellscript-backend-shape/"
+    )
+    for pattern in "${standalone_required[@]}"; do
+        if ! rg --quiet --fixed-strings "$pattern" "$standalone_workflow"; then
+            printf 'CellScript standalone CI workflow is missing required production artifact boundary: %s\n' "$pattern" >&2
+            exit 1
+        fi
+    done
+
+    local devnet_required=(
+        "actions/upload-artifact@v4"
+        "spora-devnet-smoke-acceptance"
+        "spora-devnet-full-acceptance"
+        'spora-devnet-${{ inputs.profile }}-acceptance'
+        "target/devnet-acceptance/"
+    )
+    for pattern in "${devnet_required[@]}"; do
+        if ! rg --quiet --fixed-strings "$pattern" "$devnet_workflow"; then
+            printf 'Spora devnet acceptance workflow is missing required artifact boundary: %s\n' "$pattern" >&2
             exit 1
         fi
     done

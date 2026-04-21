@@ -115,6 +115,14 @@ jobs:
       - name: Run devnet smoke acceptance
         run: ./scripts/devnet_acceptance.sh --profile smoke
 
+      - name: Upload devnet smoke acceptance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spora-devnet-smoke-acceptance
+          if-no-files-found: warn
+          path: target/devnet-acceptance/
+
   full:
     name: Devnet Full
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.profile == 'full')
@@ -158,6 +166,14 @@ jobs:
       - name: Run full devnet acceptance
         run: ./scripts/devnet_acceptance.sh --profile full --keep-artifacts
 
+      - name: Upload full devnet acceptance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spora-devnet-full-acceptance
+          if-no-files-found: warn
+          path: target/devnet-acceptance/
+
   focused:
     name: Devnet Focused
     if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["external-boot","propagation","cellscript"]'), inputs.profile)
@@ -200,3 +216,11 @@ jobs:
 
       - name: Run focused devnet acceptance
         run: ./scripts/devnet_acceptance.sh --profile "${{ inputs.profile }}" --keep-artifacts
+
+      - name: Upload focused devnet acceptance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spora-devnet-${{ inputs.profile }}-acceptance
+          if-no-files-found: warn
+          path: target/devnet-acceptance/
