@@ -20,6 +20,7 @@ run() {
 check_trailing_whitespace() {
     local files=(
         ".github/workflows/cellscript-v1.yml"
+        ".github/workflows/spora-devnet-acceptance.yml"
         "cellscript/CHANGELOG.md"
         "cellscript/README.md"
         "cellscript/README_CN.md"
@@ -34,6 +35,9 @@ check_trailing_whitespace() {
         "docs/SPORA_CELLSCRIPT_DEVNET_ACCEPTANCE_PLAN.md"
         "scripts/cellscript_phase4_release_gate.sh"
         "scripts/ckb_cellscript_acceptance.sh"
+        "scripts/devnet_acceptance.sh"
+        "scripts/regenerate_snapshots.sh"
+        "scripts/regenerate_test_data.sh"
         "cellscript/src/docgen/mod.rs"
         "cellscript/src/lsp/mod.rs"
         "cellscript/src/package/mod.rs"
