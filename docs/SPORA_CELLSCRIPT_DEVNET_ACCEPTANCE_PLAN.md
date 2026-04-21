@@ -533,7 +533,7 @@ scripts/ckb_cellscript_acceptance.sh
 - 使用 `../ckb/test/template` 复制出临时 CKB integration devnet；该模板是 Dummy PoW、本地测试链，开启 `IntegrationTest` RPC，并带 always-success system cell。
 - 如果 `CKB_BIN` 未指定且 `../ckb/target/debug/ckb` 不存在，脚本会在父目录执行 `cargo build --bin ckb`。
 - 编译一个纯 no-arg CellScript baseline，以及固定 7 个 bundled examples：`amm_pool.cell`、`launch.cell`、`multisig.cell`、`nft.cell`、`timelock.cell`、`token.cell`、`vesting.cell`。
-- bundled examples 使用 acceptance-only smoke entry：脚本复制完整 examples 目录并追加 `action main() -> u64 { 0 }`，同时设置 `CELLSCRIPT_CKB_ACCEPTANCE_SMOKE_ALLOW_UNPORTABLE_EXAMPLES=1`。编译器只在 env 值精确为 `1`、target profile 是 `ckb`、且模块存在 no-arg `main() -> u64` 时接受该 bypass。这只证明 artifact packaging、CKB-VM 入口、code-cell dep resolution 和 lock-script invocation；原始业务 action 的 strict CKB lowering 仍单独记录并保持 fail-closed。
+- bundled examples 的通用链上 spend 使用 acceptance-only smoke entry，因为 strict business artifact 需要 action-specific witness、Input cell data、Output cell data 和依赖 wiring。smoke 路径会复制完整 examples 目录并追加 `action main() -> u64 { 0 }`，同时设置 `CELLSCRIPT_CKB_ACCEPTANCE_SMOKE_ALLOW_UNPORTABLE_EXAMPLES=1`。编译器只在 env 值精确为 `1`、target profile 是 `ckb`、且模块存在 no-arg `main() -> u64` 时接受该 bypass。这只证明 artifact packaging、CKB-VM 入口、code-cell dep resolution 和 lock-script invocation；原始业务 action 的 strict CKB lowering/sidecar verification 仍单独记录。
 - 调用 `cellc verify-artifact --expect-target-profile ckb` 校验每个 sidecar。
 - 硬校验每个 artifact 是 ELF，且没有 Spora `SPORABI` trailer。
 - 启动真实 CKB 节点，通过 JSON-RPC `generate_block` 出块，使用 CKB `send_test_transaction` 构造三段链上流程：
@@ -557,7 +557,7 @@ compile-only 模式不要求父目录存在 CKB checkout，也不会解析或构
 - `bundled_examples_count == 7`，且 `bundled_examples_exact_order == ["amm_pool.cell", "launch.cell", "multisig.cell", "nft.cell", "timelock.cell", "token.cell", "vesting.cell"]`。
 - 每个 artifact 的 `target_profile == "ckb"`，`verify.expected_target_profile_verified == true`。
 - 每个 artifact 以 ELF magic 开头，且 `artifact_has_sporabi_trailer == false`。
-- compile-only 和完整模式都必须记录 bundled examples 的 `strict_original_ckb_compile.status`；当前预期是业务 action strict CKB 编译 fail-closed，但 smoke artifact 必须 compile/verify 通过。所有 strict original 失败都必须进入 `strict_original_ckb_compile_policy_fail_closed`，且 `strict_original_ckb_compile_unexpected_failures == []`，避免 backend/import/panic 类问题被 smoke bypass 掩盖。
+- compile-only 和完整模式都必须记录 bundled examples 的 `strict_original_ckb_compile.status`；strict original 通过的 example 必须进入 `bundled_examples_strict_admitted` 且其 strict sidecar 必须通过 `verify-artifact`，仍 fail-closed 的 example 必须进入 `strict_original_ckb_compile_policy_fail_closed`。通用链上 spend 仍使用 smoke artifact，并记录在 `bundled_examples_smoke_bypass`。`strict_original_ckb_compile_unexpected_failures == []`，避免 backend/import/panic 类问题被 smoke bypass 掩盖。
 - 完整模式下 `onchain.status == "passed"`，`onchain.all_artifacts_deployed_and_spent == true`，并且每个 artifact 的 code cell、locked cell、spend recipient 都通过 CKB `get_live_cell` 查询为 live。
 - 完整模式下每个 artifact 的 `malformed_spend_without_code_dep.status == "rejected"`，`policy_or_capacity_reason == false`，且拒绝后 `locked_cell_live_after_malformed_spend == true`。
 - 完整模式下每个 artifact 的 `valid_spend_dry_run` 必须存在，证明合法 CellScript locked-cell spend 在提交前可被 CKB-VM 预执行。
@@ -565,7 +565,7 @@ compile-only 模式不要求父目录存在 CKB checkout，也不会解析或构
 边界：
 
 - 这是 CKB 本地 integration devnet 验收，不是 mainnet/testnet 兼容声明。
-- 当前证明 v1 pure baseline 和所有 bundled example smoke artifact 能被真实 CKB 节点加载、作为 code cell 依赖、执行并花费。复杂 stateful CellScript 业务合约的原始 action 仍以 fail-closed/post-v1 builder 范围管理。
+- 当前证明 v1 pure baseline 和 bundled example smoke artifact 能被真实 CKB 节点加载、作为 code cell 依赖、执行并花费；strict-admitted bundled examples 另行证明 strict original CKB compile + sidecar verification。复杂 stateful CellScript 业务合约的原始 action 链上执行仍以 fail-closed/post-v1 builder 范围管理。
 - 该脚本只修改 Spora `target/` 临时目录，不修改父目录 CKB 仓库；父目录只用于读取模板和构建/运行 `ckb`。
 - 该验收不能替代 Spora profile 验收；每次修复 CKB 路径后仍需跑 Spora `cellscript`/smoke 回归，确保双 profile 没有互相污染。
 
@@ -602,6 +602,7 @@ compile-only 模式不要求父目录存在 CKB checkout，也不会解析或构
 - 扩展到全部 bundled examples 并硬化 strict-original 边界后，`scripts/ckb_cellscript_acceptance.sh` 完整链上模式通过，报告为 `/Users/arthur/RustroverProjects/Spora/target/ckb-cellscript-acceptance/20260421-115555-16636/ckb-cellscript-acceptance-report.json`。该报告中 8 个 artifact 均完成 code-cell deploy、locked probe create、malformed missing-dep dry-run reject、valid spend dry-run、actual spend commit；7 个 bundled examples 均出现在 `onchain.bundled_examples_deployed_and_spent`。
 - strict original example 编译边界已经硬化：报告必须给出 `strict_original_ckb_compile_policy_fail_closed`，并保持 `strict_original_ckb_compile_unexpected_failures = []`。这保证原始复杂业务 action 暂未进入 CKB v1 admitted subset 时只能按 target-profile policy fail-closed，不能因为 import/backend/codegen/panic 类非预期错误被 smoke artifact 路径掩盖。
 - 本轮 CKB example matrix 暴露并修复了真实问题：CKB GroupInput 64-bit source 常量需要内置 assembler 支持 64-bit `li`；ELF `_start` 必须通过 `_cellscript_entry` tail-call 选择 no-arg `main`，不能误执行第一个带参业务 action；跨 example helper 调用必须生成 fail-closed unresolved-call stub，避免 `launch.cell` 因外部 linker undefined symbol 落入内置 assembler 异常路径；内置 ELF assembler 的 LOAD segment 布局改为 CKB/GNU linker 风格。以上修复不改变 Spora profile 的 syscall、hash、scheduler witness 或 `SPORABI` packaging。
+- 后续 strict-admission 收口：`token.cell` 的 strict original artifact 已不再被 CKB profile policy 拒绝，报告会把它列入 `bundled_examples_strict_admitted` 并校验 strict sidecar。通用 CKB on-chain spend 仍使用 smoke artifact；原始 `token.cell` business action 的链上执行需要下一步 action-specific witness/input/output harness。修复点是 resource conservation classifier 现在能识别 `amount` 求和合并加固定 identity 字段复制，并要求 source 中有显式 equality guard，例如 `a.symbol == b.symbol`；没有 equality guard 的多字段资源合并仍保持 `runtime-required` 并被 CKB profile 拒绝。
 
 ## 11. CellScript 合约部署和使用验收
 
@@ -1121,7 +1122,7 @@ scripts/devnet_acceptance.sh --profile cellscript --keep-artifacts
 
 - 对 Spora + CellScript v1 验收范围，这些修复是正确实现：public scheduler witness surface 是 Molecule-only；legacy Borsh 不再作为公开生成/读取 API；entry witness 的公开构造路径是 metadata/CLI builder；schema verifier 使用 `LOAD_CELL_DATA` 读取 cell data；所有 bundled examples 继续通过 metadata/ELF 编译验收。
 - 这些修复没有放宽验收标准：脚本仍硬校验 7 个 bundled examples 的固定清单和顺序、所有 code cell indexed、所有 malformed spend rejected、拒绝原因不能是 standard/mass/transient/cycles policy、smoke 关键布尔字段全为 true。
-- 这些修复当时还没有完成 CKB 本地开发网验收；后续已新增并扩展 `scripts/ckb_cellscript_acceptance.sh`，用父目录 CKB 节点做真实 artifact/deployment/spend 兼容测试。当前 CKB 结论覆盖 v1 pure baseline 与全部 7 个 bundled example 的 smoke artifact 链上执行；原始复杂 stateful 业务 action 仍保持 strict CKB fail-closed/post-v1 范围。
+- 这些修复当时还没有完成 CKB 本地开发网验收；后续已新增并扩展 `scripts/ckb_cellscript_acceptance.sh`，用父目录 CKB 节点做真实 artifact/deployment/spend 兼容测试。当前 CKB 结论覆盖 v1 pure baseline 与 bundled example smoke artifact 链上执行，并覆盖 `token.cell` strict original compile/verify；原始复杂 stateful 业务 action 链上执行仍保持 post-v1 范围。
 
 ## 19. 当前风险和边界
 

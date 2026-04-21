@@ -341,12 +341,16 @@ def strict_original_compile(name):
     result = run([cellc, source, "--target-profile", "ckb", "--target", "riscv64-elf", "-o", artifact])
     policy_fail_closed = result["returncode"] != 0 and "target profile policy failed for 'ckb'" in result["stderr"]
     unexpected_failure = result["returncode"] != 0 and not policy_fail_closed
+    verify = None
+    if result["returncode"] == 0:
+        verify = verify_artifact(artifact)
     return {
         "source": str(source),
         "artifact": str(artifact),
         "status": "passed" if result["returncode"] == 0 else "failed",
         "policy_fail_closed": policy_fail_closed,
         "unexpected_failure": unexpected_failure,
+        "verify": verify,
         "returncode": result["returncode"],
         "stdout": result["stdout"],
         "stderr": result["stderr"],
@@ -396,14 +400,19 @@ report = {
     "status": "artifact-verified",
     "ckb_acceptance_scope": (
         "Full-mode CKB devnet acceptance deploys and spends every emitted code cell. "
-        "Bundled examples use an appended no-argument main smoke entry so CKB-VM execution, "
-        "artifact packaging, code-cell dependency resolution, and lock-script invocation are tested; "
-        "strict original business-action portability remains recorded separately."
+        "Bundled examples always deploy an appended no-argument main smoke entry for the generic CKB locked-cell spend, "
+        "because strict business-action artifacts require action-specific witnesses, inputs, and outputs. "
+        "Strict original business-action portability is compiled and verified separately when admitted."
     ),
     "cellc": str(cellc),
     "bundled_examples_exact_order": EXAMPLES,
     "bundled_examples_count": len(EXAMPLES),
-    "all_bundled_examples_smoke_compiled": all(record["kind"] == "bundled-example-smoke" for record in bundled_examples),
+    "bundled_examples_strict_admitted": [
+        record["name"]
+        for record in bundled_examples
+        if record["strict_original_ckb_compile"]["status"] == "passed"
+    ],
+    "bundled_examples_smoke_bypass": [record["name"] for record in bundled_examples],
     "strict_original_ckb_compile_policy_fail_closed": strict_original_policy_fail_closed,
     "strict_original_ckb_compile_unexpected_failures": strict_original_unexpected_failures,
     "acceptance_smoke_policy_bypass_env": BYPASS_ENV,
@@ -788,7 +797,7 @@ try:
     report["onchain"]["tip_after"] = tip_after
     report["onchain"]["all_artifacts_deployed_and_spent"] = True
     report["onchain"]["bundled_examples_deployed_and_spent"] = [
-        run["name"] for run in report["onchain"]["artifact_runs"] if run["kind"] == "bundled-example-smoke"
+        run["name"] for run in report["onchain"]["artifact_runs"] if run["kind"].startswith("bundled-example-")
     ]
     write_report()
 except Exception as error:
