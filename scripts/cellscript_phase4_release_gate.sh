@@ -371,6 +371,8 @@ check_v1_ci_workflow() {
         "rustup toolchain install 1.85.0 --profile minimal --component rustfmt"
         "CARGO_TARGET_DIR: /tmp/spora-v1-release-gate-target"
         "CELLSCRIPT_BACKEND_SHAPE_REPORT:"
+        '"cellscript"'
+        '"cellscript/**"'
         "cargo check --locked --workspace --all-targets"
         "cargo test --locked -p cellscript -- --test-threads=1"
         "./scripts/cellscript_phase4_release_gate.sh v1"
@@ -414,6 +416,7 @@ check_v1_ci_workflow() {
 
     local standalone_required=(
         "CELLSCRIPT_BACKEND_SHAPE_REPORT: /tmp/cellscript-backend-shape/backend-shape-report.json"
+        "cargo test --locked --manifest-path Cargo.toml -- --test-threads=1"
         "actions/upload-artifact@v4"
         "cellscript-backend-shape-report"
         "/tmp/cellscript-backend-shape/"
@@ -427,6 +430,8 @@ check_v1_ci_workflow() {
 
     local devnet_required=(
         "actions/upload-artifact@v4"
+        '"cellscript"'
+        '"cellscript/**"'
         "spora-devnet-smoke-acceptance"
         "spora-devnet-full-acceptance"
         'spora-devnet-${{ inputs.profile }}-acceptance'
