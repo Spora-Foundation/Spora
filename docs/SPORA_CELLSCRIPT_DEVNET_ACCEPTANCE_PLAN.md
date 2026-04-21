@@ -1028,6 +1028,57 @@ v1 通过必须同时满足：
 
 ## 18. 最近验收结果
 
+2026-04-21 在 CellScript 独立仓库/submodule 切换后，按本文档重新完成一次 Spora + CKB 双 profile 验收，确认修复没有破坏任一侧兼容：
+
+```bash
+CARGO_TARGET_DIR=/tmp/spora-acceptance-full-target \
+CARGO_INCREMENTAL=0 \
+CARGO_BUILD_JOBS=1 \
+./scripts/devnet_acceptance.sh --profile full --keep-artifacts
+```
+
+Spora full 结果：
+
+- artifact 目录：`/Users/arthur/RustroverProjects/Spora/target/devnet-acceptance/20260421-232523-19363`
+- run id：`20260421-232523-19363`
+- git revision：`b8c35804`
+- generated_at_utc：`2026-04-21T15:25:23Z`
+- completed_at_utc：`2026-04-21T15:41:46Z`
+- command：`./scripts/devnet_acceptance.sh --profile full --keep-artifacts`
+- `smoke`: passed
+- `external_boot`: passed
+- `propagation`: passed
+- `cellscript`: passed
+- `result`: passed
+
+同轮已完成 CKB 本地开发网验收：
+
+```bash
+CARGO_TARGET_DIR=/tmp/spora-acceptance-ckb-fixed-target \
+CARGO_INCREMENTAL=0 \
+CARGO_BUILD_JOBS=1 \
+./scripts/ckb_cellscript_acceptance.sh --ckb-repo ../ckb
+```
+
+CKB 结果：
+
+- report：`/Users/arthur/RustroverProjects/Spora/target/ckb-cellscript-acceptance/20260421-231905-5630/ckb-cellscript-acceptance-report.json`
+- CKB repo：`/Users/arthur/RustroverProjects/ckb`
+- CKB bin：`/Users/arthur/RustroverProjects/ckb/target/debug/ckb`
+- CellScript compiler：`/tmp/spora-acceptance-ckb-fixed-target/debug/cellc`
+- `status`: passed
+- `onchain.status`: passed
+- `bundled_examples_count`: 7
+- `bundled_examples_exact_order`: `amm_pool.cell`、`launch.cell`、`multisig.cell`、`nft.cell`、`timelock.cell`、`token.cell`、`vesting.cell`
+- `bundled_examples_strict_admitted`: `token.cell`
+- `strict_original_ckb_compile_unexpected_failures`: `[]`
+- `all_artifacts_deployed_and_spent`: true
+- `all_token_actions_exercised`: true，覆盖 `mint`、`transfer_token`、`burn`、`merge`
+- `all_nft_actions_exercised`: true，覆盖 `transfer`、`burn`
+- `all_timelock_actions_exercised`: true，覆盖 `extend_lock`
+
+本轮 CKB 验收暴露并修复了一个真实兼容问题：fixed-width NFT `transfer` 的合法 CKB dry-run 一度返回 `ValidationFailure error code 1`。根因是 CellScript codegen 对 `Return(None)` 的 void action 成功路径没有清空 `a0`，导致前一个 helper/comparison 留下的寄存器值被 CKB VM 当成脚本退出码。修复后 void action epilogue 前显式生成 `li a0, 0`，并补充 CKB profile 回归断言；随后 Spora full 与 CKB full acceptance 均通过。该修复已进入 CellScript 独立仓库 commit `cb0f697`，Spora submodule pointer 已更新到 `b8c35804`。
+
 2026-04-21 针对测试暴露问题完成一次 post-fix release-style full 验收：
 
 ```bash
