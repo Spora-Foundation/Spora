@@ -1180,7 +1180,7 @@ scripts/devnet_acceptance.sh --profile cellscript --keep-artifacts
 
 - 对 Spora + CellScript v1 验收范围，这些修复是正确实现：public scheduler witness surface 是 Molecule-only；legacy Borsh 不再作为公开生成/读取 API；entry witness 的公开构造路径是 metadata/CLI builder；schema verifier 使用 `LOAD_CELL_DATA` 读取 cell data；所有 bundled examples 继续通过 metadata/ELF 编译验收。
 - 这些修复没有放宽验收标准：脚本仍硬校验 7 个 bundled examples 的固定清单和顺序、所有 code cell indexed、所有 malformed spend rejected、拒绝原因不能是 standard/mass/transient/cycles policy、smoke 关键布尔字段全为 true。
-- 这些修复当时还没有完成 CKB 本地开发网验收；后续已新增并扩展 `scripts/ckb_cellscript_acceptance.sh`，用父目录 CKB 节点做真实 artifact/deployment/spend 兼容测试。当前 CKB 结论覆盖 v1 pure baseline 与 bundled example smoke artifact 链上执行，并覆盖 `token.cell` strict original compile/verify；原始复杂 stateful 业务 action 链上执行仍保持 post-v1 范围。
+- 这些修复之后已完成 CKB 本地开发网验收；`scripts/ckb_cellscript_acceptance.sh` 用父目录 CKB 节点做真实 artifact/deployment/spend 兼容测试。当前 CKB 结论覆盖 v1 pure baseline、bundled example smoke artifact 链上执行、`token.cell` strict original compile/verify，以及 token/NFT/timelock 的 v1 action-specific CKB harness；原始复杂 stateful 业务 action 链上执行仍按明确的 post-v1 builder/full-suite 范围管理。
 
 ## 19. 当前风险和边界
 
