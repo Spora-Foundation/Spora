@@ -104,7 +104,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cellscript-v1-reports
-          if-no-files-found: warn
+          if-no-files-found: error
           path: |
             target/cellscript-backend-shape/
             target/ckb-cellscript-acceptance/

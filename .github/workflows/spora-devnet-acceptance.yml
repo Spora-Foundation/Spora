@@ -122,7 +122,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: spora-devnet-smoke-acceptance
-          if-no-files-found: warn
+          if-no-files-found: error
           path: target/devnet-acceptance/
 
   full:
@@ -173,7 +173,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: spora-devnet-full-acceptance
-          if-no-files-found: warn
+          if-no-files-found: error
           path: target/devnet-acceptance/
 
   focused:
@@ -224,5 +224,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: spora-devnet-${{ inputs.profile }}-acceptance
-          if-no-files-found: warn
+          if-no-files-found: error
           path: target/devnet-acceptance/

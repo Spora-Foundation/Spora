@@ -377,6 +377,7 @@ check_v1_ci_workflow() {
         "cargo test --locked -p cellscript -- --test-threads=1"
         "./scripts/cellscript_phase4_release_gate.sh v1"
         "actions/upload-artifact@v4"
+        "if-no-files-found: error"
         "target/cellscript-backend-shape/"
         "target/ckb-cellscript-acceptance/"
     )
@@ -419,6 +420,7 @@ check_v1_ci_workflow() {
         "key: \${{ runner.os }}-cargo-\${{ hashFiles('**/Cargo.lock') }}"
         "cargo test --locked --manifest-path Cargo.toml -- --test-threads=1"
         "actions/upload-artifact@v4"
+        "if-no-files-found: error"
         "cellscript-backend-shape-report"
         "/tmp/cellscript-backend-shape/"
     )
@@ -431,6 +433,7 @@ check_v1_ci_workflow() {
 
     local devnet_required=(
         "actions/upload-artifact@v4"
+        "if-no-files-found: error"
         '"cellscript"'
         '"cellscript/**"'
         "spora-devnet-smoke-acceptance"
