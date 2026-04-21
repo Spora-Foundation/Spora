@@ -416,6 +416,7 @@ check_v1_ci_workflow() {
 
     local standalone_required=(
         "CELLSCRIPT_BACKEND_SHAPE_REPORT: /tmp/cellscript-backend-shape/backend-shape-report.json"
+        "key: \${{ runner.os }}-cargo-\${{ hashFiles('**/Cargo.lock') }}"
         "cargo test --locked --manifest-path Cargo.toml -- --test-threads=1"
         "actions/upload-artifact@v4"
         "cellscript-backend-shape-report"
