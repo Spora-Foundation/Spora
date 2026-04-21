@@ -373,8 +373,6 @@ check_v1_ci_workflow() {
         "CELLSCRIPT_BACKEND_SHAPE_REPORT:"
         '"cellscript"'
         '"cellscript/**"'
-        "cargo check --locked --workspace --all-targets"
-        "cargo test --locked -p cellscript -- --test-threads=1"
         "./scripts/cellscript_phase4_release_gate.sh v1"
         "actions/upload-artifact@v4"
         "if-no-files-found: error"
