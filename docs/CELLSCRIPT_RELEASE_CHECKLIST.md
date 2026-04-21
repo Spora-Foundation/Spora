@@ -32,6 +32,7 @@ The workflow is intentionally wired to the `v1` mode rather than the weaker
 enforced.
 
 All gate commands accept `CARGO_TARGET_DIR`, `CARGO_INCREMENTAL`, and `CARGO_BUILD_JOBS` from the environment. The default target directory is `/tmp/spora-cellscript-release-gate-target` so the gate does not contend with an interactive development build.
+The CI runner must also provide `ripgrep` (`rg`), because the v1 release gate uses fixed-string repository boundary checks before it starts the Rust build/test phase. The GitHub Actions workflow installs `ripgrep` alongside the native LLVM/protobuf dependencies and the gate fails fast with `missing required command: rg` if the tool is absent.
 
 ## Required Evidence Before Phase 4 Close
 
