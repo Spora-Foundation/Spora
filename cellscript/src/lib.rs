@@ -3583,17 +3583,13 @@ fn resource_conservation_amount_merge_is_checked(
     let created = &created[0];
     if !metadata_can_verify_create_output_fields(created, type_layouts, availability)
         || !metadata_can_verify_output_lock(created, availability)
-        || !resource_conservation_has_single_u64_amount_field(type_layouts, &created.ty)
-        || created.fields.len() != 1
+        || !resource_conservation_has_u64_amount_field(type_layouts, &created.ty)
     {
         return false;
     }
-    let Some((field, operand)) = created.fields.first() else {
+    let Some((_, operand)) = created.fields.iter().find(|(field, _)| field == "amount") else {
         return false;
     };
-    if field != "amount" {
-        return false;
-    }
     let ir::IrOperand::Var(var) = operand else {
         return false;
     };
@@ -3609,7 +3605,7 @@ fn resource_conservation_amount_merge_is_checked(
     source_roots.sort_unstable();
     let mut consumed_roots = consumed.iter().map(|var| var.id).collect::<Vec<_>>();
     consumed_roots.sort_unstable();
-    source_roots == consumed_roots
+    source_roots == consumed_roots && resource_conservation_created_identity_fields_are_checked(body, consumed, created)
 }
 
 fn resource_conservation_amount_split_is_checked(
@@ -3680,6 +3676,105 @@ fn resource_conservation_has_single_u64_amount_field(type_layouts: &MetadataType
     layouts
         .get("amount")
         .is_some_and(|layout| layout.ty == ir::IrType::U64 && metadata_fixed_scalar_width(&layout.ty, layout.fixed_size) == Some(8))
+}
+
+fn resource_conservation_has_u64_amount_field(type_layouts: &MetadataTypeLayouts, type_name: &str) -> bool {
+    type_layouts
+        .get(type_name)
+        .and_then(|layouts| layouts.get("amount"))
+        .is_some_and(|layout| layout.ty == ir::IrType::U64 && metadata_fixed_scalar_width(&layout.ty, layout.fixed_size) == Some(8))
+}
+
+fn resource_conservation_created_identity_fields_are_checked(
+    body: &ir::IrBody,
+    consumed: &[ir::IrVar],
+    created: &ir::CreatePattern,
+) -> bool {
+    let aliases = metadata_field_aliases(body);
+    let equalities = metadata_asserted_field_equalities(body, &aliases);
+    let consumed_roots = consumed.iter().map(|var| var.id).collect::<BTreeSet<_>>();
+
+    created.fields.iter().all(|(field, operand)| {
+        if field == "amount" {
+            return true;
+        }
+        let ir::IrOperand::Var(var) = operand else {
+            return false;
+        };
+        let Some(alias) = aliases.get(&var.id) else {
+            return false;
+        };
+        if alias.field != *field || !consumed_roots.contains(&alias.root_id) {
+            return false;
+        }
+        consumed.iter().all(|root| {
+            root.id == alias.root_id || equalities.contains(&canonical_metadata_field_equality(alias.root_id, field, root.id, field))
+        })
+    })
+}
+
+fn metadata_asserted_field_equalities(
+    body: &ir::IrBody,
+    aliases: &HashMap<usize, MetadataFieldAlias>,
+) -> BTreeSet<(usize, String, usize, String)> {
+    let mut eq_by_var = HashMap::new();
+    for block in &body.blocks {
+        for instruction in &block.instructions {
+            if let ir::IrInstruction::Binary {
+                dest,
+                op: ast::BinaryOp::Eq,
+                left: ir::IrOperand::Var(left),
+                right: ir::IrOperand::Var(right),
+            } = instruction
+            {
+                let Some(left_alias) = aliases.get(&left.id) else {
+                    continue;
+                };
+                let Some(right_alias) = aliases.get(&right.id) else {
+                    continue;
+                };
+                eq_by_var.insert(
+                    dest.id,
+                    canonical_metadata_field_equality(left_alias.root_id, &left_alias.field, right_alias.root_id, &right_alias.field),
+                );
+            }
+        }
+    }
+
+    let mut asserted = BTreeSet::new();
+    for block in &body.blocks {
+        let ir::IrTerminator::Branch { cond: ir::IrOperand::Var(cond), else_block, .. } = &block.terminator else {
+            continue;
+        };
+        if !block_returns_error(body, *else_block) {
+            continue;
+        }
+        if let Some(equality) = eq_by_var.get(&cond.id) {
+            asserted.insert(equality.clone());
+        }
+    }
+    asserted
+}
+
+fn canonical_metadata_field_equality(
+    left_root: usize,
+    left_field: &str,
+    right_root: usize,
+    right_field: &str,
+) -> (usize, String, usize, String) {
+    let left = (left_root, left_field.to_string());
+    let right = (right_root, right_field.to_string());
+    if left <= right {
+        (left.0, left.1, right.0, right.1)
+    } else {
+        (right.0, right.1, left.0, left.1)
+    }
+}
+
+fn block_returns_error(body: &ir::IrBody, block_id: ir::BlockId) -> bool {
+    body.blocks.iter().find(|block| block.id == block_id).is_some_and(
+        |block| matches!(block.terminator, ir::IrTerminator::Return(Some(ir::IrOperand::Const(ir::IrConst::U64(code)))) if code != 0),
+    )
 }
 
 fn metadata_field_aliases(body: &ir::IrBody) -> HashMap<usize, MetadataFieldAlias> {
@@ -10968,6 +11063,30 @@ action merge(left: Token, right: Token) -> Token {
 }
 "#;
 
+    const CONSUME_CREATE_IDENTITY_FIELD_MERGE_CONSERVATION_PROGRAM: &str = r#"
+module test
+
+resource Token {
+    amount: u64,
+    symbol: [u8; 8],
+}
+
+action merge(left: Token, right: Token) -> Token {
+    assert_invariant(left.symbol == right.symbol, "symbol mismatch")
+    let left_amount = left.amount
+    let right_amount = right.amount
+    let total = left_amount + right_amount
+    let symbol = left.symbol
+    consume left
+    consume right
+    let out = create Token {
+        amount: total,
+        symbol: symbol
+    }
+    return out
+}
+"#;
+
     const CONSUME_CREATE_ARITHMETIC_CONSERVATION_PROGRAM: &str = r#"
 module test
 
@@ -13332,6 +13451,67 @@ action activate(ticket: Ticket) -> Ticket {
             }),
             "checked merge conservation should expose a checked transaction input component: {:?}",
             action.transaction_runtime_input_requirements
+        );
+    }
+
+    #[test]
+    fn compile_classifies_guarded_identity_field_merge_as_checked_runtime() {
+        let result = compile(
+            CONSUME_CREATE_IDENTITY_FIELD_MERGE_CONSERVATION_PROGRAM,
+            CompileOptions {
+                target_profile: Some("ckb".to_string()),
+                target: Some("riscv64-elf".to_string()),
+                ..CompileOptions::default()
+            },
+        )
+        .unwrap();
+        let action = result.metadata.actions.iter().find(|action| action.name == "merge").expect("merge metadata");
+        assert!(
+            action.verifier_obligations.iter().any(|obligation| {
+                obligation.category == "transaction-invariant"
+                    && obligation.feature == "resource-conservation:Token"
+                    && obligation.status == "checked-runtime"
+                    && obligation.detail.contains("verifier-recomputed u64 amount sum")
+            }),
+            "guarded amount+identity merge should be marked checked-runtime: {:?}",
+            action.verifier_obligations
+        );
+        assert!(
+            action.transaction_runtime_input_requirements.iter().any(|requirement| {
+                requirement.feature == "resource-conservation:Token"
+                    && requirement.component == "resource-conservation-proof"
+                    && requirement.status == "checked-runtime"
+                    && requirement.blocker_class.is_none()
+            }),
+            "guarded amount+identity merge should expose checked transaction input metadata: {:?}",
+            action.transaction_runtime_input_requirements
+        );
+    }
+
+    #[test]
+    fn bundled_token_example_strict_ckb_compile_is_admitted() {
+        let result = compile(
+            include_str!("../examples/token.cell"),
+            CompileOptions {
+                target_profile: Some("ckb".to_string()),
+                target: Some("riscv64-elf".to_string()),
+                ..CompileOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(result.metadata.target_profile.name, "ckb");
+        assert_eq!(result.metadata.target_profile.artifact_packaging, "ckb-elf-no-sporabi-trailer");
+        let merge = result.metadata.actions.iter().find(|action| action.name == "merge").expect("merge metadata");
+        assert!(
+            merge
+                .transaction_runtime_input_requirements
+                .iter()
+                .filter(|requirement| {
+                    requirement.feature == "resource-conservation:Token" && requirement.component == "resource-conservation-proof"
+                })
+                .all(|requirement| requirement.status == "checked-runtime" && requirement.blocker_class.is_none()),
+            "token merge should no longer require a CKB policy bypass: {:?}",
+            merge.transaction_runtime_input_requirements
         );
     }
 
