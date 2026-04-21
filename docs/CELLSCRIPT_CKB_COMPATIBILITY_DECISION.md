@@ -153,6 +153,54 @@ Immediate conclusion:
 
 This audit does not reduce Spora support. It clarifies that CKB compatibility must be implemented as a parallel profile with its own concrete ABI and policy.
 
+## 2026-04-21 CKB Local Devnet Acceptance
+
+The CKB compatibility track now has a parent-repository local-node acceptance entry:
+
+```bash
+scripts/ckb_cellscript_acceptance.sh
+```
+
+The script uses the parent CKB checkout at `../ckb` as an external dependency. It copies `../ckb/test/template` into `target/ckb-cellscript-acceptance/<run-id>/ckb-node`, starts a real CKB integration devnet with Dummy PoW and `IntegrationTest` RPC, compiles a pure no-argument CellScript baseline plus the seven bundled CellScript examples with `--target-profile ckb --target riscv64-elf`, verifies each sidecar with `cellc verify-artifact --expect-target-profile ckb`, and then performs a real CKB chain flow for every emitted artifact:
+
+- deploy the CellScript ELF bytes as a CKB code cell;
+- create a probe cell locked by the CellScript code hash using CKB Blake2b data-hash rules;
+- dry-run a malformed spend of the CellScript-locked probe cell without the code-cell dep and require CKB to reject it as a script resolution failure, not as a capacity/policy failure;
+- dry-run the valid spend with the deployed code-cell dep and record CKB-VM cycle estimation before submission;
+- spend that CellScript-locked probe cell with the deployed code cell as a `CellDep`;
+- confirm the code cell, locked cell, and spend recipient through CKB `get_live_cell`.
+
+This is a stricter acceptance gate than the earlier compile/check-only CKB profile tests because the artifact must survive CKB node packaging, CKB JSON-RPC transaction submission, proposal/commit block generation, CKB code cell dependency resolution, and CKB-VM script execution.
+
+Boundaries:
+
+- This is a CKB local integration devnet acceptance, not a mainnet/testnet compatibility claim.
+- The pure baseline is a strict CKB artifact. The bundled examples are CKB smoke artifacts: the script copies the fixed seven-file example set, appends a no-argument `main() -> u64 { 0 }` smoke entry, and sets `CELLSCRIPT_CKB_ACCEPTANCE_SMOKE_ALLOW_UNPORTABLE_EXAMPLES=1` so packaging, CKB-VM loading, code-cell dependency resolution, and lock-script invocation can be tested before all business-action lowerings are admitted. The compiler only honors that bypass for the exact env value `1`, the `ckb` profile, and a source module with a no-argument `main() -> u64`.
+- The passing claim is still limited to baseline execution plus bundled-example smoke execution. Original strict CKB compilation of the business actions is recorded in the report and still fails closed for the known post-v1 stateful/runtime gaps until their transaction builders, witness binding, type-id/dependency wiring, and executable verifier lowering are implemented.
+- The script does not modify the parent CKB checkout; it only reads the template and builds/runs the CKB executable if needed.
+- The `--compile-only` mode is release-gate/CI friendly and does not require the parent CKB checkout; it proves CKB-profile artifact packaging, sidecar verification, the fixed seven-example smoke matrix, and the no-`SPORABI` invariant.
+- Spora remains a parallel first-class profile. Any CKB fix must still pass the Spora devnet/CellScript acceptance suite so CKB-specific lowering does not leak into Spora artifact packaging, hashing, scheduler witness handling, or syscall behavior.
+
+First completed result on 2026-04-21:
+
+- CKB version: `ckb 0.206.0 (5ebbc39 2026-04-10)`.
+- Report: `target/ckb-cellscript-acceptance/20260421-101345-16333/ckb-cellscript-acceptance-report.json`.
+- Artifact: 5576-byte CKB-profile ELF, no `SPORABI` trailer.
+- CKB Blake2b data hash: `0x7e475809edfbdb2affb7b87afb891f7407af90297bdedbda8e67d423ae3d5259`.
+- On-chain status: passed. The code cell deploy, CellScript-locked probe-cell create, and CellScript locked-cell spend all committed and were confirmed through CKB `get_live_cell`.
+
+The first run found one acceptance-script bug before passing: one local integration cellbase reward was not enough to satisfy CKB occupied-capacity for a 5.5KB ELF code cell. CKB rejected the deploy transaction with `InsufficientCellCapacity(Outputs[0])`, which is the correct CKB behavior. The script now collects multiple always-success cellbase inputs for the code-cell deploy while preserving the smaller single-input probe-cell path.
+
+Follow-up hardening on 2026-04-21:
+
+- `scripts/cellscript_phase4_release_gate.sh quick/full/v1` now runs `scripts/ckb_cellscript_acceptance.sh --compile-only`, so CKB-profile ELF packaging, `cellc verify-artifact --expect-target-profile ckb`, and the no-`SPORABI` invariant are part of the release gate.
+- `.github/workflows/cellscript-v1.yml` now triggers on the CKB acceptance script and Spora CellScript devnet acceptance plan, but the CI path remains compile-only so it does not depend on a sibling CKB checkout.
+- `scripts/cellscript_phase4_release_gate.sh v1` passed after the gate wiring.
+- Full local CKB on-chain mode was rerun after the split and passed again: `target/ckb-cellscript-acceptance/20260421-104620-88056/ckb-cellscript-acceptance-report.json`.
+- Full local CKB on-chain mode now also checks a malformed missing-`CellDep` spend with `dry_run_transaction`; the latest passing report is `target/ckb-cellscript-acceptance/20260421-105139-823/ckb-cellscript-acceptance-report.json`, with `malformed_spend_without_code_dep.status = rejected`, `policy_or_capacity_reason = false`, and `locked_cell_live_after_malformed_spend = true`.
+- The acceptance matrix now hard-runs the pure baseline and all seven bundled examples in this exact order: `amm_pool.cell`, `launch.cell`, `multisig.cell`, `nft.cell`, `timelock.cell`, `token.cell`, `vesting.cell`. Latest passing full CKB report: `target/ckb-cellscript-acceptance/20260421-115555-16636/ckb-cellscript-acceptance-report.json`. It records `bundled_examples_exact_order`, `strict_original_ckb_compile_policy_fail_closed`, `strict_original_ckb_compile_unexpected_failures = []`, `acceptance_smoke_policy_bypass = true` for bundled examples, `onchain.all_artifacts_deployed_and_spent = true`, per-artifact `valid_spend_dry_run`, malformed missing-dep rejection, and committed spend recipients for every example.
+- This run fixed real CKB execution defects exposed by the matrix: 64-bit `li` lowering for canonical CKB group source constants, explicit no-arg `_cellscript_entry` tail-call wrapper so `main` is selected instead of the first business action, fail-closed unresolved-call stubs so external RISC-V linking works for cross-example helper calls such as `launch.cell` -> `seed_pool`, and CKB/GNU-linker-style LOAD segment layout for the built-in ELF assembler. These fixes are profile-aware and do not change Spora syscall numbers, Spora `SPORABI` packaging, or Spora hash/scheduler semantics.
+
 ## Compatibility Assessment
 
 ### Compatible Without Major Special Design

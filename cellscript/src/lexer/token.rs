@@ -1,12 +1,8 @@
-//! CellScript Token 定义
-
 use crate::error::Span;
 use std::fmt;
 
-/// Token 类型
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenKind {
-    // 关键字
     Module,     // module
     Use,        // use
     Resource,   // resource
@@ -46,14 +42,12 @@ pub enum TokenKind {
     Self_,      // self
     Env,        // env
 
-    // 标识符和字面量
     Identifier(String),
     Integer(u64),
     HexLiteral(String),
     ByteString(Vec<u8>),
     String(String),
 
-    // 类型
     U8,
     U16,
     U32,
@@ -63,7 +57,6 @@ pub enum TokenKind {
     Address,
     Hash,
 
-    // 标点符号
     LParen,     // (
     RParen,     // )
     LBrace,     // {
@@ -80,7 +73,6 @@ pub enum TokenKind {
     FatArrow,   // =>
     Underscore, // _
 
-    // 运算符
     Plus,      // +
     Minus,     // -
     Star,      // *
@@ -99,12 +91,10 @@ pub enum TokenKind {
     Ampersand, // &
     Pipe,      // |
 
-    // 注释和空白
     Comment(String),
     Whitespace,
     Newline,
 
-    // 特殊
     Eof,
     Invalid(char),
 }
@@ -204,7 +194,6 @@ impl fmt::Display for TokenKind {
     }
 }
 
-/// Token 结构
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
     pub kind: TokenKind,
@@ -224,7 +213,6 @@ impl fmt::Display for Token {
     }
 }
 
-/// 检查标识符是否是关键字
 pub fn keyword_or_identifier(text: &str) -> TokenKind {
     match text {
         "module" => TokenKind::Module,

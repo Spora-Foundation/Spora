@@ -1,9 +1,6 @@
-//! CellScript 错误处理模块
-
 use camino::Utf8PathBuf;
 use std::fmt;
 
-/// 源代码位置
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Span {
     pub start: usize,
@@ -28,7 +25,6 @@ impl fmt::Display for Span {
     }
 }
 
-/// 编译错误
 #[derive(Debug, Clone)]
 pub struct CompileError {
     pub message: String,
@@ -87,10 +83,8 @@ impl From<serde_json::Error> for CompileError {
     }
 }
 
-/// 编译结果类型
 pub type Result<T> = std::result::Result<T, CompileError>;
 
-/// 错误报告器
 pub struct ErrorReporter {
     errors: Vec<CompileError>,
     source: String,

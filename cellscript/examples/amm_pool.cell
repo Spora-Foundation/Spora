@@ -1,27 +1,25 @@
-// amm_pool.cell - 恒定乘积 AMM 流动性池
+// amm_pool.cell - Constant Product AMM Liquidity Pool
 
 module spora::amm
 
 use spora::fungible_token::Token
 
-/// LP (流动性提供者) 收据
+/// LP (Liquidity Provider) receipt
 receipt LPReceipt has store {
     pool_id: Hash
     lp_amount: u64
     provider: Address
 }
 
-/// AMM 池 - 恒定乘积 (x * y = k)
 shared Pool has store {
     token_a_symbol: [u8; 8]
     token_b_symbol: [u8; 8]
     reserve_a: u64
     reserve_b: u64
     total_lp: u64
-    fee_rate_bps: u16       // 手续费率 (基点)
+    fee_rate_bps: u16
 }
 
-/// 播种新池
 action seed_pool(
     token_a: Token,
     token_b: Token,
@@ -32,7 +30,6 @@ action seed_pool(
     assert_invariant(token_a.amount > 0 && token_b.amount > 0, "zero liquidity")
     assert_invariant(fee_rate_bps <= 10000, "fee too high")
     
-    // 计算初始 LP 代币数量 (几何平均数)
     let initial_lp = isqrt(token_a.amount * token_b.amount)
     
     consume token_a
@@ -56,7 +53,6 @@ action seed_pool(
     (pool, receipt)
 }
 
-/// 交换代币 A 为代币 B
 action swap_a_for_b(
     pool: &mut Pool,
     input: Token,
@@ -65,11 +61,9 @@ action swap_a_for_b(
 ) -> Token {
     assert_invariant(input.symbol == pool.token_a_symbol, "wrong input token")
     
-    // 计算手续费
     let fee = input.amount * pool.fee_rate_bps as u64 / 10000
     let net_input = input.amount - fee
     
-    // 恒定乘积公式: (reserve_a + net_input) * (reserve_b - output) = reserve_a * reserve_b
     let output = pool.reserve_b * net_input / (pool.reserve_a + net_input)
     
     assert_invariant(output >= min_output, "slippage exceeded")
@@ -77,7 +71,6 @@ action swap_a_for_b(
     
     consume input
     
-    // 更新池状态
     pool.reserve_a = pool.reserve_a + input.amount
     pool.reserve_b = pool.reserve_b - output
 
@@ -87,7 +80,6 @@ action swap_a_for_b(
     } with_lock(to)
 }
 
-/// 添加流动性
 action add_liquidity(
     pool: &mut Pool,
     token_a: Token,
@@ -97,7 +89,6 @@ action add_liquidity(
     assert_invariant(token_a.symbol == pool.token_a_symbol, "wrong token a")
     assert_invariant(token_b.symbol == pool.token_b_symbol, "wrong token b")
     
-    // 计算 LP 代币数量 (按比例)
     let lp_from_a = token_a.amount * pool.total_lp / pool.reserve_a
     let lp_from_b = token_b.amount * pool.total_lp / pool.reserve_b
     let lp_amount = min(lp_from_a, lp_from_b)
@@ -105,7 +96,6 @@ action add_liquidity(
     consume token_a
     consume token_b
     
-    // 更新池状态
     pool.reserve_a = pool.reserve_a + token_a.amount
     pool.reserve_b = pool.reserve_b + token_b.amount
     pool.total_lp = pool.total_lp + lp_amount
@@ -117,7 +107,6 @@ action add_liquidity(
     } with_lock(provider)
 }
 
-/// 移除流动性
 action remove_liquidity(
     pool: &mut Pool,
     receipt: LPReceipt,
@@ -125,13 +114,11 @@ action remove_liquidity(
 ) -> (Token, Token) {
     assert_invariant(receipt.pool_id == pool.type_hash(), "wrong pool")
     
-    // 计算应得代币
     let amount_a = receipt.lp_amount * pool.reserve_a / pool.total_lp
     let amount_b = receipt.lp_amount * pool.reserve_b / pool.total_lp
     
     consume receipt
     
-    // 更新池状态
     pool.reserve_a = pool.reserve_a - amount_a
     pool.reserve_b = pool.reserve_b - amount_b
     pool.total_lp = pool.total_lp - receipt.lp_amount
@@ -149,7 +136,6 @@ action remove_liquidity(
     (token_a, token_b)
 }
 
-/// 整数平方根 (用于计算几何平均数)
 action isqrt(n: u64) -> u64 {
     if n == 0 {
         return 0
@@ -166,7 +152,6 @@ action isqrt(n: u64) -> u64 {
     x
 }
 
-/// 最小值
 action min(a: u64, b: u64) -> u64 {
     if a < b { a } else { b }
 }

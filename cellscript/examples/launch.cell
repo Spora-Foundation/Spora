@@ -1,11 +1,11 @@
-// launch.cell - 代币启动与池播种
+// launch.cell - Token Launch and Pool Seeding
 
 module spora::launch
 
 use spora::fungible_token::{Token, MintAuthority}
 use spora::amm::{Pool, LPReceipt, seed_pool}
 
-/// 启动新代币并播种流动性池
+/// Launch a new token and seed liquidity pool
 action launch_token(
     symbol: [u8; 8],
     max_supply: u64,
@@ -19,20 +19,20 @@ action launch_token(
     assert_invariant(initial_mint <= max_supply, "initial exceeds max")
     assert_invariant(pool_seed_amount <= initial_mint, "pool seed exceeds mint")
     
-    // 计算分发总额
+    // Calculate distribution total
     let dist_total = distribution[0].1 + distribution[1].1 
                    + distribution[2].1 + distribution[3].1
     assert_invariant(dist_total + pool_seed_amount <= initial_mint,
         "allocation exceeds mint")
 
-    // 创建铸造权限
+    // Create mint authority
     let auth = create MintAuthority {
         token_symbol: symbol,
         max_supply: max_supply,
         minted: initial_mint
     } with_lock(creator)
 
-    // 创建分发代币
+    // Create distribution tokens
     for (addr, amount) in distribution {
         if amount > 0 {
             create Token {
@@ -42,13 +42,13 @@ action launch_token(
         }
     }
 
-    // 创建池种子代币
+    // Create pool seed token
     let pool_token = create Token {
         amount: pool_seed_amount,
         symbol: symbol
     } with_lock(creator)
 
-    // 调用池模式 helper 播种池
+    // Call pool pattern helper to seed the pool
     let (pool, lp_receipt) = seed_pool(
         pool_token,
         pool_paired_token,
@@ -59,7 +59,7 @@ action launch_token(
     (auth, pool, lp_receipt)
 }
 
-/// 简单的代币启动 (无流动性池)
+/// Simple token launch (without liquidity pool)
 action simple_launch(
     symbol: [u8; 8],
     max_supply: u64,
@@ -69,21 +69,21 @@ action simple_launch(
 ) -> MintAuthority {
     assert_invariant(initial_mint <= max_supply, "initial exceeds max")
     
-    // 计算分发总额
+    // Calculate distribution total
     let mut total_distributed: u64 = 0
     for (_, amount) in recipients {
         total_distributed = total_distributed + amount
     }
     assert_invariant(total_distributed <= initial_mint, "distribution exceeds mint")
 
-    // 创建铸造权限
+    // Create mint authority
     let auth = create MintAuthority {
         token_symbol: symbol,
         max_supply: max_supply,
         minted: initial_mint
     } with_lock(creator)
 
-    // 分发代币
+    // Distribute tokens
     for (addr, amount) in recipients {
         if amount > 0 {
             create Token {
@@ -93,7 +93,7 @@ action simple_launch(
         }
     }
 
-    // 剩余代币归创建者
+    // Remaining tokens go to creator
     let remaining = initial_mint - total_distributed
     if remaining > 0 {
         create Token {

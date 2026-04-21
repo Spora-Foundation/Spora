@@ -1,32 +1,28 @@
-// vesting.cell - 代币归属协议
 
 module spora::vesting
 
 use spora::fungible_token::Token
 
-/// 归属配置 (共享状态)
 shared VestingConfig has store {
     admin: Address
     token_symbol: [u8; 8]
-    cliff_period: u64          // 悬崖期 (DAA 分数增量)
-    total_vesting_period: u64  // 总归属期
-    revocable: bool            // 是否可撤销
+    cliff_period: u64
+    total_vesting_period: u64
+    revocable: bool
 }
 
-/// 归属授予收据
 #[lifecycle(Granted -> Claimable -> FullyClaimed)]
 receipt VestingGrant has store {
     state: u8                  // 0=Granted, 1=Claimable, 2=FullyClaimed
     beneficiary: Address
     total_amount: u64
     claimed_amount: u64
-    grant_daa_score: u64       // 授予创建时间
-    cliff_daa_score: u64       // 悬崖到达时间
-    end_daa_score: u64         // 完全归属时间
+    grant_daa_score: u64
+    cliff_daa_score: u64
+    end_daa_score: u64
     token_symbol: [u8; 8]
 }
 
-/// 创建归属配置
 action create_vesting_config(
     admin: Address,
     token_symbol: [u8; 8],
@@ -45,7 +41,6 @@ action create_vesting_config(
     } with_lock(admin)
 }
 
-/// 授予归属代币
 action grant_vesting(
     config: read_ref VestingConfig,
     tokens: Token,
@@ -56,7 +51,7 @@ action grant_vesting(
     
     let now = env::current_daa_score()
     
-    consume tokens  // 锁定代币
+    consume tokens
     
     create VestingGrant {
         state: 0,  // Granted
@@ -70,14 +65,12 @@ action grant_vesting(
     } with_lock(beneficiary)
 }
 
-/// 认领已归属代币
 action claim_vested(grant: VestingGrant) -> (Token, VestingGrant) {
     let now = env::current_daa_score()
     
     assert_invariant(now >= grant.cliff_daa_score, "cliff not reached")
     assert_invariant(grant.state < 2, "already fully claimed")
     
-    // 计算已归属总额 (线性插值)
     let vested_total = if now >= grant.end_daa_score {
         grant.total_amount
     } else {
@@ -91,7 +84,6 @@ action claim_vested(grant: VestingGrant) -> (Token, VestingGrant) {
     
     consume grant
     
-    // 确定新状态
     let new_state: u8 = if vested_total == grant.total_amount { 2 } else { 1 }
     
     let tokens = create Token {
@@ -113,7 +105,6 @@ action claim_vested(grant: VestingGrant) -> (Token, VestingGrant) {
     (tokens, updated_grant)
 }
 
-/// 撤销未归属代币 (仅管理员)
 action revoke_grant(
     config: read_ref VestingConfig,
     grant: VestingGrant,
@@ -124,7 +115,6 @@ action revoke_grant(
     
     let now = env::current_daa_score()
     
-    // 计算已赚取金额
     let vested = if now >= grant.end_daa_score {
         grant.total_amount
     } else if now >= grant.cliff_daa_score {
@@ -140,13 +130,11 @@ action revoke_grant(
     
     consume grant
     
-    // 员工获得已归属部分
     let employee_tokens = create Token {
         amount: unclaimed_vested,
         symbol: grant.token_symbol
     } with_lock(grant.beneficiary)
     
-    // 管理员收回未归属部分
     let admin_tokens = create Token {
         amount: unvested,
         symbol: grant.token_symbol

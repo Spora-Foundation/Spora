@@ -28,7 +28,9 @@ check_trailing_whitespace() {
         "docs/CELLSCRIPT_RELEASE_CHECKLIST.md"
         "docs/CELLSCRIPT_V1_FEATURE_COMPLETENESS_AUDIT.md"
         "docs/CELLSCRIPT_V1_RELEASE_SCOPE.md"
+        "docs/SPORA_CELLSCRIPT_DEVNET_ACCEPTANCE_PLAN.md"
         "scripts/cellscript_phase4_release_gate.sh"
+        "scripts/ckb_cellscript_acceptance.sh"
         "cellscript/src/docgen/mod.rs"
         "cellscript/src/lsp/mod.rs"
         "cellscript/src/package/mod.rs"
@@ -170,6 +172,13 @@ check_v1_ckb_compatibility_decision() {
         "Phase F is implemented for the v1 pure subset covered by the release gate"
         "Phase G is implemented for the v1 pure subset"
         "The remaining post-v1 tasks implied by the plan are"
+        "2026-04-21 CKB Local Devnet Acceptance"
+        "scripts/ckb_cellscript_acceptance.sh"
+        "On-chain status: passed."
+        "bundled_examples_exact_order"
+        "strict_original_ckb_compile_policy_fail_closed"
+        "strict_original_ckb_compile_unexpected_failures = []"
+        "onchain.all_artifacts_deployed_and_spent = true"
     )
     local forbidden=(
         "not yet a real CKB artifact profile"
@@ -315,6 +324,10 @@ check_v1_release_process_docs() {
         'docs/CELLSCRIPT_EXECUTION_PHASES.md::Release-v1 can remain closed only if these surfaces stay outside the v1 core'
         'docs/CELLSCRIPT_EXECUTION_PHASES.md::feature-completeness, the feature matrix, CKB-compatibility decision, status-doc'
         'docs/CELLSCRIPT_EXECUTION_PHASES.md::boundaries, and public README overclaim boundaries'
+        'docs/SPORA_CELLSCRIPT_DEVNET_ACCEPTANCE_PLAN.md::CKB 本地集成 devnet 验收'
+        'docs/SPORA_CELLSCRIPT_DEVNET_ACCEPTANCE_PLAN.md::scripts/ckb_cellscript_acceptance.sh'
+        'docs/SPORA_CELLSCRIPT_DEVNET_ACCEPTANCE_PLAN.md::InsufficientCellCapacity(Outputs[0])'
+        'docs/SPORA_CELLSCRIPT_DEVNET_ACCEPTANCE_PLAN.md::strict_original_ckb_compile_unexpected_failures == []'
     )
     local forbidden=(
         "because it validates the release-scope boundary before running the full gate"
@@ -323,6 +336,7 @@ check_v1_release_process_docs() {
     local docs=(
         "docs/CELLSCRIPT_RELEASE_CHECKLIST.md"
         "docs/CELLSCRIPT_EXECUTION_PHASES.md"
+        "docs/SPORA_CELLSCRIPT_DEVNET_ACCEPTANCE_PLAN.md"
     )
 
     local item file pattern
@@ -394,9 +408,17 @@ check_v1_code_boundaries() {
         'cellscript/src/codegen/mod.rs::const SPORA_LOAD_ECDSA_SIGNATURE_HASH_SYSCALL_NUMBER: u64 = 3004;'
         'cellscript/src/codegen/mod.rs::source_group_input: CKB_SOURCE_GROUP_FLAG | CKB_SOURCE_INPUT'
         'cellscript/src/codegen/mod.rs::source_group_output: CKB_SOURCE_GROUP_FLAG | CKB_SOURCE_OUTPUT'
+        'cellscript/src/codegen/mod.rs::fn assembly_with_external_call_stubs'
+        'cellscript/src/codegen/mod.rs::fn encode_large_li_sequence'
+        'cellscript/src/codegen/mod.rs::fn emit_entry_direct_wrapper'
         'cellscript/src/lib.rs::const VM_ABI_TRAILER_MAGIC: &[u8; 8] = b"SPORABI\0";'
+        'cellscript/src/lib.rs::const CKB_ACCEPTANCE_SMOKE_POLICY_BYPASS_ENV'
+        'cellscript/src/lib.rs::fn ckb_acceptance_smoke_policy_bypass_allowed_for_env'
         'cellscript/src/lib.rs::scheduler_witness_borsh_hex is not public scheduler witness metadata'
         'cellscript/src/lib.rs::fn compile_rejects_spora_claim_signature_helpers_under_ckb_profile()'
+        'cellscript/src/lib.rs::fn compile_lowers_ckb_group_source_large_immediate_to_riscv_elf()'
+        'cellscript/src/lib.rs::fn ckb_acceptance_smoke_policy_bypass_requires_explicit_env_and_no_arg_u64_main()'
+        'cellscript/src/lib.rs::fn compile_prefers_no_arg_main_for_entry_wrapper()'
         'cellscript/src/cli/commands.rs::fn validate_expected_target_profile'
         'cellscript/src/cli/commands.rs::expect_target_profile: m.get_one::<String>("expect-target-profile").cloned(),'
         'cellscript/src/cli/commands.rs::fn prune_locked_dependencies(removed: &[String]) -> Result<()>'
@@ -411,6 +433,20 @@ check_v1_code_boundaries() {
         'wallet/core/src/wasm/tx/generator/generator.rs::headerDeps'
         'wallet/core/src/wasm/tx/generator/generator.rs::cellDeps'
         'wallet/core/src/wasm/tx/generator/generator.rs::ckbTypeIdOutputs'
+        'scripts/ckb_cellscript_acceptance.sh::Usage: scripts/ckb_cellscript_acceptance.sh [--ckb-repo <path>] [--ckb-bin <path>] [--compile-only]'
+        'scripts/ckb_cellscript_acceptance.sh::artifact_has_sporabi_trailer'
+        'scripts/ckb_cellscript_acceptance.sh::collect_spendable_cellbases'
+        'scripts/ckb_cellscript_acceptance.sh::ckb-default-hash'
+        'scripts/ckb_cellscript_acceptance.sh::dry_run_transaction'
+        'scripts/ckb_cellscript_acceptance.sh::bundled_examples_exact_order'
+        'scripts/ckb_cellscript_acceptance.sh::strict_original_ckb_compile_policy_fail_closed'
+        'scripts/ckb_cellscript_acceptance.sh::strict_original_ckb_compile_unexpected_failures'
+        'scripts/ckb_cellscript_acceptance.sh::acceptance_smoke_policy_bypass'
+        'scripts/ckb_cellscript_acceptance.sh::all_artifacts_deployed_and_spent'
+        'scripts/ckb_cellscript_acceptance.sh::malformed_spend_without_code_dep'
+        'scripts/ckb_cellscript_acceptance.sh::policy_or_capacity_reason'
+        'scripts/ckb_cellscript_acceptance.sh::send_test_transaction'
+        'scripts/ckb_cellscript_acceptance.sh::valid_spend_dry_run'
     )
     local forbidden=(
         "const CKB_SECP256K1_VERIFY_SYSCALL_NUMBER"
@@ -430,6 +466,7 @@ check_v1_code_boundaries() {
         "cellscript/tests/cli.rs"
         "wallet/core/src/tx/generator/settings.rs"
         "wallet/core/src/wasm/tx/generator/generator.rs"
+        "scripts/ckb_cellscript_acceptance.sh"
     )
 
     local item file pattern
@@ -461,6 +498,7 @@ run_quick_gate() {
     run cargo test -p spora-wallet-core cellscript -- --nocapture
     run cargo test -p spora-wallet-core ckb_type_id -- --nocapture
     run cargo test -p spora-wallet-core generator_settings_cell_and_header_deps_are_included_in_unsigned_transactions -- --nocapture
+    run ./scripts/ckb_cellscript_acceptance.sh --compile-only
     run git diff --check
     check_trailing_whitespace
 }
@@ -481,6 +519,7 @@ run_full_gate() {
     run cargo test -p spora-wallet-core generator_settings_cell_and_header_deps_are_included_in_unsigned_transactions -- --nocapture
     run cargo test -p spora-wallet-core attach_cellscript_compiled_scheduler_witness -- --nocapture
     run cargo test -p spora-mining scheduler -- --nocapture --test-threads=1
+    run ./scripts/ckb_cellscript_acceptance.sh --compile-only
     run git diff --check
     check_trailing_whitespace
 }

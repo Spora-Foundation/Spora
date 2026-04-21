@@ -1,13 +1,10 @@
-//! Spora IR - 中级表示
 //!
-//! 将 AST 转换为显式 Cell 操作的中间表示
 
 use crate::ast::*;
 use crate::error::{CompileError, Result, Span};
 use crate::resolve::{FunctionDef, ModuleResolver, TypeDef};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-/// Spora IR 模块
 #[derive(Debug, Clone)]
 pub struct IrModule {
     pub name: String,
@@ -23,7 +20,6 @@ pub struct IrCallableAbi {
     pub type_hash_param_indices: BTreeSet<usize>,
 }
 
-/// IR 模块项
 #[derive(Debug, Clone)]
 pub enum IrItem {
     TypeDef(IrTypeDef),
@@ -32,7 +28,6 @@ pub enum IrItem {
     Lock(IrLock),
 }
 
-/// IR 类型定义
 #[derive(Debug, Clone)]
 pub struct IrTypeDef {
     pub name: String,
@@ -53,7 +48,6 @@ pub struct IrLifecycleRule {
     pub to_index: usize,
 }
 
-/// IR 类型种类
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IrTypeKind {
     Resource,
@@ -62,7 +56,6 @@ pub enum IrTypeKind {
     Struct,
 }
 
-/// IR 字段
 #[derive(Debug, Clone)]
 pub struct IrField {
     pub name: String,
@@ -71,7 +64,6 @@ pub struct IrField {
     pub fixed_size: Option<usize>,
 }
 
-/// IR 类型
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum IrType {
     U8,
@@ -118,7 +110,6 @@ pub struct IrLock {
     pub body: IrBody,
 }
 
-/// IR 参数
 #[derive(Debug, Clone)]
 pub struct IrParam {
     pub name: String,
@@ -129,7 +120,6 @@ pub struct IrParam {
     pub binding: IrVar,
 }
 
-/// IR 函数体
 #[derive(Debug, Clone)]
 pub struct IrBody {
     pub consume_set: Vec<CellPattern>,
@@ -140,7 +130,6 @@ pub struct IrBody {
     pub blocks: Vec<IrBlock>,
 }
 
-/// Cell 模式
 #[derive(Debug, Clone)]
 pub struct CellPattern {
     pub operation: String,
@@ -149,7 +138,6 @@ pub struct CellPattern {
     pub fields: Vec<(String, IrOperand)>,
 }
 
-/// 创建模式
 #[derive(Debug, Clone)]
 pub struct CreatePattern {
     pub operation: String,
@@ -159,7 +147,6 @@ pub struct CreatePattern {
     pub lock: Option<IrOperand>,
 }
 
-/// 可变 Cell 参数写入摘要
 #[derive(Debug, Clone)]
 pub struct MutatePattern {
     pub operation: String,
@@ -190,7 +177,6 @@ pub enum WriteIntentSource {
     ReplacementOutput,
 }
 
-/// 可变 Cell 字段转换摘要
 #[derive(Debug, Clone)]
 pub struct MutateFieldTransition {
     pub field: String,
@@ -204,7 +190,6 @@ pub enum MutateTransitionOp {
     Sub,
 }
 
-/// IR 基本块
 #[derive(Debug, Clone)]
 pub struct IrBlock {
     pub id: BlockId,
@@ -212,60 +197,35 @@ pub struct IrBlock {
     pub terminator: IrTerminator,
 }
 
-/// 基本块 ID
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockId(pub usize);
 
-/// IR 指令
 #[derive(Debug, Clone)]
 pub enum IrInstruction {
-    /// 加载常量
     LoadConst { dest: IrVar, value: IrConst },
-    /// 加载变量
     LoadVar { dest: IrVar, name: String },
-    /// 存储变量
     StoreVar { name: String, src: IrOperand },
-    /// 二元运算
     Binary { dest: IrVar, op: BinaryOp, left: IrOperand, right: IrOperand },
-    /// 一元运算
     Unary { dest: IrVar, op: UnaryOp, operand: IrOperand },
-    /// 字段访问
     FieldAccess { dest: IrVar, obj: IrOperand, field: String },
-    /// 数组索引
     Index { dest: IrVar, arr: IrOperand, idx: IrOperand },
-    /// 读取集合长度
     Length { dest: IrVar, operand: IrOperand },
-    /// 获取对象/资源 type hash
     TypeHash { dest: IrVar, operand: IrOperand },
-    /// 创建空集合
     CollectionNew { dest: IrVar, ty: String },
-    /// 集合追加单个元素
     CollectionPush { collection: IrOperand, value: IrOperand },
-    /// 集合追加一段切片
     CollectionExtend { collection: IrOperand, slice: IrOperand },
-    /// 调用函数
     Call { dest: Option<IrVar>, func: String, args: Vec<IrOperand> },
-    /// 读取共享/依赖状态引用
     ReadRef { dest: IrVar, ty: String },
-    /// 在变量槽之间移动值
     Move { dest: IrVar, src: IrOperand },
-    /// 构造固定 tuple aggregate，保留字段到 aggregate 的关系供 ABI/codegen 使用
     Tuple { dest: IrVar, fields: Vec<IrOperand> },
-    /// 消费资源
     Consume { operand: IrOperand },
-    /// 创建资源
     Create { dest: IrVar, pattern: CreatePattern },
-    /// 转移资源
     Transfer { dest: IrVar, operand: IrOperand, to: IrOperand },
-    /// 销毁资源
     Destroy { operand: IrOperand },
-    /// 声明收据
     Claim { dest: IrVar, receipt: IrOperand },
-    /// 结算
     Settle { dest: IrVar, operand: IrOperand },
 }
 
-/// IR 变量
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IrVar {
     pub id: usize,
@@ -273,14 +233,12 @@ pub struct IrVar {
     pub ty: IrType,
 }
 
-/// IR 操作数
 #[derive(Debug, Clone)]
 pub enum IrOperand {
     Var(IrVar),
     Const(IrConst),
 }
 
-/// IR 常量
 #[derive(Debug, Clone)]
 pub enum IrConst {
     Unit,
@@ -295,40 +253,26 @@ pub enum IrConst {
     Array(Vec<IrConst>),
 }
 
-/// IR 终止指令
 #[derive(Debug, Clone)]
 pub enum IrTerminator {
-    /// 返回
     Return(Option<IrOperand>),
-    /// 跳转到另一个块
     Jump(BlockId),
-    /// 条件分支
     Branch { cond: IrOperand, then_block: BlockId, else_block: BlockId },
 }
 
-/// 效果类别
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EffectClass {
-    /// 纯计算，无 Cell 操作
     Pure,
-    /// 只读，通过 CellDep 读取 Cell
     ReadOnly,
-    /// 修改，消费和创建 Cell
     Mutating,
-    /// 只创建，不消费输入
     Creating,
-    /// 只销毁，不创建输出
     Destroying,
 }
 
-/// 调度器提示
 #[derive(Debug, Clone)]
 pub struct SchedulerHints {
-    /// 是否可以并行
     pub parallelizable: bool,
-    /// 接触的共享对象 type_hashes
     pub touches_shared: Vec<[u8; 32]>,
-    /// 估计的周期成本
     pub estimated_cycles: u64,
 }
 
@@ -345,7 +289,6 @@ struct EffectFootprint {
     has_create: bool,
 }
 
-/// IR 生成器
 pub struct IrGenerator {
     module: IrModule,
     var_counter: usize,
@@ -374,7 +317,6 @@ struct LoweredExpr {
 }
 
 impl IrGenerator {
-    /// 创建新的 IR 生成器
     pub fn new(module_name: String) -> Self {
         Self {
             module: IrModule {
@@ -426,7 +368,6 @@ impl IrGenerator {
         generator
     }
 
-    /// 生成 IR
     pub fn generate(mut self, ast: &Module) -> Result<IrModule> {
         for item in &ast.items {
             if let Item::Const(c) = item {
@@ -533,7 +474,6 @@ impl IrGenerator {
         }
     }
 
-    /// 生成 resource 定义
     fn gen_resource(&mut self, resource: &ResourceDef) -> IrTypeDef {
         IrTypeDef {
             name: resource.name.clone(),
@@ -547,7 +487,6 @@ impl IrGenerator {
         }
     }
 
-    /// 生成 shared 定义
     fn gen_shared(&mut self, shared: &SharedDef) -> IrTypeDef {
         IrTypeDef {
             name: shared.name.clone(),
@@ -561,7 +500,6 @@ impl IrGenerator {
         }
     }
 
-    /// 生成 receipt 定义
     fn gen_receipt(&mut self, receipt: &ReceiptDef) -> IrTypeDef {
         IrTypeDef {
             name: receipt.name.clone(),
@@ -579,7 +517,6 @@ impl IrGenerator {
         }
     }
 
-    /// 生成 struct 定义
     fn gen_struct(&mut self, struct_def: &StructDef) -> IrTypeDef {
         IrTypeDef {
             name: struct_def.name.clone(),
@@ -653,7 +590,6 @@ impl IrGenerator {
         }
     }
 
-    /// 生成纯函数
     fn gen_function(&mut self, function: &FnDef) -> IrPureFn {
         self.var_counter = 0;
         self.block_counter = 0;
@@ -721,7 +657,6 @@ impl IrGenerator {
         }
     }
 
-    /// 生成 action
     fn gen_action(&mut self, action: &ActionDef) -> IrAction {
         self.var_counter = 0;
         self.block_counter = 0;
@@ -771,7 +706,6 @@ impl IrGenerator {
         }
     }
 
-    /// 生成 lock
     fn gen_lock(&mut self, lock: &LockDef) -> IrLock {
         self.var_counter = 0;
         self.block_counter = 0;
@@ -786,7 +720,6 @@ impl IrGenerator {
         IrLock { name: lock.name.clone(), params, body }
     }
 
-    /// 转换类型
     fn convert_type(&self, ty: &Type) -> IrType {
         match ty {
             Type::U8 => IrType::U8,
@@ -806,7 +739,6 @@ impl IrGenerator {
         }
     }
 
-    /// 分析效果类别
     fn analyze_effect_class(&self, action: &ActionDef) -> EffectClass {
         self.analyze_body_effect_class(&action.body)
     }
@@ -838,7 +770,6 @@ impl IrGenerator {
         }
     }
 
-    /// 检查语句效果
     fn check_stmt_effects(&self, stmt: &Stmt, footprint: &mut EffectFootprint) {
         match stmt {
             Stmt::Expr(expr) | Stmt::Let(LetStmt { value: expr, .. }) => {
@@ -874,7 +805,6 @@ impl IrGenerator {
         }
     }
 
-    /// 检查表达式效果
     fn check_expr_effects(&self, expr: &Expr, footprint: &mut EffectFootprint) {
         match expr {
             Expr::Consume(consume) => {
@@ -1723,14 +1653,12 @@ impl IrGenerator {
         }
     }
 
-    /// 创建新变量
     fn new_var(&mut self, name: impl Into<String>, ty: IrType) -> IrVar {
         let id = self.var_counter;
         self.var_counter += 1;
         IrVar { id, name: name.into(), ty }
     }
 
-    /// 创建新基本块
     fn new_block(&mut self) -> BlockId {
         let id = BlockId(self.block_counter);
         self.block_counter += 1;
@@ -3160,7 +3088,6 @@ fn inline_ir_type_repr(ty: &IrType) -> Option<String> {
     }
 }
 
-/// 生成 IR 的入口函数
 pub fn generate(ast: &Module) -> Result<IrModule> {
     let generator = IrGenerator::new(ast.name.clone());
     generator.generate(ast)

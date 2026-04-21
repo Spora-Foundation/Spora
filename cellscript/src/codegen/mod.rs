@@ -1,6 +1,4 @@
-//! RISC-V 代码生成器
 //!
-//! 将 Spora IR 转换为 RISC-V 汇编或 ELF 产物
 
 use crate::ast::{BinaryOp, UnaryOp};
 use crate::error::{CompileError, Result};
@@ -317,12 +315,9 @@ struct EntryWitnessPayloadArg {
     unsupported: bool,
 }
 
-/// 代码生成选项
 #[derive(Debug, Clone)]
 pub struct CodegenOptions {
-    /// 优化级别
     pub opt_level: u8,
-    /// 是否生成调试信息
     pub debug: bool,
     /// Artifact target profile. Spora remains the default; CKB selects the
     /// parent CKB syscall/source ABI for the supported pure subset.
@@ -335,16 +330,11 @@ impl Default for CodegenOptions {
     }
 }
 
-/// 代码生成器
 pub struct CodeGenerator {
     options: CodegenOptions,
-    /// 生成的汇编代码
     assembly: Vec<String>,
-    /// 当前函数名
     current_function: Option<String>,
-    /// 当前栈帧大小
     frame_size: usize,
-    /// 逻辑输出句柄计数器
     next_virtual_output: usize,
     /// Stack-frame start offset for runtime collection buffers.
     collection_region_start: usize,
@@ -415,7 +405,6 @@ pub struct CodeGenerator {
 }
 
 impl CodeGenerator {
-    /// 创建新的代码生成器
     pub fn new(options: CodegenOptions) -> Self {
         Self {
             options,
@@ -463,7 +452,6 @@ impl CodeGenerator {
         runtime_syscall_abi(self.options.target_profile)
     }
 
-    /// 生成代码
     pub fn generate(mut self, ir: &IrModule, format: ArtifactFormat) -> Result<Vec<u8>> {
         let has_entrypoint = ir.items.iter().any(|item| matches!(item, IrItem::Action(_) | IrItem::Lock(_)));
         for item in &ir.items {
@@ -476,20 +464,19 @@ impl CodeGenerator {
         }
         self.register_callable_abis(ir);
 
-        // 生成文件头
         self.emit_header();
 
-        // 生成类型定义（数据段）
         for item in &ir.items {
             if let IrItem::TypeDef(type_def) = item {
                 self.generate_type_def(type_def)?;
             }
         }
 
-        // 生成代码段
         self.emit_section(".text");
         if let Some((entry_name, entry_params)) = first_entrypoint(ir) {
-            if !entry_params.is_empty() {
+            if entry_params.is_empty() {
+                self.emit_entry_direct_wrapper(entry_name);
+            } else {
                 self.emit_entry_witness_wrapper(entry_name, entry_params)?;
             }
         }
@@ -515,14 +502,11 @@ impl CodeGenerator {
             }
         }
 
-        // 生成运行时支持函数
         self.generate_runtime_support();
 
-        // 组装为汇编产物
         self.assemble(format)
     }
 
-    /// 生成文件头
     fn emit_header(&mut self) {
         self.assembly.push("# CellScript Generated Assembly".to_string());
         self.assembly.push(format!("# opt_level={}, debug={}", self.options.opt_level, self.options.debug));
@@ -530,29 +514,32 @@ impl CodeGenerator {
         self.assembly.push("".to_string());
     }
 
-    /// 生成段声明
     fn emit_section(&mut self, section: &str) {
         self.assembly.push(format!(".section {}", section));
     }
 
-    /// 生成全局符号
     fn emit_global(&mut self, name: &str) {
         self.assembly.push(format!(".global {}", name));
         self.assembly.push(format!(".type {}, @function", name));
     }
 
-    /// 生成标签
     fn emit_label(&mut self, name: &str) {
         self.assembly.push(format!("{}:", name));
     }
 
-    /// 生成指令
     fn emit(&mut self, instruction: impl Into<String>) {
         self.assembly.push(format!("    {}", instruction.into()));
     }
 
     fn emit_entry_abi_marker(&mut self, name: &str) {
         self.assembly.push(format!("# cellscript entry abi: {} requires-explicit-parameter-abi", name));
+    }
+
+    fn emit_entry_direct_wrapper(&mut self, target: &str) {
+        self.emit_global(ENTRY_WITNESS_LABEL);
+        self.emit_label(ENTRY_WITNESS_LABEL);
+        self.emit(format!("# cellscript entry abi: {} tail-calls no-arg {}", ENTRY_WITNESS_LABEL, target));
+        self.emit(format!("j {}", target));
     }
 
     fn emit_entry_witness_wrapper(&mut self, target: &str, params: &[IrParam]) -> Result<()> {
@@ -685,23 +672,16 @@ impl CodeGenerator {
         }
     }
 
-    /// 生成类型定义
     fn generate_type_def(&mut self, type_def: &IrTypeDef) -> Result<()> {
-        // 生成类型布局描述符
         self.emit_section(".rodata");
         self.emit_label(&format!("__type_desc_{}", type_def.name));
 
-        // 类型描述符：字段数量 + 字段信息
         self.emit(format!(".word {}", type_def.fields.len()));
 
         for field in &type_def.fields {
-            // 字段名长度
             self.emit(format!(".byte {}", field.name.len()));
-            // 字段名
             self.emit(format!(".ascii \"{}\"", field.name));
-            // 对齐
             self.emit(".align 3");
-            // 字段类型标识
             self.emit(format!(".word {}", self.type_id(&field.ty)));
         }
 
@@ -758,7 +738,6 @@ impl CodeGenerator {
         }
     }
 
-    /// 获取类型 ID
     fn type_id(&self, ty: &IrType) -> u32 {
         match ty {
             IrType::U8 => 1,
@@ -778,7 +757,6 @@ impl CodeGenerator {
         }
     }
 
-    /// 生成 action
     fn generate_action(&mut self, action: &IrAction) -> Result<()> {
         self.current_function = Some(action.name.clone());
         self.prepare_function_layout(&action.body, &action.params);
@@ -795,11 +773,9 @@ impl CodeGenerator {
         self.emit_global(&action.name);
         self.emit_label(&action.name);
 
-        // 函数序言
         self.emit_prologue();
         self.emit_param_spills(&action.params)?;
 
-        // 生成函数体
         self.generate_body(&action.body)?;
 
         self.current_function = None;
@@ -824,7 +800,6 @@ impl CodeGenerator {
         Ok(())
     }
 
-    /// 生成 pure helper function
     fn generate_pure_fn(&mut self, function: &IrPureFn) -> Result<()> {
         self.current_function = Some(function.name.clone());
         self.prepare_function_layout(&function.body, &function.params);
@@ -864,7 +839,6 @@ impl CodeGenerator {
         Ok(())
     }
 
-    /// 生成 lock
     fn generate_lock(&mut self, lock: &IrLock) -> Result<()> {
         self.current_function = Some(lock.name.clone());
         self.prepare_function_layout(&lock.body, &lock.params);
@@ -881,11 +855,9 @@ impl CodeGenerator {
         self.emit_global(&lock.name);
         self.emit_label(&lock.name);
 
-        // 函数序言
         self.emit_prologue();
         self.emit_param_spills(&lock.params)?;
 
-        // 生成函数体
         self.generate_body(&lock.body)?;
 
         self.current_function = None;
@@ -1183,15 +1155,12 @@ impl CodeGenerator {
         }
     }
 
-    /// 生成函数体
     fn generate_body(&mut self, body: &IrBody) -> Result<()> {
-        // 处理 consume_set
         for (index, pattern) in body.consume_set.iter().enumerate() {
             self.generate_consume(pattern, index)?;
         }
         self.emit_pool_seed_token_pair_identity_check(body);
 
-        // 处理 read_refs
         for (index, pattern) in body.read_refs.iter().enumerate() {
             self.generate_read_ref(pattern, index)?;
         }
@@ -1209,7 +1178,6 @@ impl CodeGenerator {
             self.generate_mutate_replacement(pattern)?;
         }
 
-        // 生成基本块
         for block in &body.blocks {
             self.generate_block(block)?;
         }
@@ -1217,7 +1185,6 @@ impl CodeGenerator {
         Ok(())
     }
 
-    /// 生成 consume 代码
     fn generate_consume(&mut self, pattern: &CellPattern, index: usize) -> Result<()> {
         self.emit(format!("# {} input {}", pattern.operation, pattern.binding));
         if let Some(var_id) = self.consume_order.get(index).copied() {
@@ -1258,7 +1225,6 @@ impl CodeGenerator {
         Ok(())
     }
 
-    /// 生成 read_ref 代码
     fn generate_read_ref(&mut self, pattern: &CellPattern, index: usize) -> Result<()> {
         self.emit(format!("# read_ref {}", pattern.binding));
         if let Some(var_id) = self.read_ref_order.get(index).copied() {
@@ -1286,7 +1252,6 @@ impl CodeGenerator {
         Ok(())
     }
 
-    /// 生成 create 代码
     fn generate_create(&mut self, pattern: &CreatePattern, index: usize) -> Result<()> {
         // The verifier cannot create cells inside CKB-VM; it can only verify the
         // transaction output selected by the lowering metadata.
@@ -1294,7 +1259,6 @@ impl CodeGenerator {
         self.emit_load_cell_data_syscall(&pattern.operation, CKB_SOURCE_OUTPUT, index);
         self.emit_return_on_syscall_error(1);
 
-        // 如果有 lock 脚本，设置 lock
         if pattern.lock.is_some() {
             self.emit("# set lock script");
         }
@@ -1339,7 +1303,6 @@ impl CodeGenerator {
         Ok(())
     }
 
-    /// 生成基本块
     fn generate_block(&mut self, block: &IrBlock) -> Result<()> {
         self.emit_label(&format!(".L{}_block_{}", self.current_function.as_deref().unwrap_or("fn"), block.id.0));
 
@@ -1352,7 +1315,6 @@ impl CodeGenerator {
         Ok(())
     }
 
-    /// 生成指令
     fn generate_instruction(&mut self, instruction: &IrInstruction) -> Result<()> {
         match instruction {
             IrInstruction::LoadConst { dest, value } => {
@@ -1425,7 +1387,6 @@ impl CodeGenerator {
         Ok(())
     }
 
-    /// 生成终止指令
     fn generate_terminator(&mut self, terminator: &IrTerminator) -> Result<()> {
         match terminator {
             IrTerminator::Return(None) => {
@@ -1480,18 +1441,14 @@ impl CodeGenerator {
         Ok(())
     }
 
-    /// 函数序言
     fn emit_prologue(&mut self) {
-        // 保存返回地址和帧指针
         self.emit_large_addi("sp", "sp", -(self.frame_size as i64));
         self.emit_stack_sd("ra", self.frame_size - 8);
         self.emit_stack_sd("fp", self.frame_size - 16);
         self.emit_sp_addi("fp", self.frame_size);
     }
 
-    /// 函数尾声
     fn emit_epilogue(&mut self) {
-        // 恢复返回地址和帧指针
         self.emit_stack_ld("ra", self.frame_size - 8);
         self.emit_stack_ld("fp", self.frame_size - 16);
         self.emit_large_addi("sp", "sp", self.frame_size as i64);
@@ -3349,7 +3306,6 @@ impl CodeGenerator {
         *max_var_id = Some(max_var_id.map(|current| current.max(var.id)).unwrap_or(var.id));
     }
 
-    /// 加载常量
     fn emit_load_const(&mut self, dest: &IrVar, value: &IrConst) -> Result<()> {
         match value {
             IrConst::Unit => self.emit("li t0, 0"),
@@ -3358,33 +3314,27 @@ impl CodeGenerator {
             IrConst::U32(n) => self.emit(format!("li t0, {}", n)),
             IrConst::U64(n) => self.emit(format!("li t0, {}", n)),
             IrConst::U128(_) => {
-                // u128 需要两个寄存器
                 self.emit("li t0, 0");
                 self.emit("li t1, 0");
             }
             IrConst::Bool(b) => self.emit(format!("li t0, {}", if *b { 1 } else { 0 })),
             IrConst::Address(_) | IrConst::Hash(_) => {
-                // 加载地址/哈希（32字节）
                 self.emit("la t0, __const_data");
             }
             IrConst::Array(_) => {
                 self.emit("la t0, __const_data");
             }
         }
-        // 存储到栈
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
         Ok(())
     }
 
-    /// 加载变量
     fn emit_load_var(&mut self, dest: &IrVar, name: &str) -> Result<()> {
-        // 简化处理：假设变量在栈上
         self.emit(format!("# load var {}", name));
         self.emit(format!("ld t0, {}(sp)", dest.id * 8));
         Ok(())
     }
 
-    /// 存储变量
     fn emit_store_var(&mut self, name: &str, src: &IrOperand) -> Result<()> {
         self.emit(format!("# store var {}", name));
         match src {
@@ -3399,7 +3349,6 @@ impl CodeGenerator {
         Ok(())
     }
 
-    /// 二元运算
     fn emit_binary(&mut self, dest: &IrVar, op: BinaryOp, left: &IrOperand, right: &IrOperand) -> Result<()> {
         if matches!(op, BinaryOp::Eq | BinaryOp::Ne)
             && (operand_fixed_byte_width(left).is_some() || operand_fixed_byte_width(right).is_some())
@@ -3418,21 +3367,18 @@ impl CodeGenerator {
             return Ok(());
         }
 
-        // 加载左操作数
         match left {
             IrOperand::Const(IrConst::U64(n)) => self.emit(format!("li t0, {}", n)),
             IrOperand::Var(v) => self.emit(format!("ld t0, {}(sp)", v.id * 8)),
             _ => self.emit("li t0, 0"),
         }
 
-        // 加载右操作数
         match right {
             IrOperand::Const(IrConst::U64(n)) => self.emit(format!("li t1, {}", n)),
             IrOperand::Var(v) => self.emit(format!("ld t1, {}(sp)", v.id * 8)),
             _ => self.emit("li t1, 0"),
         }
 
-        // 执行运算
         match op {
             BinaryOp::Add => self.emit("add t0, t0, t1"),
             BinaryOp::Sub => self.emit("sub t0, t0, t1"),
@@ -3461,14 +3407,11 @@ impl CodeGenerator {
             BinaryOp::Or => self.emit("or t0, t0, t1"),
         }
 
-        // 存储结果
         self.emit(format!("sd t0, {}(sp)", dest.id * 8));
         Ok(())
     }
 
-    /// 一元运算
     fn emit_unary(&mut self, dest: &IrVar, op: UnaryOp, operand: &IrOperand) -> Result<()> {
-        // 加载操作数
         match operand {
             IrOperand::Const(IrConst::U64(n)) => self.emit(format!("li t0, {}", n)),
             IrOperand::Var(v) => self.emit(format!("ld t0, {}(sp)", v.id * 8)),
@@ -3485,7 +3428,6 @@ impl CodeGenerator {
         Ok(())
     }
 
-    /// 字段访问
     fn emit_field_access(&mut self, dest: &IrVar, obj: &IrOperand, field: &str) -> Result<()> {
         if self.emit_schema_field_access(dest, obj, field) {
             return Ok(());
@@ -3631,7 +3573,6 @@ impl CodeGenerator {
         true
     }
 
-    /// 数组索引
     fn emit_index(&mut self, dest: &IrVar, arr: &IrOperand, idx: &IrOperand) -> Result<()> {
         if self.emit_fixed_aggregate_index(dest, arr, idx) {
             return Ok(());
@@ -3927,7 +3868,6 @@ impl CodeGenerator {
         Ok(())
     }
 
-    /// 函数调用
     fn emit_call(&mut self, dest: Option<&IrVar>, func: &str, args: &[IrOperand]) -> Result<()> {
         if func.contains("::") {
             return Err(CompileError::new(
@@ -3954,10 +3894,8 @@ impl CodeGenerator {
             }
         }
 
-        // 调用
         self.emit(format!("call {}", func));
 
-        // 保存返回值
         if let Some(d) = dest {
             if let IrType::Tuple(items) = &d.ty {
                 self.emit(format!("sd a0, {}(sp)", d.id * 8));
@@ -4396,7 +4334,6 @@ impl CodeGenerator {
         true
     }
 
-    /// 生成运行时支持函数
     fn generate_runtime_support(&mut self) {
         self.emit_section(".text");
         self.emit_runtime_header_field_u64(
@@ -4496,7 +4433,6 @@ impl CodeGenerator {
         self.emit("ret");
     }
 
-    /// 汇编为 ELF
     fn assemble(&self, format: ArtifactFormat) -> Result<Vec<u8>> {
         let assembly_text = self.assembly.join("\n");
         match format {
@@ -4511,13 +4447,26 @@ impl CodeGenerator {
     }
 }
 
-/// 代码生成入口函数
 pub fn generate(ir: &IrModule, options: &CodegenOptions, format: ArtifactFormat) -> Result<Vec<u8>> {
     let generator = CodeGenerator::new(options.clone());
     generator.generate(ir, format)
 }
 
 fn first_entrypoint(ir: &IrModule) -> Option<(&str, &[IrParam])> {
+    for item in &ir.items {
+        if let IrItem::Action(action) = item {
+            if action.name == "main" {
+                return Some((&action.name, &action.params));
+            }
+        }
+    }
+    for item in &ir.items {
+        if let IrItem::Action(action) = item {
+            if action.params.is_empty() {
+                return Some((&action.name, &action.params));
+            }
+        }
+    }
     for item in &ir.items {
         if let IrItem::Action(action) = item {
             return Some((&action.name, &action.params));
@@ -4664,10 +4613,50 @@ enum Instruction {
 }
 
 fn assemble_elf(lines: &[String]) -> Result<Vec<u8>> {
-    if let Some(external) = try_external_elf_toolchain(lines)? {
+    let stubbed_lines = assembly_with_external_call_stubs(lines);
+    let assembly = stubbed_lines.as_deref().unwrap_or(lines);
+    if let Some(external) = try_external_elf_toolchain(assembly)? {
         return Ok(external);
     }
-    assemble_elf_internal(lines)
+    assemble_elf_internal(assembly)
+}
+
+fn assembly_with_external_call_stubs(lines: &[String]) -> Option<Vec<String>> {
+    let mut labels = BTreeSet::new();
+    let mut calls = BTreeSet::new();
+
+    for line in lines {
+        let Some(clean) = strip_comment(line) else {
+            continue;
+        };
+        if let Some(label) = clean.strip_suffix(':') {
+            labels.insert(label.trim().to_string());
+            continue;
+        }
+        if let Some(target) = clean.strip_prefix("call ") {
+            let target = target.trim();
+            if !target.is_empty() {
+                calls.insert(target.to_string());
+            }
+        }
+    }
+
+    let missing = calls.difference(&labels).cloned().collect::<Vec<_>>();
+    if missing.is_empty() {
+        return None;
+    }
+
+    let mut stubbed = lines.to_vec();
+    stubbed.push(".section .text".to_string());
+    for label in missing {
+        stubbed.push(format!("# cellscript abi: unresolved call {} fail-closed stub", label));
+        stubbed.push(format!(".global {}", label));
+        stubbed.push(format!(".type {}, @function", label));
+        stubbed.push(format!("{}:", label));
+        stubbed.push("    addi a0, zero, 23".to_string());
+        stubbed.push("    ret".to_string());
+    }
+    Some(stubbed)
 }
 
 fn assemble_elf_internal(lines: &[String]) -> Result<Vec<u8>> {
@@ -4701,13 +4690,18 @@ fn assemble_elf_internal(lines: &[String]) -> Result<Vec<u8>> {
 
     let segment_size = rodata_offset + rodata_bytes.len();
     let segment_file_offset = align_up(ELF_HEADER_SIZE + ELF_PROGRAM_HEADER_SIZE, ELF_SEGMENT_ALIGN);
-    let mut elf = vec![0u8; segment_file_offset + segment_size];
+    let load_segment_offset = 0u64;
+    let load_segment_vaddr = layout.text_base.checked_sub(segment_file_offset as u64).ok_or_else(|| {
+        CompileError::new("ELF text base is smaller than the load segment file offset", crate::error::Span::default())
+    })?;
+    let load_segment_size = segment_file_offset + segment_size;
+    let mut elf = vec![0u8; load_segment_size];
     write_elf_header(&mut elf[..ELF_HEADER_SIZE], layout.text_base)?;
     write_program_header(
         &mut elf[ELF_HEADER_SIZE..ELF_HEADER_SIZE + ELF_PROGRAM_HEADER_SIZE],
-        segment_file_offset as u64,
-        layout.text_base,
-        segment_size as u64,
+        load_segment_offset,
+        load_segment_vaddr,
+        load_segment_size as u64,
     )?;
 
     let segment = &mut elf[segment_file_offset..segment_file_offset + segment_size];
@@ -5267,16 +5261,10 @@ fn encode_instruction(out: &mut Vec<u8>, inst: &Instruction, pc: u64, parsed: &P
             if let Ok(target) = parsed.symbol_address(label, layout) {
                 encode_call_sequence(out, pc, target)?;
             } else {
-                // External function call: emit a fail-closed trap (error code 23)
-                // since the internal assembler cannot link external symbols.
-                encode_li_sequence(out, 10, 23)?; // li a0, 23
-                let exit_addr = parsed.symbol_address("__exit", layout).unwrap_or(0);
-                if exit_addr != 0 {
-                    encode_call_sequence(out, pc, exit_addr)?;
-                } else {
-                    // No exit symbol available; encode jalr x0, 0(ra) as unreachable
-                    out.extend_from_slice(&0u32.to_le_bytes());
-                }
+                // External function call: fail closed with the fixed 8-byte size
+                // declared by op_size(Call), then return from the current entry.
+                out.extend_from_slice(&encode_i_type(0x13, 10, 0b000, 0, 23)?.to_le_bytes());
+                out.extend_from_slice(&encode_i_type(0x67, 0, 0b000, 1, 0)?.to_le_bytes());
             }
         }
         Instruction::Jump { label } => {
@@ -5299,9 +5287,22 @@ fn encode_instruction(out: &mut Vec<u8>, inst: &Instruction, pc: u64, parsed: &P
 }
 
 fn encode_li_sequence(out: &mut Vec<u8>, rd: u8, imm: i64) -> Result<()> {
+    if !li_fits_32_bit_split(imm) {
+        return encode_large_li_sequence(out, rd, imm);
+    }
     let (hi, lo) = split_hi_lo(imm)?;
     out.extend_from_slice(&encode_u_type(0x37, rd, hi).to_le_bytes());
     out.extend_from_slice(&encode_i_type(0x13, rd, 0b000, rd, lo)?.to_le_bytes());
+    Ok(())
+}
+
+fn encode_large_li_sequence(out: &mut Vec<u8>, rd: u8, imm: i64) -> Result<()> {
+    let bytes = (imm as u64).to_be_bytes();
+    out.extend_from_slice(&encode_i_type(0x13, rd, 0b000, 0, i64::from(bytes[0]))?.to_le_bytes());
+    for byte in bytes.iter().skip(1) {
+        out.extend_from_slice(&encode_i_type(0x13, rd, 0b001, rd, 8)?.to_le_bytes());
+        out.extend_from_slice(&encode_i_type(0x13, rd, 0b000, rd, i64::from(*byte))?.to_le_bytes());
+    }
     Ok(())
 }
 
@@ -5322,7 +5323,7 @@ fn encode_call_sequence(out: &mut Vec<u8>, pc: u64, target: u64) -> Result<()> {
 fn op_size(op: &AsmOp, current_offset: usize) -> usize {
     match op {
         AsmOp::Label => 0,
-        AsmOp::Instruction(Instruction::Li { .. }) => 8,
+        AsmOp::Instruction(Instruction::Li { imm, .. }) => li_sequence_size(*imm),
         AsmOp::Instruction(Instruction::La { .. }) => 8,
         AsmOp::Instruction(Instruction::Call { .. }) => 8,
         AsmOp::Instruction(_) => 4,
@@ -5330,6 +5331,14 @@ fn op_size(op: &AsmOp, current_offset: usize) -> usize {
         AsmOp::Byte(_) => 1,
         AsmOp::Ascii(bytes) => bytes.len(),
         AsmOp::Align(bytes) => padding_for(current_offset, *bytes),
+    }
+}
+
+fn li_sequence_size(imm: i64) -> usize {
+    if li_fits_32_bit_split(imm) {
+        8
+    } else {
+        60
     }
 }
 
@@ -5574,7 +5583,7 @@ fn encode_signed_bits(value: i64, bits: u32) -> Result<u32> {
 }
 
 fn split_hi_lo(value: i64) -> Result<(i64, i64)> {
-    if !(i32::MIN as i64..=i32::MAX as i64).contains(&value) {
+    if !li_fits_32_bit_split(value) {
         return Err(CompileError::new(
             format!("value '{}' is outside the supported 32-bit immediate range", value),
             crate::error::Span::default(),
@@ -5586,6 +5595,10 @@ fn split_hi_lo(value: i64) -> Result<(i64, i64)> {
         return Err(CompileError::new(format!("low immediate '{}' is out of range after split", lo), crate::error::Span::default()));
     }
     Ok((hi, lo))
+}
+
+fn li_fits_32_bit_split(value: i64) -> bool {
+    (i32::MIN as i64..=i32::MAX as i64).contains(&value)
 }
 
 fn relative_offset(pc: u64, target: u64) -> Result<i64> {

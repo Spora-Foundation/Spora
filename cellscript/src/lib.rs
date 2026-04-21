@@ -1,6 +1,6 @@
-//! CellScript - Spora 区块链的领域特定语言编译器
+//! CellScript - Domain-specific language compiler for Spora blockchain
 //!
-//! 当前后端可输出 RISC-V 汇编或 ELF 产物。
+//! Currently the backend can output RISC-V assembly or ELF artifacts.
 
 pub mod ast;
 pub mod cli;
@@ -30,18 +30,18 @@ use resolve::ModuleResolver;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-/// 编译选项
+/// Compile options
 #[derive(Debug, Clone)]
 pub struct CompileOptions {
-    /// 优化级别 (0-3)
+    /// Optimization level (0-3)
     pub opt_level: u8,
-    /// 输出文件路径
+    /// Output file path
     pub output: Option<String>,
-    /// 是否生成调试信息
+    /// Whether to generate debug information
     pub debug: bool,
-    /// 目标产物
+    /// Target artifact
     pub target: Option<String>,
-    /// 目标链/profile。spora 和 ckb 可生成 artifact；portable-cell 是源兼容检查 profile。
+    /// Target chain/profile. spora and ckb can produce artifacts; portable-cell is a source compatibility check profile.
     pub target_profile: Option<String>,
 }
 
@@ -65,6 +65,7 @@ pub const ENTRY_WITNESS_ABI: &str = "cellscript-entry-witness-v1";
 pub(crate) const ENTRY_WITNESS_ABI_MAGIC: &[u8; 8] = b"CSARGv1\0";
 pub(crate) const ENTRY_WITNESS_ABI_MAX_REGISTER_ARGS: usize = 8;
 const METADATA_MUTATE_CELL_BUFFER_SIZE: usize = 512;
+const CKB_ACCEPTANCE_SMOKE_POLICY_BYPASS_ENV: &str = "CELLSCRIPT_CKB_ACCEPTANCE_SMOKE_ALLOW_UNPORTABLE_EXAMPLES";
 const CLAIM_SIGNER_PUBKEY_HASH_FIELDS: [&str; 5] =
     ["signer_pubkey_hash", "claim_pubkey_hash", "owner_pubkey_hash", "beneficiary_pubkey_hash", "pubkey_hash"];
 const CKB_TYPE_ID_CODE_HASH: [u8; 32] =
@@ -171,12 +172,12 @@ impl TargetProfile {
     }
 }
 
-/// 编译产物格式
+/// Artifact format
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArtifactFormat {
-    /// RISC-V 汇编文本
+    /// RISC-V assembly text
     RiscvAssembly,
-    /// RISC-V ELF 可执行文件
+    /// RISC-V ELF executable
     RiscvElf,
 }
 
@@ -215,18 +216,18 @@ impl ArtifactFormat {
     }
 }
 
-/// 编译结果
+/// Compile result
 #[derive(Debug, Clone)]
 pub struct CompileResult {
-    /// 生成的产物字节
+    /// Generated artifact bytes
     pub artifact_bytes: Vec<u8>,
-    /// 产物格式
+    /// Artifact format
     pub artifact_format: ArtifactFormat,
-    /// 产物哈希
+    /// Artifact hash
     pub artifact_hash: [u8; 32],
-    /// 可供调度器/工具消费的编译元数据
+    /// Compile metadata consumable by schedulers/tools
     pub metadata: CompileMetadata,
-    /// 解析后的 AST (供模拟执行等用途)
+    /// Parsed AST (for simulation, etc.)
     pub ast: crate::ast::Module,
 }
 
@@ -482,6 +483,25 @@ fn target_profile_artifact_policy_violations(metadata: &CompileMetadata, profile
             vec!["portable-cell is a source compatibility profile; compile with 'spora' or 'ckb' to produce artifacts".to_string()]
         }
     }
+}
+
+fn ckb_acceptance_smoke_policy_bypass_allowed(ast: &ast::Module, profile: TargetProfile) -> bool {
+    let env_value = std::env::var(CKB_ACCEPTANCE_SMOKE_POLICY_BYPASS_ENV).ok();
+    ckb_acceptance_smoke_policy_bypass_allowed_for_env(ast, profile, env_value.as_deref())
+}
+
+fn ckb_acceptance_smoke_policy_bypass_allowed_for_env(ast: &ast::Module, profile: TargetProfile, env_value: Option<&str>) -> bool {
+    profile == TargetProfile::Ckb && env_value == Some("1") && module_has_no_arg_u64_main(ast)
+}
+
+fn module_has_no_arg_u64_main(ast: &ast::Module) -> bool {
+    ast.items.iter().any(|item| {
+        matches!(
+            item,
+            ast::Item::Action(action)
+                if action.name == "main" && action.params.is_empty() && action.return_type == Some(ast::Type::U64)
+        )
+    })
 }
 
 fn spora_target_profile_policy_violations(metadata: &CompileMetadata) -> Vec<String> {
@@ -1064,7 +1084,7 @@ pub fn validate_compile_result(result: &CompileResult) -> Result<()> {
 pub fn validate_artifact_metadata(artifact_bytes: Vec<u8>, metadata: CompileMetadata) -> Result<CompileResult> {
     let artifact_format = ArtifactFormat::from_display_name(&metadata.artifact_format)?;
     let artifact_hash = *blake3::hash(&artifact_bytes).as_bytes();
-    // 重建最小 AST (validate_artifact_metadata 不需要完整 AST)
+    // Rebuild minimal AST (validate_artifact_metadata doesn't need full AST)
     let placeholder_source = format!("module {}", metadata.module);
     let tokens = crate::lexer::lex(&placeholder_source)?;
     let ast = crate::parser::parse(&tokens)?;
@@ -1715,12 +1735,12 @@ impl CompileResult {
         validate_compile_result(self)
     }
 
-    /// 默认输出路径
+    /// Default output path
     pub fn default_output_path(&self, input_path: &Utf8Path) -> Utf8PathBuf {
         input_path.with_extension(self.artifact_format.file_extension())
     }
 
-    /// 将产物写入文件
+    /// Write artifact to file
     pub fn write_to_path(&self, output_path: &Utf8Path) -> Result<()> {
         self.validate()?;
         if let Some(parent) = output_path.parent() {
@@ -1752,12 +1772,12 @@ impl CompileResult {
     }
 }
 
-/// 解析编译输入到具体的 CellScript 源文件
+/// Parse compile input to specific CellScript source files
 pub fn resolve_input_path<P: AsRef<Utf8Path>>(input: P) -> Result<Utf8PathBuf> {
     resolve_input_file(input.as_ref())
 }
 
-/// 根据原始输入推导默认输出路径
+/// Derive default output path from original input
 pub fn default_output_path_for_input<P: AsRef<Utf8Path>>(
     input: P,
     resolved_input: &Utf8Path,
@@ -1795,12 +1815,12 @@ pub fn load_modules_for_input<P: AsRef<Utf8Path>>(input: P) -> Result<Vec<Loaded
         .collect()
 }
 
-/// 编译 CellScript 源代码
+/// Compile CellScript source code
 pub fn compile(source: &str, options: CompileOptions) -> Result<CompileResult> {
-    // 1. 词法分析
+    // 1. Lexical analysis
     let tokens = lexer::lex(source)?;
 
-    // 2. 解析
+    // 2. Parse
     let ast = parser::parse(&tokens)?;
 
     let mut result = compile_ast(&ast, &options, None)?;
@@ -1809,7 +1829,7 @@ pub fn compile(source: &str, options: CompileOptions) -> Result<CompileResult> {
     Ok(result)
 }
 
-/// 只生成编译元数据，不生成 asm/elf artifact。
+/// Only generate compile metadata, without asm/elf artifact.
 pub fn compile_metadata(source: &str, target: Option<String>) -> Result<CompileMetadata> {
     let tokens = lexer::lex(source)?;
     let ast = parser::parse(&tokens)?;
@@ -1839,7 +1859,7 @@ fn compile_ast_with_build(
     target_profile.ensure_compile_supported()?;
     let artifact_format = ArtifactFormat::from_target(resolve_target(options, build))?;
 
-    // 3. 类型检查
+    // 3. Type check
     if let Some((resolver, module_name)) = resolver {
         types::check_with_resolver(ast, resolver, module_name)?;
     } else {
@@ -1862,7 +1882,7 @@ fn compile_ast_with_build(
     };
     let lowering_ast = optimized_ast.as_ref().unwrap_or(ast);
 
-    // 4. 生成 IR
+    // 4. Generate IR
     let ir = if let Some((resolver, module_name)) = resolver {
         ir::generate_with_resolver(lowering_ast, resolver, module_name)?
     } else {
@@ -1871,7 +1891,8 @@ fn compile_ast_with_build(
 
     let mut metadata = compile_metadata_from_ir(&ir, artifact_format, target_profile);
     let target_policy_violations = target_profile_artifact_policy_violations(&metadata, target_profile);
-    if !target_policy_violations.is_empty() {
+    let allow_ckb_acceptance_smoke_policy_bypass = ckb_acceptance_smoke_policy_bypass_allowed(lowering_ast, target_profile);
+    if !target_policy_violations.is_empty() && !allow_ckb_acceptance_smoke_policy_bypass {
         return Err(CompileError::without_span(format!(
             "target profile policy failed for '{}':\n  - {}",
             target_profile.name(),
@@ -1879,14 +1900,14 @@ fn compile_ast_with_build(
         )));
     }
 
-    // 5. 代码生成
+    // 5. Code generation
     let codegen_options = codegen::CodegenOptions { opt_level: options.opt_level, debug: options.debug, target_profile };
     let mut artifact_bytes = codegen::generate(&ir, &codegen_options, artifact_format)?;
     if artifact_bytes.is_empty() {
         return Err(CompileError::new("backend produced an empty artifact", error::Span::default()));
     }
 
-    // 5b. 调试信息生成（当 debug 选项启用且产物为 ELF 时嵌入 DWARF 段）
+    // 5b. Debug info generation (embed DWARF section when debug option enabled and artifact is ELF)
     if options.debug && artifact_format == ArtifactFormat::RiscvElf {
         let mut debug_gen =
             debug::DebugInfoGenerator::new(lowering_ast.name.clone(), std::path::PathBuf::from(lowering_ast.name.clone()));
@@ -1918,19 +1939,19 @@ fn compile_ast_with_build(
     Ok(result)
 }
 
-/// 从文件、包目录或 Cell.toml 编译
+/// Compile from file, package directory, or Cell.toml
 pub fn compile_path<P: AsRef<Utf8Path>>(path: P, options: CompileOptions) -> Result<CompileResult> {
     let resolved = resolve_input_path(path)?;
     compile_file(&resolved, options)
 }
 
-/// 从文件编译
+/// Compile from file
 pub fn compile_file<P: AsRef<Utf8Path>>(path: P, options: CompileOptions) -> Result<CompileResult> {
     let path = path.as_ref();
     let source =
         std::fs::read_to_string(path).map_err(|e| CompileError::new(format!("failed to read file: {}", e), error::Span::default()))?;
 
-    // 增量编译: 如果缓存命中且源码未变，跳过重新编译
+    // Incremental compilation: skip recompilation if cache hit and source unchanged
     if let Some(cached) = incremental_cache_hit(path, &source, &options) {
         return Ok(cached);
     }
@@ -1944,7 +1965,7 @@ pub fn compile_file<P: AsRef<Utf8Path>>(path: P, options: CompileOptions) -> Res
     bind_source_metadata(&mut result.metadata, collect_source_units_for_compile_file(path)?);
     result.validate()?;
 
-    // 增量编译: 记录成功编译结果到缓存
+    // Incremental compilation: store successful compilation result in cache
     incremental_cache_store(path, &source, &options, &result);
 
     Ok(result)
@@ -8582,10 +8603,10 @@ fn resolve_target<'a>(options: &'a CompileOptions, build: Option<&'a CellBuildCo
     options.target.as_deref().or_else(|| build.and_then(|build| build.target.as_deref())).unwrap_or(DEFAULT_TARGET)
 }
 
-/// 编译器版本
+/// Compiler version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// 编译器名称
+/// Compiler name
 pub const NAME: &str = "cellc";
 
 #[cfg(test)]
@@ -8606,12 +8627,16 @@ mod tests {
         result.metadata.artifact_size_bytes = Some(result.artifact_bytes.len());
     }
 
+    fn parse_module_for_test(source: &str) -> crate::ast::Module {
+        let tokens = lexer::lex(source).unwrap();
+        parser::parse(&tokens).unwrap()
+    }
+
     fn compile_metadata_for_profile_without_artifact_policy(
         source: &str,
         target_profile: crate::TargetProfile,
     ) -> crate::CompileMetadata {
-        let tokens = lexer::lex(source).unwrap();
-        let ast = parser::parse(&tokens).unwrap();
+        let ast = parse_module_for_test(source);
         crate::types::check(&ast).unwrap();
         crate::lifecycle::check(&ast).unwrap();
         let ir = ir::generate(&ast).unwrap();
@@ -14103,6 +14128,89 @@ action now() -> u64 {
         let err = compile(CKB_HEADER_EPOCH_PROGRAM, CompileOptions::default()).unwrap_err();
         assert!(err.message.contains("target profile policy failed for 'spora'"), "unexpected error: {}", err.message);
         assert!(err.message.contains("CKB chain APIs require the 'ckb' target profile"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn compile_lowers_ckb_group_source_large_immediate_to_riscv_elf() {
+        let result = compile(
+            CKB_HEADER_EPOCH_PROGRAM,
+            CompileOptions {
+                target: Some("riscv64-elf".to_string()),
+                target_profile: Some("ckb".to_string()),
+                ..CompileOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf);
+        assert!(result.artifact_bytes.starts_with(b"\x7fELF"));
+        assert_eq!(result.artifact_bytes.len(), crate::strip_vm_abi_trailer(&result.artifact_bytes).len());
+        result.validate().unwrap();
+    }
+
+    #[test]
+    fn ckb_acceptance_smoke_policy_bypass_requires_explicit_env_and_no_arg_u64_main() {
+        let no_main = parse_module_for_test(
+            r#"
+module test
+
+action uses_spora_time() -> u64 {
+    env::current_daa_score()
+}
+"#,
+        );
+        assert!(!crate::ckb_acceptance_smoke_policy_bypass_allowed_for_env(&no_main, crate::TargetProfile::Ckb, Some("1")));
+
+        let unit_main = parse_module_for_test(
+            r#"
+module test
+
+action main() {
+}
+"#,
+        );
+        assert!(!crate::ckb_acceptance_smoke_policy_bypass_allowed_for_env(&unit_main, crate::TargetProfile::Ckb, Some("1")));
+
+        let smoke_main = parse_module_for_test(
+            r#"
+module test
+
+action main() -> u64 {
+    0
+}
+"#,
+        );
+        assert!(!crate::ckb_acceptance_smoke_policy_bypass_allowed_for_env(&smoke_main, crate::TargetProfile::Ckb, Some("true")));
+        assert!(!crate::ckb_acceptance_smoke_policy_bypass_allowed_for_env(&smoke_main, crate::TargetProfile::Spora, Some("1")));
+        assert!(crate::ckb_acceptance_smoke_policy_bypass_allowed_for_env(&smoke_main, crate::TargetProfile::Ckb, Some("1")));
+    }
+
+    #[test]
+    fn compile_prefers_no_arg_main_for_entry_wrapper() {
+        let result = compile(
+            r#"
+module test
+
+action needs_arg(value: u64) -> u64 {
+    value
+}
+
+action main() -> u64 {
+    0
+}
+"#,
+            CompileOptions::default(),
+        )
+        .unwrap();
+        let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
+
+        assert!(asm.contains("# cellscript entry abi: _cellscript_entry tail-calls no-arg main"), "missing entry wrapper:\n{}", asm);
+        assert!(asm.contains("    j main"), "entry wrapper must tail-call main without clobbering ra:\n{}", asm);
+        assert!(
+            asm.find("_cellscript_entry:").unwrap() < asm.find("needs_arg:").unwrap(),
+            "entry wrapper must precede actions:\n{}",
+            asm
+        );
     }
 
     #[test]

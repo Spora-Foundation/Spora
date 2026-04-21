@@ -1,22 +1,15 @@
-//! CellScript 标准库
 //!
-//! 提供 CKB syscall 包装器、数学函数、哈希函数和环境函数。
 //!
-//! VM 内对象 ABI 使用 Molecule；scheduler witness 的 launch/public 格式也
-//! 生成 Molecule。CellScript 标准库不暴露 Borsh witness 生成入口。
 
 pub mod collections;
 
 use crate::{ir::IrType, TargetProfile};
 
-/// 标准库模块
 pub struct StdLib;
 
 impl StdLib {
-    /// 获取标准库函数列表
     pub fn functions() -> Vec<StdFunction> {
         vec![
-            // ckbvm 系统调用包装器
             StdFunction { name: "syscall_load_tx_hash".to_string(), params: vec![], return_type: Some(IrType::Hash) },
             StdFunction { name: "syscall_load_script_hash".to_string(), params: vec![], return_type: Some(IrType::Hash) },
             StdFunction {
@@ -91,7 +84,6 @@ impl StdLib {
                 params: vec![("msg".to_string(), IrType::Array(Box::new(IrType::U8), 0))],
                 return_type: None,
             },
-            // 数学函数
             StdFunction {
                 name: "math_min".to_string(),
                 params: vec![("a".to_string(), IrType::U64), ("b".to_string(), IrType::U64)],
@@ -112,13 +104,11 @@ impl StdLib {
                 params: vec![("a".to_string(), IrType::U64), ("b".to_string(), IrType::U64)],
                 return_type: Some(IrType::U64),
             },
-            // 哈希函数
             StdFunction {
                 name: "hash_blake3".to_string(),
                 params: vec![("data".to_string(), IrType::Array(Box::new(IrType::U8), 0))],
                 return_type: Some(IrType::Hash),
             },
-            // 环境函数
             StdFunction { name: "env_current_daa_score".to_string(), params: vec![], return_type: Some(IrType::U64) },
             StdFunction { name: "ckb_header_epoch_number".to_string(), params: vec![], return_type: Some(IrType::U64) },
             StdFunction { name: "ckb_header_epoch_start_block_number".to_string(), params: vec![], return_type: Some(IrType::U64) },
@@ -128,44 +118,35 @@ impl StdLib {
         ]
     }
 
-    /// 检查是否为标准库函数
     pub fn is_std_function(name: &str) -> bool {
         Self::functions().iter().any(|f| f.name == name)
     }
 
-    /// 获取标准库函数
     pub fn get_function(name: &str) -> Option<StdFunction> {
         Self::functions().into_iter().find(|f| f.name == name)
     }
 
-    /// 生成标准库 RISC-V 汇编代码
     pub fn generate_assembly() -> String {
         Self::generate_assembly_for_target_profile(TargetProfile::Spora)
     }
 
-    /// 生成指定 target profile 的标准库 RISC-V 汇编代码
     pub fn generate_assembly_for_target_profile(target_profile: TargetProfile) -> String {
         let mut asm = String::new();
 
         asm.push_str("# CellScript Standard Library\n\n");
         asm.push_str(".section .text\n\n");
 
-        // 系统调用包装器
         asm.push_str(&Self::generate_syscalls(target_profile));
 
-        // 数学函数
         asm.push_str(&Self::generate_math());
 
-        // 哈希函数
         asm.push_str(&Self::generate_hash());
 
-        // 环境函数
         asm.push_str(&Self::generate_env(target_profile));
 
         asm
     }
 
-    /// 生成系统调用包装器
     fn generate_syscalls(target_profile: TargetProfile) -> String {
         let mut asm = String::new();
 
@@ -315,7 +296,6 @@ impl StdLib {
         asm
     }
 
-    /// 生成数学函数
     fn generate_math() -> String {
         let mut asm = String::new();
 
@@ -339,7 +319,6 @@ impl StdLib {
         asm.push_str(".Lmax_ret_a:\n");
         asm.push_str("    ret\n\n");
 
-        // math_isqrt (整数平方根 - 牛顿迭代法)
         asm.push_str("# Math: isqrt (integer square root)\n");
         asm.push_str(".global __math_isqrt\n");
         asm.push_str("__math_isqrt:\n");
@@ -382,11 +361,9 @@ impl StdLib {
         asm
     }
 
-    /// 生成哈希函数
     fn generate_hash() -> String {
         let mut asm = String::new();
 
-        // hash_blake3 (Spora 扩展)
         asm.push_str("# Hash: blake3 (Spora extension)\n");
         asm.push_str(".global __hash_blake3\n");
         asm.push_str("__hash_blake3:\n");
@@ -403,7 +380,6 @@ impl StdLib {
         asm
     }
 
-    /// 生成环境函数
     fn generate_env(target_profile: TargetProfile) -> String {
         let mut asm = String::new();
 
@@ -528,7 +504,6 @@ impl StdLib {
     }
 }
 
-/// 标准库函数定义
 #[derive(Debug, Clone)]
 pub struct StdFunction {
     pub name: String,
@@ -536,7 +511,6 @@ pub struct StdFunction {
     pub return_type: Option<IrType>,
 }
 
-/// 调度器见证元数据生成
 pub struct SchedulerMetadata;
 
 /// Scheduler-visible CKB runtime access summary.
@@ -549,7 +523,6 @@ pub struct SchedulerAccess {
 }
 
 impl SchedulerMetadata {
-    /// 生成 launch Molecule 调度器见证元数据。
     pub fn generate(
         effect_class: &str,
         parallelizable: bool,
@@ -560,7 +533,6 @@ impl SchedulerMetadata {
         Self::generate_molecule(effect_class, parallelizable, touches_shared, estimated_cycles, accesses)
     }
 
-    /// 生成 launch Molecule 调度器见证元数据。
     pub fn generate_molecule(
         effect_class: &str,
         parallelizable: bool,

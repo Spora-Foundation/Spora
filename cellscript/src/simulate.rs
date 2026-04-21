@@ -1,31 +1,17 @@
-//! AST 级别的模拟解释器
 //!
-//! 在没有 ckb-vm 的环境中，对纯计算 action/fn 进行符号化模拟执行。
-//! 产生执行追踪 (trace) 而非实际字节码执行结果。
-//! 对涉及 Cell 操作 (create/consume/transfer/destroy/read_ref) 的表达式，
-//! 记录为 trace 事件并返回占位值。
 
 use crate::ast::*;
 use std::collections::HashMap;
 
-/// 模拟值
 #[derive(Debug, Clone, PartialEq)]
 pub enum SimValue {
-    /// 整数
     Integer(u64),
-    /// 布尔
     Bool(bool),
-    /// 字符串
     String(String),
-    /// 单元
     Unit,
-    /// 符号占位值 (Cell 操作结果)
     Symbolic { ty: String, description: String },
-    /// 结构体值
     Struct { name: String, fields: Vec<(String, SimValue)> },
-    /// 数组
     Array(Vec<SimValue>),
-    /// 元组
     Tuple(Vec<SimValue>),
 }
 
@@ -59,32 +45,19 @@ impl std::fmt::Display for SimValue {
     }
 }
 
-/// 追踪事件
 #[derive(Debug, Clone)]
 pub enum TraceEvent {
-    /// 变量绑定
     Bind { name: String, value: SimValue },
-    /// Cell 创建
     Create { ty: String, fields: Vec<(String, String)> },
-    /// Cell 消费
     Consume { description: String },
-    /// Cell 转移
     Transfer { description: String, to: String },
-    /// Cell 销毁
     Destroy { description: String },
-    /// 读取共享引用
     ReadRef { ty: String },
-    /// Claim 操作
     Claim { description: String },
-    /// Settle 操作
     Settle { description: String },
-    /// 函数调用
     Call { name: String, args: Vec<String> },
-    /// 返回值
     Return { value: SimValue },
-    /// 条件分支
     Branch { condition: SimValue, taken: bool },
-    /// 断言
     Assert { condition: SimValue, message: String },
 }
 
@@ -112,18 +85,12 @@ impl std::fmt::Display for TraceEvent {
     }
 }
 
-/// 模拟结果
 #[derive(Debug, Clone)]
 pub struct SimulateResult {
-    /// 入口名称
     pub entry_name: String,
-    /// 返回值
     pub return_value: SimValue,
-    /// 追踪事件
     pub trace: Vec<TraceEvent>,
-    /// 是否包含 Cell 操作 (非纯计算)
     pub has_cell_ops: bool,
-    /// 模拟的步骤数
     pub steps: u64,
 }
 
@@ -144,34 +111,21 @@ impl std::fmt::Display for SimulateResult {
     }
 }
 
-/// 模拟解释器
 pub struct SimulateInterpreter {
-    /// 环境 (变量绑定)
     env: HashMap<String, SimValue>,
-    /// 追踪事件
     trace: Vec<TraceEvent>,
-    /// 函数定义
     functions: HashMap<String, (Vec<Param>, Vec<Stmt>)>,
-    /// 是否包含 Cell 操作
     has_cell_ops: bool,
-    /// 步骤计数
     steps: u64,
-    /// 最大步数限制
     max_steps: u64,
 }
 
-/// 模拟执行错误
 #[derive(Debug, Clone)]
 pub enum SimulateError {
-    /// 超出步数限制
     StepLimitExceeded { max: u64 },
-    /// 未定义的变量
     UndefinedVariable { name: String },
-    /// 未定义的函数
     UndefinedFunction { name: String },
-    /// 类型不匹配
     TypeError { expected: String, got: String },
-    /// 不支持的表达式
     Unsupported { description: String },
 }
 
@@ -188,7 +142,6 @@ impl std::fmt::Display for SimulateError {
 }
 
 impl SimulateInterpreter {
-    /// 创建新的模拟解释器
     pub fn new(module: &Module, max_steps: u64) -> Self {
         let mut functions = HashMap::new();
 
@@ -210,17 +163,14 @@ impl SimulateInterpreter {
         Self { env: HashMap::new(), trace: Vec::new(), functions, has_cell_ops: false, steps: 0, max_steps }
     }
 
-    /// 模拟执行 action
     pub fn simulate_action(&mut self, name: &str, args: &[SimValue]) -> Result<SimulateResult, SimulateError> {
         let key = format!("action::{}", name);
         let (params, body) = self.functions.get(&key).cloned().ok_or_else(|| SimulateError::UndefinedFunction { name: key })?;
 
-        // 绑定参数
         for (param, arg) in params.iter().zip(args.iter()) {
             self.env.insert(param.name.clone(), arg.clone());
         }
 
-        // 执行函数体
         let result = self.exec_stmts(&body)?;
         let return_value = result.unwrap_or(SimValue::Unit);
 
@@ -233,16 +183,13 @@ impl SimulateInterpreter {
         })
     }
 
-    /// 模拟执行 fn
     pub fn simulate_function(&mut self, name: &str, args: &[SimValue]) -> Result<SimValue, SimulateError> {
         let (params, body) =
             self.functions.get(name).cloned().ok_or_else(|| SimulateError::UndefinedFunction { name: name.to_string() })?;
 
-        // 保存当前环境
         let saved_env = self.env.clone();
         self.env.clear();
 
-        // 绑定参数
         for (param, arg) in params.iter().zip(args.iter()) {
             self.env.insert(param.name.clone(), arg.clone());
         }
@@ -250,13 +197,11 @@ impl SimulateInterpreter {
         let result = self.exec_stmts(&body)?;
         let value = result.unwrap_or(SimValue::Unit);
 
-        // 恢复环境
         self.env = saved_env;
 
         Ok(value)
     }
 
-    /// 执行语句列表
     fn exec_stmts(&mut self, stmts: &[Stmt]) -> Result<Option<SimValue>, SimulateError> {
         for stmt in stmts {
             if let Some(value) = self.exec_stmt(stmt)? {
@@ -266,7 +211,6 @@ impl SimulateInterpreter {
         Ok(None)
     }
 
-    /// 执行单条语句
     fn exec_stmt(&mut self, stmt: &Stmt) -> Result<Option<SimValue>, SimulateError> {
         self.bump_steps()?;
 
@@ -301,7 +245,6 @@ impl SimulateInterpreter {
                 }
             }
             Stmt::For(for_stmt) => {
-                // 简单模拟：执行最多 10 次迭代
                 let iterable = self.eval_expr(&for_stmt.iterable)?;
                 let items = match &iterable {
                     SimValue::Array(items) => items.clone(),
@@ -316,7 +259,6 @@ impl SimulateInterpreter {
                 Ok(None)
             }
             Stmt::While(while_stmt) => {
-                // 限制最多 100 次迭代
                 for _ in 0..100 {
                     self.bump_steps()?;
                     let cond = self.eval_expr(&while_stmt.condition)?;
@@ -332,7 +274,6 @@ impl SimulateInterpreter {
         }
     }
 
-    /// 求值表达式
     fn eval_expr(&mut self, expr: &Expr) -> Result<SimValue, SimulateError> {
         self.bump_steps()?;
 
@@ -460,7 +401,6 @@ impl SimulateInterpreter {
             }
             Expr::Cast(cast) => {
                 let value = self.eval_expr(&cast.expr)?;
-                // 简单模拟：整型截断
                 match &value {
                     SimValue::Integer(n) => Ok(SimValue::Integer(*n)),
                     _ => Ok(value),
@@ -480,10 +420,7 @@ impl SimulateInterpreter {
                     .collect();
                 Ok(SimValue::Struct { name: init.ty.clone(), fields })
             }
-            Expr::Match(_match) => {
-                // 简单模拟：取第一个分支
-                Ok(SimValue::Symbolic { ty: "match".to_string(), description: "match expression".to_string() })
-            }
+            Expr::Match(_match) => Ok(SimValue::Symbolic { ty: "match".to_string(), description: "match expression".to_string() }),
             Expr::Assign(assign) => {
                 let value = self.eval_expr(&assign.value)?;
                 if let Expr::Identifier(name) = assign.target.as_ref() {
@@ -494,7 +431,6 @@ impl SimulateInterpreter {
         }
     }
 
-    /// 求值二元运算
     fn eval_binary(&self, op: &BinaryOp, left: &SimValue, right: &SimValue) -> Result<SimValue, SimulateError> {
         match (left, right) {
             (SimValue::Integer(l), SimValue::Integer(r)) => Ok(match op {
@@ -535,7 +471,6 @@ impl SimulateInterpreter {
         }
     }
 
-    /// 求值一元运算
     fn eval_unary(&self, op: &UnaryOp, value: &SimValue) -> Result<SimValue, SimulateError> {
         match (op, value) {
             (UnaryOp::Neg, SimValue::Integer(n)) => Ok(SimValue::Integer(n.wrapping_neg())),
@@ -545,23 +480,18 @@ impl SimulateInterpreter {
         }
     }
 
-    /// 求值调用
     fn eval_call(&mut self, call: &CallExpr) -> Result<SimValue, SimulateError> {
-        // 获取函数名
         let func_name = match call.func.as_ref() {
             Expr::Identifier(name) => name.clone(),
             _ => return Ok(SimValue::Symbolic { ty: "call".to_string(), description: "indirect call".to_string() }),
         };
 
-        // 求值参数
         let args: Vec<SimValue> = call.args.iter().map(|e| self.eval_expr(e)).collect::<Result<_, _>>()?;
         let arg_strs: Vec<String> = args.iter().map(|v| v.to_string()).collect();
 
-        // 检查内建函数
         match func_name.as_str() {
             "vec_new" | "Vec::new" => return Ok(SimValue::Array(Vec::new())),
             "push" => {
-                // 简化：不实际修改数组
                 return Ok(SimValue::Unit);
             }
             "len" | "length" => {
@@ -575,16 +505,13 @@ impl SimulateInterpreter {
 
         self.trace.push(TraceEvent::Call { name: func_name.clone(), args: arg_strs });
 
-        // 尝试调用用户定义的 fn
         if self.functions.contains_key(&func_name) {
             return self.simulate_function(&func_name, &args);
         }
 
-        // 未知函数 → 符号化
         Ok(SimValue::Symbolic { ty: "call_result".to_string(), description: format!("{}()", func_name) })
     }
 
-    /// 绑定模式
     fn bind_pattern(&mut self, pattern: &BindingPattern, value: SimValue) {
         match pattern {
             BindingPattern::Name(name) => {
@@ -602,18 +529,16 @@ impl SimulateInterpreter {
         }
     }
 
-    /// 判断值是否为真
     fn is_truthy(&self, value: &SimValue) -> bool {
         match value {
             SimValue::Bool(b) => *b,
             SimValue::Integer(n) => *n != 0,
             SimValue::Unit => false,
-            SimValue::Symbolic { .. } => true, // 符号值默认为真
+            SimValue::Symbolic { .. } => true,
             _ => true,
         }
     }
 
-    /// 递增步数
     fn bump_steps(&mut self) -> Result<(), SimulateError> {
         self.steps += 1;
         if self.steps > self.max_steps {
@@ -725,10 +650,8 @@ action infinite() -> u64 {
 }
 "#;
         let module = parse_module(source);
-        let mut interp = SimulateInterpreter::new(&module, 2); // 非常低的步数限制
-                                                               // 解析 + 绑定 + 返回 可能超过 2 步
+        let mut interp = SimulateInterpreter::new(&module, 2);
         let result = interp.simulate_action("infinite", &[]);
-        // 应该成功（只有3步）或失败
         match result {
             Ok(r) => assert!(r.steps <= 3),
             Err(SimulateError::StepLimitExceeded { .. }) => {} // ok

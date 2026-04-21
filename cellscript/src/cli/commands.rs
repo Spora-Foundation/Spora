@@ -1,6 +1,4 @@
-//! CLI 子命令
 //!
-//! 实现各种 cellc 子命令
 
 use crate::docgen::{DocGenerator, OutputFormat};
 use crate::error::Result;
@@ -21,50 +19,30 @@ use colored::Colorize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// CLI 命令
 #[derive(Debug)]
 pub enum Command {
-    /// 编译
     Build(BuildArgs),
-    /// 运行测试
     Test(TestArgs),
-    /// 生成文档
     Doc(DocArgs),
-    /// 格式化代码
     Fmt(FmtArgs),
-    /// 初始化新项目
     Init(InitArgs),
-    /// 添加依赖
     Add(AddArgs),
-    /// 移除依赖
     Remove(RemoveArgs),
-    /// 清理构建产物
     Clean(CleanArgs),
-    /// 运行 REPL
     Repl,
-    /// 检查代码
     Check(CheckArgs),
-    /// 输出 lowering/runtime 元数据
     Metadata(MetadataArgs),
     /// Encode generated entry wrapper witness bytes
     EntryWitness(EntryWitnessArgs),
-    /// 验证已生成 artifact 和 metadata 是否一致
     VerifyArtifact(VerifyArtifactArgs),
-    /// 运行程序
     Run(RunArgs),
-    /// 发布包
     Publish(PublishArgs),
-    /// 安装包
     Install(InstallArgs),
-    /// 更新依赖
     Update,
-    /// 显示包信息
     Info(InfoArgs),
-    /// 登录注册表
     Login(LoginArgs),
 }
 
-/// 构建参数
 #[derive(Debug, Default)]
 pub struct BuildArgs {
     pub release: bool,
@@ -83,7 +61,6 @@ pub struct BuildArgs {
     pub deny_runtime_obligations: bool,
 }
 
-/// 测试参数
 #[derive(Debug, Default)]
 pub struct TestArgs {
     pub filter: Option<String>,
@@ -96,7 +73,6 @@ pub struct TestArgs {
     pub json: bool,
 }
 
-/// 文档参数
 #[derive(Debug, Default)]
 pub struct DocArgs {
     pub open: bool,
@@ -106,7 +82,6 @@ pub struct DocArgs {
     pub json: bool,
 }
 
-/// 格式化参数
 #[derive(Debug, Default)]
 pub struct FmtArgs {
     pub check: bool,
@@ -114,7 +89,6 @@ pub struct FmtArgs {
     pub files: Vec<PathBuf>,
 }
 
-/// 初始化参数
 #[derive(Debug, Default)]
 pub struct InitArgs {
     pub name: Option<String>,
@@ -123,7 +97,6 @@ pub struct InitArgs {
     pub json: bool,
 }
 
-/// 添加依赖参数
 #[derive(Debug, Default)]
 pub struct AddArgs {
     pub crates: Vec<String>,
@@ -134,7 +107,6 @@ pub struct AddArgs {
     pub json: bool,
 }
 
-/// 移除依赖参数
 #[derive(Debug, Default)]
 pub struct RemoveArgs {
     pub crates: Vec<String>,
@@ -143,19 +115,16 @@ pub struct RemoveArgs {
     pub json: bool,
 }
 
-/// 清理参数
 #[derive(Debug, Default)]
 pub struct CleanArgs {
     pub json: bool,
 }
 
-/// 包信息参数
 #[derive(Debug, Default)]
 pub struct InfoArgs {
     pub json: bool,
 }
 
-/// 检查参数
 #[derive(Debug, Default)]
 pub struct CheckArgs {
     pub all_targets: bool,
@@ -169,7 +138,6 @@ pub struct CheckArgs {
     pub deny_runtime_obligations: bool,
 }
 
-/// 元数据参数
 #[derive(Debug, Default)]
 pub struct MetadataArgs {
     pub input: Option<PathBuf>,
@@ -191,7 +159,6 @@ pub struct EntryWitnessArgs {
     pub json: bool,
 }
 
-/// 产物验证参数
 #[derive(Debug, Default)]
 pub struct VerifyArtifactArgs {
     pub artifact: PathBuf,
@@ -209,23 +176,19 @@ pub struct VerifyArtifactArgs {
     pub deny_runtime_obligations: bool,
 }
 
-/// 运行参数
 #[derive(Debug, Default)]
 pub struct RunArgs {
     pub args: Vec<String>,
     pub release: bool,
-    /// 使用 AST 模拟解释器代替 ckb-vm 执行
     pub simulate: bool,
 }
 
-/// 发布参数
 #[derive(Debug, Default)]
 pub struct PublishArgs {
     pub dry_run: bool,
     pub allow_dirty: bool,
 }
 
-/// 安装参数
 #[derive(Debug, Default)]
 pub struct InstallArgs {
     pub crate_name: Option<String>,
@@ -234,13 +197,11 @@ pub struct InstallArgs {
     pub path: Option<PathBuf>,
 }
 
-/// 登录参数
 #[derive(Debug, Default)]
 pub struct LoginArgs {
     pub registry: Option<String>,
 }
 
-/// 命令执行器
 pub struct CommandExecutor;
 
 impl CommandExecutor {
@@ -248,7 +209,6 @@ impl CommandExecutor {
         Err(crate::error::CompileError::without_span(format!("cellc {} is still experimental: {}", name, detail)))
     }
 
-    /// 执行命令
     pub fn execute(cmd: Command) -> Result<()> {
         match cmd {
             Command::Build(args) => Self::build(args),
@@ -273,7 +233,6 @@ impl CommandExecutor {
         }
     }
 
-    /// 构建项目
     fn build(args: BuildArgs) -> Result<()> {
         let opt_level = if args.release { 3 } else { 0 };
         let input = Utf8Path::new(".");
@@ -354,7 +313,6 @@ impl CommandExecutor {
         Ok(())
     }
 
-    /// 运行测试
     fn test(args: TestArgs) -> Result<()> {
         let doc_output = if args.doc {
             Some(Self::generate_docs(&DocArgs { output_format: OutputFormat::Markdown, ..Default::default() })?)
@@ -484,7 +442,6 @@ impl CommandExecutor {
         Ok(())
     }
 
-    /// 生成文档
     fn doc(args: DocArgs) -> Result<()> {
         let output = Self::generate_docs(&args)?;
         let output_size_bytes = std::fs::metadata(&output).map(|metadata| metadata.len()).unwrap_or(0);
@@ -541,7 +498,6 @@ impl CommandExecutor {
         Ok(output)
     }
 
-    /// 格式化代码
     fn fmt(args: FmtArgs) -> Result<()> {
         let modules = if args.files.is_empty() {
             load_modules_for_input(".")?
@@ -624,7 +580,6 @@ impl CommandExecutor {
         }
     }
 
-    /// 初始化新项目
     fn init(args: InitArgs) -> Result<()> {
         let path = args.path.unwrap_or_else(|| PathBuf::from("."));
         let name = args.name.unwrap_or_else(|| path.file_name().unwrap_or_default().to_string_lossy().to_string());
@@ -637,7 +592,6 @@ impl CommandExecutor {
         pm.init(&name)?;
 
         if args.lib {
-            // 创建 lib.cell
             std::fs::write(path.join("src/lib.cell"), format!("module {};\n", name))?;
         }
 
@@ -670,7 +624,6 @@ impl CommandExecutor {
         Ok(())
     }
 
-    /// 添加依赖
     fn add(args: AddArgs) -> Result<()> {
         validate_dependency_target_flags(args.dev, args.build)?;
         if args.git.is_some() && args.path.is_some() {
@@ -710,7 +663,6 @@ impl CommandExecutor {
         Ok(())
     }
 
-    /// 移除依赖
     fn remove(args: RemoveArgs) -> Result<()> {
         validate_dependency_target_flags(args.dev, args.build)?;
         let pm = PackageManager::new(".");
@@ -752,7 +704,6 @@ impl CommandExecutor {
         Ok(())
     }
 
-    /// 清理构建产物
     fn clean(args: CleanArgs) -> Result<()> {
         if !args.json {
             println!("{}", "Cleaning...".cyan());
@@ -787,12 +738,10 @@ impl CommandExecutor {
         Ok(())
     }
 
-    /// 运行 REPL
     fn repl() -> Result<()> {
         crate::repl::run_repl().map_err(|e| crate::error::CompileError::without_span(e.to_string()))
     }
 
-    /// 检查代码
     fn check(args: CheckArgs) -> Result<()> {
         let args = effective_check_args(args)?;
         let requested_profile = effective_check_target_profile(&args)?;
@@ -896,7 +845,6 @@ impl CommandExecutor {
         Ok(())
     }
 
-    /// 输出 lowering/runtime 元数据
     fn metadata(args: MetadataArgs) -> Result<()> {
         let input_path = args.input.unwrap_or_else(|| PathBuf::from("."));
         let input = Utf8Path::from_path(&input_path)
@@ -1010,7 +958,6 @@ impl CommandExecutor {
         Ok(())
     }
 
-    /// 验证已生成 artifact 和 metadata 的绑定关系
     fn verify_artifact(args: VerifyArtifactArgs) -> Result<()> {
         let artifact_path = Utf8Path::from_path(&args.artifact).ok_or_else(|| {
             crate::error::CompileError::without_span(format!("artifact path '{}' is not valid UTF-8", args.artifact.display()))
@@ -1142,7 +1089,6 @@ impl CommandExecutor {
         Ok(())
     }
 
-    /// 运行程序
     fn run(args: RunArgs) -> Result<()> {
         let opt_level = if args.release { 3 } else { 0 };
         let compile_result = compile_path(
@@ -1150,18 +1096,15 @@ impl CommandExecutor {
             CompileOptions { opt_level, output: None, debug: false, target: Some("riscv64-elf".to_string()), target_profile: None },
         );
 
-        // ---- --simulate 路径：始终可用，无需 ckb-vm ----
         if args.simulate {
             let result = compile_result?;
             return Self::run_simulate(&result, &args);
         }
 
-        // ---- vm-runner 路径 ----
         #[cfg(feature = "vm-runner")]
         {
             let result = compile_result?;
 
-            // 有参数的入口 → 引导到 simulate
             let parameterized_entries = result
                 .metadata
                 .actions
@@ -1182,7 +1125,6 @@ impl CommandExecutor {
                 return Self::run_simulate(&result, &args);
             }
 
-            // CKB runtime → 引导到 simulate
             if result.metadata.runtime.ckb_runtime_required {
                 eprintln!(
                     "{}",
@@ -1209,7 +1151,6 @@ impl CommandExecutor {
             Ok(())
         }
 
-        // ---- 无 vm-runner 的降级路径 ----
         #[cfg(not(feature = "vm-runner"))]
         {
             let mode = if args.release { "release" } else { "debug" };
@@ -1224,7 +1165,6 @@ impl CommandExecutor {
         }
     }
 
-    /// 使用 AST 模拟解释器执行
     fn run_simulate(compile_result: &crate::CompileResult, _args: &RunArgs) -> Result<()> {
         use crate::simulate::{SimValue, SimulateInterpreter};
 
@@ -1239,7 +1179,6 @@ impl CommandExecutor {
                 },
             )?;
 
-        // 找到 main action 或第一个无参 action
         let entry = compile_result
             .metadata
             .actions
@@ -1254,7 +1193,7 @@ impl CommandExecutor {
         };
 
         let mut interp = SimulateInterpreter::new(module, 100_000);
-        let sim_args: Vec<SimValue> = Vec::new(); // 无参入口
+        let sim_args: Vec<SimValue> = Vec::new();
         let sim_result = interp
             .simulate_action(&entry.name, &sim_args)
             .map_err(|e| crate::error::CompileError::without_span(format!("simulation error: {}", e)))?;
@@ -1279,14 +1218,11 @@ impl CommandExecutor {
         Ok(())
     }
 
-    /// 发布包
     fn publish(args: PublishArgs) -> Result<()> {
         let pm = PackageManager::new(".");
         let manifest = pm.read_manifest()?;
 
-        // --dry-run: 验证清单完整性
         if args.dry_run {
-            // 检查必要字段
             let mut issues = Vec::<String>::new();
             if manifest.package.name.is_empty() {
                 issues.push("package name is empty".to_string());
@@ -1304,13 +1240,11 @@ impl CommandExecutor {
                 issues.push("package repository is missing".to_string());
             }
 
-            // 检查入口文件存在
             let entry_path = std::path::Path::new(".").join(&manifest.package.entry);
             if !entry_path.exists() {
                 issues.push(format!("entry file '{}' does not exist", manifest.package.entry));
             }
 
-            // 检查构建
             let compile_result = compile_path(".", CompileOptions::default());
             match compile_result {
                 Ok(result) => {
@@ -1344,21 +1278,16 @@ impl CommandExecutor {
         }
     }
 
-    /// 安装包
     fn install(args: InstallArgs) -> Result<()> {
         let pm = PackageManager::new(".");
 
-        // 验证项目存在
         let _manifest = pm.read_manifest()?;
 
         if let Some(git_url) = &args.git {
-            // git 依赖安装
             let crate_name = args.crate_name.clone().unwrap_or_else(|| {
-                // 从 URL 推导包名
                 git_url.trim_end_matches('/').trim_end_matches(".git").split('/').last().unwrap_or("unknown").to_string()
             });
 
-            // 构建详细依赖配置
             let dep = DetailedDependency {
                 version: args.version.clone().unwrap_or_else(|| "*".to_string()),
                 git: Some(git_url.clone()),
@@ -1371,15 +1300,12 @@ impl CommandExecutor {
                 default_features: true,
             };
 
-            // 解析 git 依赖以验证可用性
             let resolved = pm.resolve_from_git(&crate_name, git_url, &dep)?;
 
-            // 写入 Cell.toml
             let mut manifest = pm.read_manifest()?;
             manifest.dependencies.insert(crate_name.clone(), Dependency::Detailed(dep));
             pm.write_manifest(&manifest)?;
 
-            // 更新锁文件
             let mut lockfile = Lockfile::read_from_root(std::path::Path::new(".")).unwrap_or_default();
             let mut resolved_map = HashMap::new();
             resolved_map.insert(crate_name.clone(), resolved);
@@ -1389,7 +1315,6 @@ impl CommandExecutor {
             println!("{}", format!("Installed {} from git {}", crate_name, git_url).green());
             Ok(())
         } else if let Some(path) = &args.path {
-            // 本地路径安装
             let crate_name =
                 args.crate_name.clone().unwrap_or_else(|| path.file_name().unwrap_or_default().to_string_lossy().to_string());
 
@@ -1405,15 +1330,12 @@ impl CommandExecutor {
                 default_features: true,
             };
 
-            // 验证路径依赖
             let resolved = pm.resolve_from_path(&crate_name, &path.to_string_lossy())?;
 
-            // 写入 Cell.toml
             let mut manifest = pm.read_manifest()?;
             manifest.dependencies.insert(crate_name.clone(), Dependency::Detailed(dep));
             pm.write_manifest(&manifest)?;
 
-            // 更新锁文件
             let mut lockfile = Lockfile::read_from_root(std::path::Path::new(".")).unwrap_or_default();
             let mut resolved_map = HashMap::new();
             resolved_map.insert(crate_name.clone(), resolved);
@@ -1423,7 +1345,6 @@ impl CommandExecutor {
             println!("{}", format!("Installed {} from path {}", crate_name, path.display()).green());
             Ok(())
         } else if let Some(crate_name) = &args.crate_name {
-            // 注册表安装 (基础实现)
             Self::experimental_command(
                 "install",
                 &format!(
@@ -1432,11 +1353,9 @@ impl CommandExecutor {
                 ),
             )
         } else {
-            // 无参数：解析并安装所有依赖
             let mut pm = PackageManager::new(".");
             pm.resolve_dependencies()?;
 
-            // 更新锁文件
             let mut lockfile = Lockfile::read_from_root(std::path::Path::new(".")).unwrap_or_default();
             lockfile.replace_with_resolved(pm.get_resolved());
             lockfile.write_to_root(std::path::Path::new("."))?;
@@ -1446,22 +1365,17 @@ impl CommandExecutor {
         }
     }
 
-    /// 更新依赖
     fn update() -> Result<()> {
         let mut pm = PackageManager::new(".");
         let manifest = pm.read_manifest()?;
 
-        // 解析所有依赖
         pm.resolve_dependencies()?;
 
-        // 读取或创建锁文件
         let mut lockfile = Lockfile::read_from_root(std::path::Path::new(".")).unwrap_or_default();
 
-        // 更新锁文件
         lockfile.replace_with_resolved(pm.get_resolved());
         lockfile.write_to_root(std::path::Path::new("."))?;
 
-        // 显示已解析的依赖
         let resolved = pm.get_resolved();
         if resolved.is_empty() {
             println!("{}", "No dependencies to update".green());
@@ -1477,7 +1391,6 @@ impl CommandExecutor {
             }
         }
 
-        // 检查一致性
         let lockfile_issues = lockfile.consistency_issues(&manifest);
         if !lockfile_issues.is_empty() {
             println!("{}", "Warning: lockfile is not consistent with Cell.toml".yellow());
@@ -1489,7 +1402,6 @@ impl CommandExecutor {
         Ok(())
     }
 
-    /// 显示包信息
     fn info(args: InfoArgs) -> Result<()> {
         let pm = PackageManager::new(".");
         let manifest = pm.read_manifest()?;
@@ -1527,11 +1439,9 @@ impl CommandExecutor {
         Ok(())
     }
 
-    /// 登录注册表
     fn login(args: LoginArgs) -> Result<()> {
         let registry = args.registry.unwrap_or_else(|| "https://cellscript.io".to_string());
 
-        // 创建凭证目录
         let config_dir = dirs_config_dir();
         std::fs::create_dir_all(&config_dir).map_err(|e| {
             crate::error::CompileError::without_span(format!("failed to create config directory '{}': {}", config_dir.display(), e))
@@ -1539,7 +1449,6 @@ impl CommandExecutor {
 
         let credentials_path = config_dir.join("credentials.toml");
 
-        // 读取现有凭证
         let mut credentials: HashMap<String, RegistryCredential> = if credentials_path.exists() {
             let content = std::fs::read_to_string(&credentials_path).unwrap_or_default();
             toml::from_str(&content).unwrap_or_default()
@@ -1547,7 +1456,6 @@ impl CommandExecutor {
             HashMap::new()
         };
 
-        // 提示输入凭证
         eprintln!("Logging in to {}", registry);
         eprintln!("Enter your authentication token (or press Enter to use environment variable CELLSCRIPT_TOKEN):");
 
@@ -1564,7 +1472,6 @@ impl CommandExecutor {
 
         let token = token.trim().to_string();
 
-        // 存储凭证
         credentials.insert(registry.clone(), RegistryCredential { registry: registry.clone(), token });
 
         let content = toml::to_string_pretty(&credentials)?;
@@ -1579,24 +1486,19 @@ impl CommandExecutor {
 #[cfg(feature = "vm-runner")]
 type CliVmMachine = TraceMachine<DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>>;
 
-/// 注册表凭证
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct RegistryCredential {
     registry: String,
     token: String,
 }
 
-/// 获取配置目录路径
 fn dirs_config_dir() -> PathBuf {
-    // 优先使用 CELLSCRIPT_CONFIG 环境变量
     if let Ok(config) = std::env::var("CELLSCRIPT_CONFIG") {
         return PathBuf::from(config);
     }
-    // XDG 规范
     if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
         return PathBuf::from(xdg).join("cellscript");
     }
-    // 默认: ~/.config/cellscript
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home).join(".config").join("cellscript")
 }
@@ -2885,11 +2787,9 @@ fn decode_hex_arg(name: &str, value: &str, expected_len: Option<usize>) -> Resul
     Ok(bytes)
 }
 
-/// 命令行解析
 pub struct CliParser;
 
 impl CliParser {
-    /// 解析命令行参数
     pub fn parse() -> Command {
         use clap::{Arg, ArgAction, Command as ClapCommand};
 
@@ -3341,8 +3241,6 @@ mod tests {
 
     #[test]
     fn test_command_execution() {
-        // 测试命令执行
         let _cmd = Command::Clean(CleanArgs::default());
-        // 实际测试需要 mock 文件系统
     }
 }

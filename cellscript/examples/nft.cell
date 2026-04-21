@@ -1,19 +1,12 @@
-// NFT (非同质化代币) 合约示例
-// 展示 CellScript 的 Receipt 和生命周期特性
 
 module nft_contract;
 
-// ==================== 常量定义 ====================
 
-// 最大供应量
 const MAX_SUPPLY: u64 = 10000;
 
-// 版税比例 (1% = 100)
 const ROYALTY_BASIS_POINTS: u16 = 250; // 2.5%
 
-// ==================== 类型定义 ====================
 
-/// NFT 元数据
 struct Metadata {
     name: String,
     description: String,
@@ -21,7 +14,6 @@ struct Metadata {
     attributes: Vec<(String, String)>,
 }
 
-/// NFT Token - 非同质化代币
 #[capability(store, transfer, destroy)]
 resource NFT has destroy {
     token_id: u64,
@@ -31,7 +23,6 @@ resource NFT has destroy {
     royalty_bps: u16,
 }
 
-/// NFT 集合
 #[capability(store)]
 resource Collection {
     name: String,
@@ -42,7 +33,6 @@ resource Collection {
     base_uri: String,
 }
 
-/// 挂单 - 生命周期示例
 #[lifecycle(Created, Active, Filled, Cancelled)]
 receipt Listing has destroy {
     token_id: u64,
@@ -51,7 +41,6 @@ receipt Listing has destroy {
     created_at: u64,
 }
 
-/// 出价 - 生命周期示例
 #[lifecycle(Created, Active, Accepted, Expired)]
 receipt Offer has destroy {
     token_id: u64,
@@ -60,16 +49,13 @@ receipt Offer has destroy {
     expires_at: u64,
 }
 
-/// 版税支付记录
 receipt RoyaltyPayment {
     token_id: u64,
     recipient: Address,
     amount: u64,
 }
 
-// ==================== Action 定义 ====================
 
-/// 铸造 NFT
 #[effect(Creating)]
 #[scheduler_hint(parallel, estimated_cycles = 5000)]
 action mint(
@@ -77,15 +63,12 @@ action mint(
     to: Address,
     metadata_hash: Hash,
 ) -> NFT {
-    // 验证供应量
     assert!(collection.total_supply < collection.max_supply, "Max supply reached");
     
     let token_id = collection.total_supply + 1;
     
-    // 更新集合
     collection.total_supply = token_id;
     
-    // 创建 NFT
     let nft = create NFT {
         token_id: token_id,
         owner: to,
@@ -97,17 +80,14 @@ action mint(
     nft
 }
 
-/// 转移 NFT
 #[effect(Mutating)]
 #[scheduler_hint(parallel, estimated_cycles = 2000)]
 action transfer(nft: &mut NFT, to: Address) {
     assert!(nft.owner != to, "Cannot transfer to self");
     
-    // 更新所有者
     nft.owner = to;
 }
 
-/// 创建挂单
 #[effect(Creating)]
 #[scheduler_hint(parallel, estimated_cycles = 3000)]
 action create_listing(
@@ -127,17 +107,13 @@ action create_listing(
     listing
 }
 
-/// 取消挂单
 #[effect(Destroying)]
 #[scheduler_hint(parallel, estimated_cycles = 2000)]
 action cancel_listing(listing: Listing) {
-    // 验证调用者是卖家
-    // (实际实现需要签名验证)
     
     destroy listing;
 }
 
-/// 购买 NFT (填充挂单)
 #[effect(Mutating, Destroying)]
 #[scheduler_hint(sequential, estimated_cycles = 8000)]
 action buy_from_listing(
@@ -146,20 +122,15 @@ action buy_from_listing(
     buyer: Address,
     payment: u64,
 ) -> (RoyaltyPayment, RoyaltyPayment) {
-    // 验证价格
     assert!(payment >= listing.price, "Insufficient payment");
     
-    // 计算版税
     let royalty_amount = (payment * nft.royalty_bps as u64) / 10000;
     let seller_amount = payment - royalty_amount;
     
-    // 转移 NFT
     nft.owner = buyer;
     
-    // 销毁挂单
     destroy listing;
     
-    // 创建版税支付记录
     let royalty_payment = create RoyaltyPayment {
         token_id: nft.token_id,
         recipient: nft.royalty_recipient,
@@ -175,7 +146,6 @@ action buy_from_listing(
     (royalty_payment, seller_payment)
 }
 
-/// 创建出价
 #[effect(Creating)]
 #[scheduler_hint(parallel, estimated_cycles = 3000)]
 action create_offer(
@@ -197,7 +167,6 @@ action create_offer(
     offer
 }
 
-/// 接受出价
 #[effect(Mutating, Destroying)]
 #[scheduler_hint(sequential, estimated_cycles = 8000)]
 action accept_offer(
@@ -205,23 +174,16 @@ action accept_offer(
     offer: Offer,
     current_time: u64,
 ) -> (RoyaltyPayment, RoyaltyPayment) {
-    // 验证出价未过期
     assert!(current_time < offer.expires_at, "Offer expired");
     
-    // 验证 NFT 所有者
-    // (实际实现需要签名验证)
     
-    // 计算版税
     let royalty_amount = (offer.price * nft.royalty_bps as u64) / 10000;
     let seller_amount = offer.price - royalty_amount;
     
-    // 转移 NFT
     nft.owner = offer.buyer;
     
-    // 销毁出价
     destroy offer;
     
-    // 创建支付记录
     let royalty_payment = create RoyaltyPayment {
         token_id: nft.token_id,
         recipient: nft.royalty_recipient,
@@ -230,21 +192,19 @@ action accept_offer(
     
     let seller_payment = create RoyaltyPayment {
         token_id: nft.token_id,
-        recipient: nft.owner, // 原所有者
+        recipient: nft.owner,
         amount: seller_amount,
     };
     
     (royalty_payment, seller_payment)
 }
 
-/// 销毁 NFT (仅限所有者)
 #[effect(Destroying)]
 #[scheduler_hint(parallel, estimated_cycles = 1000)]
 action burn(nft: NFT) {
     destroy nft;
 }
 
-/// 批量铸造
 #[effect(Creating)]
 #[scheduler_hint(sequential, estimated_cycles = 20000)]
 action batch_mint(
@@ -280,29 +240,23 @@ action batch_mint(
     nfts
 }
 
-// ==================== Lock 定义 ====================
 
-/// NFT 所有权验证 Lock
 lock nft_ownership(nft: &NFT, claimed_owner: Address) -> bool {
     nft.owner == claimed_owner
 }
 
-/// 挂单卖家验证 Lock
 lock listing_seller(listing: &Listing, claimed_seller: Address) -> bool {
     listing.seller == claimed_seller
 }
 
-/// 出价买家验证 Lock
 lock offer_buyer(offer: &Offer, claimed_buyer: Address) -> bool {
     offer.buyer == claimed_buyer
 }
 
-/// 版税比例验证 Lock
 lock valid_royalty(nft: &NFT) -> bool {
-    nft.royalty_bps <= 1000 // 最大 10%
+    nft.royalty_bps <= 1000
 }
 
-/// 集合创建者验证 Lock
 lock collection_creator(collection: &Collection, claimed_creator: Address) -> bool {
     collection.creator == claimed_creator
 }

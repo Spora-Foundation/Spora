@@ -1,6 +1,4 @@
-//! CellScript REPL (交互式解释器)
 //!
-//! 提供交互式 CellScript 编程环境
 
 use crate::codegen::{self, CodegenOptions};
 use crate::ir::generate;
@@ -10,25 +8,18 @@ use crate::types::check;
 use colored::Colorize;
 use std::io::{self, Write};
 
-/// REPL 状态
 pub struct Repl {
-    /// 历史输入
     history: Vec<String>,
-    /// 当前模块上下文
     context: String,
-    /// 是否显示生成的 IR
     show_ir: bool,
-    /// 是否显示生成的汇编
     show_asm: bool,
 }
 
 impl Repl {
-    /// 创建新的 REPL
     pub fn new() -> Self {
         Self { history: Vec::new(), context: String::new(), show_ir: false, show_asm: false }
     }
 
-    /// 运行 REPL
     pub fn run(&mut self) -> io::Result<()> {
         self.print_banner();
 
@@ -49,7 +40,6 @@ impl Repl {
 
             self.history.push(input.to_string());
 
-            // 处理特殊命令
             if input.starts_with(':') {
                 if self.handle_command(input) {
                     break;
@@ -57,7 +47,6 @@ impl Repl {
                 continue;
             }
 
-            // 处理代码输入
             if let Err(e) = self.process_input(input) {
                 eprintln!("{}: {}", "error".red(), e);
             }
@@ -66,7 +55,6 @@ impl Repl {
         Ok(())
     }
 
-    /// 打印欢迎横幅
     fn print_banner(&self) {
         println!(
             "{}",
@@ -85,8 +73,6 @@ impl Repl {
         println!("Type {} for help, {} to exit\n", ":help".yellow(), ":quit".yellow());
     }
 
-    /// 处理特殊命令
-    /// 返回 true 表示退出 REPL
     fn handle_command(&mut self, input: &str) -> bool {
         let parts: Vec<&str> = input.split_whitespace().collect();
         let cmd = parts[0];
@@ -148,7 +134,6 @@ impl Repl {
         }
     }
 
-    /// 打印帮助信息
     fn print_help(&self) {
         println!("{}", "Commands:".bold());
         println!("  {:15} - Exit the REPL", ":quit, :q".yellow());
@@ -166,35 +151,27 @@ impl Repl {
         println!("  action mint() {{ create Token {{ amount: 100 }} }}");
     }
 
-    /// 处理代码输入
     fn process_input(&mut self, input: &str) -> Result<(), String> {
-        // 构建完整代码（添加上下文）
         let full_code = if self.context.is_empty() {
             format!("module repl\n{}", input)
         } else {
             format!("module repl\n{}\n{}", self.context, input)
         };
 
-        // 1. 词法分析
         let tokens = lex(&full_code).map_err(|e| format!("Lexer error: {}", e))?;
 
-        // 2. 解析
         let ast = parse(&tokens).map_err(|e| format!("Parser error: {}", e))?;
 
-        // 3. 类型检查
         check(&ast).map_err(|e| format!("Type error: {}", e))?;
 
-        // 4. 生成 IR
         let ir = generate(&ast).map_err(|e| format!("IR generation error: {}", e))?;
 
         println!("{}", "✓".green().bold());
 
-        // 显示 IR（如果启用）
         if self.show_ir {
             println!("{}\n{:#?}", "Generated IR:".cyan().bold(), ir);
         }
 
-        // 显示汇编（如果启用）
         if self.show_asm {
             let asm_bytes = codegen::generate(&ir, &CodegenOptions::default(), crate::ArtifactFormat::RiscvAssembly)
                 .map_err(|e| format!("Codegen error: {}", e))?;
@@ -202,7 +179,6 @@ impl Repl {
             println!("{}\n{}", "Generated ASM:".cyan().bold(), asm);
         }
 
-        // 更新上下文
         if !input.starts_with("action") && !input.starts_with("resource") {
             self.context.push_str(input);
             self.context.push('\n');
@@ -211,7 +187,6 @@ impl Repl {
         Ok(())
     }
 
-    /// 显示 token
     fn show_tokens(&self, code: &str) {
         let full_code = format!("module repl\n{}", code);
         match lex(&full_code) {
@@ -232,7 +207,6 @@ impl Repl {
         }
     }
 
-    /// 显示 AST
     fn show_ast(&self, code: &str) {
         let full_code = format!("module repl\n{}", code);
         match lex(&full_code) {
@@ -248,7 +222,6 @@ impl Repl {
     }
 }
 
-/// 运行 REPL
 pub fn run_repl() -> io::Result<()> {
     let mut repl = Repl::new();
     repl.run()

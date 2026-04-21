@@ -1,17 +1,12 @@
-//! 标准库集合类型
 //!
-//! 提供 HashMap, HashSet, Vec 等常用集合
 
 use crate::ir::IrType;
 
-/// 集合模块
 pub struct Collections;
 
 impl Collections {
-    /// 获取所有集合类型的函数
     pub fn functions() -> Vec<CollectionFunction> {
         vec![
-            // Vec 操作
             CollectionFunction { name: "vec_new".to_string(), params: vec![], return_type: Some(IrType::Named("Vec".to_string())) },
             CollectionFunction {
                 name: "vec_with_capacity".to_string(),
@@ -89,7 +84,6 @@ impl Collections {
                 params: vec![("vec".to_string(), IrType::MutRef(Box::new(IrType::Named("Vec".to_string()))))],
                 return_type: None,
             },
-            // HashMap 操作
             CollectionFunction {
                 name: "hashmap_new".to_string(),
                 params: vec![],
@@ -158,7 +152,6 @@ impl Collections {
                 params: vec![("map".to_string(), IrType::Ref(Box::new(IrType::Named("HashMap".to_string()))))],
                 return_type: Some(IrType::Named("Vec".to_string())),
             },
-            // HashSet 操作
             CollectionFunction {
                 name: "hashset_new".to_string(),
                 params: vec![],
@@ -232,7 +225,6 @@ impl Collections {
                 ],
                 return_type: Some(IrType::Named("HashSet".to_string())),
             },
-            // Option 操作
             CollectionFunction {
                 name: "option_some".to_string(),
                 params: vec![("value".to_string(), IrType::U64)],
@@ -271,7 +263,6 @@ impl Collections {
                 ],
                 return_type: Some(IrType::Named("Option".to_string())),
             },
-            // Result 操作
             CollectionFunction {
                 name: "result_ok".to_string(),
                 params: vec![("value".to_string(), IrType::U64)],
@@ -305,30 +296,23 @@ impl Collections {
         ]
     }
 
-    /// 生成集合类型的 RISC-V 汇编
     pub fn generate_assembly() -> String {
         let mut asm = String::new();
 
         asm.push_str("# CellScript Collections Library\n\n");
         asm.push_str(".section .text\n\n");
 
-        // Vec 实现
         asm.push_str(&Self::generate_vec_impl());
 
-        // HashMap 实现
         asm.push_str(&Self::generate_hashmap_impl());
 
-        // HashSet 实现
         asm.push_str(&Self::generate_hashset_impl());
 
         asm
     }
 
-    /// 生成 Vec 实现
     fn generate_vec_impl() -> String {
         let mut asm = String::new();
-
-        // Vec 结构: [capacity, length, data_ptr, ...]
 
         asm.push_str("# Vec::new\n");
         asm.push_str(".global __vec_new\n");
@@ -396,11 +380,8 @@ impl Collections {
         asm
     }
 
-    /// 生成 HashMap 实现
     fn generate_hashmap_impl() -> String {
         let mut asm = String::new();
-
-        // HashMap 结构: [bucket_count, entry_count, buckets_ptr, ...]
 
         asm.push_str("# HashMap::new\n");
         asm.push_str(".global __hashmap_new\n");
@@ -448,11 +429,8 @@ impl Collections {
         asm
     }
 
-    /// 生成 HashSet 实现
     fn generate_hashset_impl() -> String {
         let mut asm = String::new();
-
-        // HashSet 基于 HashMap 实现，只存储 key
 
         asm.push_str("# HashSet::new\n");
         asm.push_str(".global __hashset_new\n");
@@ -480,7 +458,6 @@ impl Collections {
     }
 }
 
-/// 集合函数定义
 #[derive(Debug, Clone)]
 pub struct CollectionFunction {
     pub name: String,
@@ -496,17 +473,14 @@ mod tests {
     fn test_collection_functions() {
         let funcs = Collections::functions();
 
-        // 检查 Vec 函数
         assert!(funcs.iter().any(|f| f.name == "vec_new"));
         assert!(funcs.iter().any(|f| f.name == "vec_push"));
         assert!(funcs.iter().any(|f| f.name == "vec_pop"));
 
-        // 检查 HashMap 函数
         assert!(funcs.iter().any(|f| f.name == "hashmap_new"));
         assert!(funcs.iter().any(|f| f.name == "hashmap_insert"));
         assert!(funcs.iter().any(|f| f.name == "hashmap_get"));
 
-        // 检查 HashSet 函数
         assert!(funcs.iter().any(|f| f.name == "hashset_new"));
         assert!(funcs.iter().any(|f| f.name == "hashset_insert"));
         assert!(funcs.iter().any(|f| f.name == "hashset_contains"));

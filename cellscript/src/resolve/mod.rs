@@ -1,35 +1,23 @@
-//! 名称解析和模块系统
 //!
-//! 处理模块导入、符号解析、路径解析
 
 use crate::ast::*;
 use crate::error::{CompileError, Result, Span};
 use std::collections::HashMap;
 
-/// 模块解析器
 pub struct ModuleResolver {
-    /// 已加载的模块
     modules: HashMap<String, Module>,
-    /// 当前模块的符号表
     symbol_tables: HashMap<String, SymbolTable>,
-    /// 导入映射
     imports: HashMap<String, Vec<ImportItem>>,
 }
 
-/// 符号表
 #[derive(Debug, Clone, Default)]
 pub struct SymbolTable {
-    /// 类型定义
     types: HashMap<String, TypeDef>,
-    /// 函数/Action
     functions: HashMap<String, FunctionDef>,
-    /// 常量
     constants: HashMap<String, ConstantDef>,
-    /// 导入的符号
-    imported: HashMap<String, String>, // 本地名 -> 完全限定名
+    imported: HashMap<String, String>,
 }
 
-/// 类型定义
 #[derive(Debug, Clone)]
 pub enum TypeDef {
     Resource(ResourceDef),
@@ -39,7 +27,6 @@ pub enum TypeDef {
     Enum(EnumDef),
 }
 
-/// 函数定义
 #[derive(Debug, Clone)]
 pub enum FunctionDef {
     Action(ActionDef),
@@ -47,7 +34,6 @@ pub enum FunctionDef {
     Lock(LockDef),
 }
 
-/// 常量定义
 #[derive(Debug, Clone)]
 pub struct ConstantDef {
     pub name: String,
@@ -55,7 +41,6 @@ pub struct ConstantDef {
     pub value: Expr,
 }
 
-/// 导入项
 #[derive(Debug, Clone)]
 pub struct ImportItem {
     pub module_path: Vec<String>,
@@ -65,19 +50,16 @@ pub struct ImportItem {
 }
 
 impl ModuleResolver {
-    /// 创建新的模块解析器
     pub fn new() -> Self {
         Self { modules: HashMap::new(), symbol_tables: HashMap::new(), imports: HashMap::new() }
     }
 
-    /// 注册模块
     pub fn register_module(&mut self, module: Module) -> Result<()> {
         let name = module.name.clone();
         if self.modules.contains_key(&name) {
             return Err(CompileError::new(format!("duplicate module '{}'", name), module.span));
         }
 
-        // 构建符号表
         let mut symbol_table = SymbolTable::default();
 
         for item in &module.items {
@@ -166,7 +148,6 @@ impl ModuleResolver {
         }
     }
 
-    /// 处理导入
     fn process_import(&mut self, symbol_table: &mut SymbolTable, import: &ImportItem) -> Result<()> {
         if import.module_path.is_empty() || import.name.is_empty() {
             return Err(CompileError::new("empty import path", import.span));
@@ -181,7 +162,6 @@ impl ModuleResolver {
         Ok(())
     }
 
-    /// 解析类型引用
     pub fn resolve_type(&self, module: &str, name: &str) -> Option<TypeDef> {
         if let Some((target_module, symbol)) = name.rsplit_once("::") {
             if let Some(table) = self.symbol_tables.get(target_module) {
@@ -189,19 +169,14 @@ impl ModuleResolver {
             }
         }
 
-        // 先查当前模块
         if let Some(table) = self.symbol_tables.get(module) {
-            // 查本地类型
             if let Some(ty) = table.types.get(name) {
                 return Some(ty.clone());
             }
 
-            // 查导入的类型
             if let Some(full_path) = table.imported.get(name) {
-                // 解析完全限定路径
                 let parts: Vec<&str> = full_path.split("::").collect();
                 if let Some(type_name) = parts.last() {
-                    // 查找目标模块
                     for (mod_name, table) in &self.symbol_tables {
                         if full_path.starts_with(mod_name) {
                             return table.types.get(*type_name).cloned();
@@ -214,7 +189,6 @@ impl ModuleResolver {
         self.resolve_type_global(name)
     }
 
-    /// 解析函数引用
     pub fn resolve_function(&self, module: &str, name: &str) -> Option<FunctionDef> {
         if let Some((target_module, symbol)) = name.rsplit_once("::") {
             if let Some(table) = self.symbol_tables.get(target_module) {
@@ -223,12 +197,10 @@ impl ModuleResolver {
         }
 
         if let Some(table) = self.symbol_tables.get(module) {
-            // 查本地函数
             if let Some(func) = table.functions.get(name) {
                 return Some(func.clone());
             }
 
-            // 查导入的函数
             if let Some(full_path) = table.imported.get(name) {
                 let parts: Vec<&str> = full_path.split("::").collect();
                 if let Some(func_name) = parts.last() {
@@ -301,7 +273,6 @@ impl ModuleResolver {
         }
     }
 
-    /// 获取模块的公开符号
     pub fn get_public_symbols(&self, module: &str) -> Vec<String> {
         let mut symbols = Vec::new();
 
@@ -317,9 +288,7 @@ impl ModuleResolver {
         symbols
     }
 
-    /// 检查循环依赖
     pub fn check_circular_deps(&self) -> Result<()> {
-        // 简化实现：检查导入的模块是否存在
         for (_module_name, imports) in &self.imports {
             for import in imports {
                 let target_module = import.module_path.join("::");
@@ -332,22 +301,18 @@ impl ModuleResolver {
         Ok(())
     }
 
-    /// 解析完全限定名
     pub fn resolve_qualified_name(&self, path: &[String]) -> Option<ResolvedName> {
         if path.is_empty() {
             return None;
         }
 
-        // 第一个组件是模块名
         let module_name = &path[0];
 
         if let Some(table) = self.symbol_tables.get(module_name) {
             if path.len() == 1 {
-                // 只有模块名
                 return Some(ResolvedName::Module(module_name.clone()));
             }
 
-            // 第二个组件是符号名
             let symbol_name = &path[1];
 
             if let Some(ty) = table.types.get(symbol_name) {
@@ -363,24 +328,20 @@ impl ModuleResolver {
     }
 }
 
-/// 解析后的名称
 #[derive(Debug, Clone)]
 pub enum ResolvedName {
     Module(String),
-    Type(String, String, TypeDef),         // 模块, 名称, 定义
-    Function(String, String, FunctionDef), // 模块, 名称, 定义
+    Type(String, String, TypeDef),
+    Function(String, String, FunctionDef),
 }
 
-/// 路径解析器
 pub struct PathResolver;
 
 impl PathResolver {
-    /// 解析路径字符串
     pub fn parse_path(path: &str) -> Vec<String> {
         path.split("::").map(|s| s.to_string()).collect()
     }
 
-    /// 构建完全限定名
     pub fn build_qualified_name(module: &str, name: &str) -> String {
         format!("{}::{}", module, name)
     }
@@ -394,7 +355,6 @@ mod tests {
     fn test_module_resolver() {
         let mut resolver = ModuleResolver::new();
 
-        // 创建一个测试模块
         let module = Module {
             name: "test".to_string(),
             items: vec![Item::Resource(ResourceDef {
@@ -409,7 +369,6 @@ mod tests {
 
         resolver.register_module(module).unwrap();
 
-        // 测试类型解析
         let ty = resolver.resolve_type("test", "Token");
         assert!(ty.is_some());
     }

@@ -1,13 +1,13 @@
-//! CLI 模块
+//! CLI module
 //!
-//! 命令行界面和子命令实现
+//! Command-line interface and subcommand implementation
 
 pub mod commands;
 
 use crate::error::Result;
 use commands::{CliParser, CommandExecutor};
 
-/// 运行 CLI
+/// Run CLI
 pub fn run() -> Result<()> {
     let cmd = CliParser::parse();
     CommandExecutor::execute(cmd)

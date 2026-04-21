@@ -18,6 +18,18 @@ interaction style. APIs and internal module boundaries may still change.
 - gRPC and wRPC service layers for native and WebSocket-based clients.
 - CLI tools for node operation, wallet workflows, simulation, and address tasks.
 
+## CellScript Compatibility Boundaries
+
+- CellScript supports Spora and CKB through explicit target profiles; CKB remains bounded to the admitted pure subset for v1.
+- The CKB strict profile uses CKB syscall, source, hash, header, and Molecule rules.
+- Molecule is the shared VM/CellScript ABI; legacy Borsh remains only on explicit legacy-only paths.
+- The CKB strict profile does not accept Borsh as a public wire format.
+- CKB load-script syscall identity is pinned for the strict profile:
+
+```rust
+pub const CKB_SYSCALL_LOAD_SCRIPT: u64 = 2052;
+```
+
 ## Architecture
 
 ```mermaid

@@ -1,75 +1,51 @@
-//! 包管理器
 //!
-//! 管理 CellScript 包的依赖、版本和发布
 
 use crate::error::{CompileError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-/// 包清单 (Cell.toml)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageManifest {
-    /// 包信息
     pub package: PackageInfo,
-    /// 依赖
     #[serde(default)]
     pub dependencies: HashMap<String, Dependency>,
-    /// 开发依赖
     #[serde(default)]
     pub dev_dependencies: HashMap<String, Dependency>,
-    /// 构建配置
     #[serde(default)]
     pub build: BuildConfig,
-    /// 检查/发布策略
     #[serde(default)]
     pub policy: PolicyConfig,
-    /// 元数据
     #[serde(default)]
     pub metadata: HashMap<String, toml::Value>,
 }
 
-/// 包信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageInfo {
-    /// 包名
     pub name: String,
-    /// 版本 (遵循 SemVer)
     pub version: String,
-    /// 作者
     #[serde(default)]
     pub authors: Vec<String>,
-    /// 描述
     #[serde(default)]
     pub description: String,
-    /// 许可证
     #[serde(default)]
     pub license: String,
-    /// 仓库 URL
     #[serde(default)]
     pub repository: String,
-    /// 主页
     #[serde(default)]
     pub homepage: String,
-    /// 文档 URL
     #[serde(default)]
     pub documentation: String,
-    /// 关键字
     #[serde(default)]
     pub keywords: Vec<String>,
-    /// 分类
     #[serde(default)]
     pub categories: Vec<String>,
-    /// 最低 CellScript 版本
     #[serde(default)]
     pub cellscript_version: String,
-    /// 入口文件
     #[serde(default = "default_entry")]
     pub entry: String,
-    /// 包含的文件
     #[serde(default)]
     pub include: Vec<String>,
-    /// 排除的文件
     #[serde(default)]
     pub exclude: Vec<String>,
 }
@@ -78,44 +54,31 @@ fn default_entry() -> String {
     "src/main.cell".to_string()
 }
 
-/// 依赖
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Dependency {
-    /// 简单版本
     Simple(String),
-    /// 详细配置
     Detailed(DetailedDependency),
 }
 
-/// 详细依赖配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetailedDependency {
-    /// 版本要求
     #[serde(default = "default_any_version")]
     pub version: String,
-    /// Git 仓库
     #[serde(default)]
     pub git: Option<String>,
-    /// Git 分支
     #[serde(default)]
     pub branch: Option<String>,
-    /// Git 标签
     #[serde(default)]
     pub tag: Option<String>,
-    /// Git 修订
     #[serde(default)]
     pub rev: Option<String>,
-    /// 本地路径
     #[serde(default)]
     pub path: Option<String>,
-    /// 是否可选
     #[serde(default)]
     pub optional: bool,
-    /// 特性
     #[serde(default)]
     pub features: Vec<String>,
-    /// 默认特性
     #[serde(default = "default_true")]
     pub default_features: bool,
 }
@@ -128,93 +91,64 @@ fn default_any_version() -> String {
     "*".to_string()
 }
 
-/// 构建配置
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BuildConfig {
-    /// 脚本
     #[serde(default)]
     pub script: Option<String>,
-    /// 依赖
     #[serde(default)]
     pub dependencies: HashMap<String, Dependency>,
 }
 
-/// 包级检查策略
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PolicyConfig {
-    /// 拒绝 fail-closed lowering 路径，适合生产/CI
     #[serde(default)]
     pub production: bool,
-    /// 显式拒绝 fail-closed runtime features/obligations
     #[serde(default)]
     pub deny_fail_closed: bool,
-    /// 拒绝 symbolic Cell/runtime requirements
     #[serde(default)]
     pub deny_symbolic_runtime: bool,
-    /// 拒绝 CKB transaction/syscall runtime requirements
     #[serde(default)]
     pub deny_ckb_runtime: bool,
-    /// 拒绝需要外部 runtime/scheduler 兑现的 verifier obligations
     #[serde(default)]
     pub deny_runtime_obligations: bool,
 }
 
-/// 包管理器
 pub struct PackageManager {
-    /// 根目录
     root: PathBuf,
-    /// 已解析的依赖
     resolved: HashMap<String, ResolvedPackage>,
 }
 
-/// 已解析的包
 #[derive(Debug, Clone)]
 pub struct ResolvedPackage {
-    /// 包名
     pub name: String,
-    /// 版本
     pub version: String,
-    /// 路径
     pub path: PathBuf,
-    /// 来源
     pub source: PackageSource,
-    /// 依赖
     pub dependencies: Vec<String>,
 }
 
-/// 包来源
 #[derive(Debug, Clone)]
 pub enum PackageSource {
-    /// 本地路径
     Local(PathBuf),
-    /// Git 仓库
     Git { url: String, revision: String },
-    /// 注册表
     Registry { name: String, version: String },
 }
 
-/// 版本要求
 #[derive(Debug, Clone)]
 pub enum VersionReq {
-    /// 精确版本
     Exact(String),
-    /// 兼容版本 (^1.2.3)
     Compatible(String),
-    /// 范围 (>=1.0.0, <2.0.0)
     Range(String),
-    /// 任意
     Any,
 }
 
 impl PackageManager {
-    /// 创建新的包管理器
     pub fn new(root: impl AsRef<Path>) -> Self {
         let root = root.as_ref().to_path_buf();
 
         Self { root, resolved: HashMap::new() }
     }
 
-    /// 读取包清单
     pub fn read_manifest(&self) -> Result<PackageManifest> {
         let manifest_path = self.root.join("Cell.toml");
 
@@ -228,7 +162,6 @@ impl PackageManager {
         Ok(manifest)
     }
 
-    /// 写入包清单
     pub fn write_manifest(&self, manifest: &PackageManifest) -> Result<()> {
         let manifest_path = self.root.join("Cell.toml");
         let content = toml::to_string_pretty(manifest)?;
@@ -236,14 +169,11 @@ impl PackageManager {
         Ok(())
     }
 
-    /// 初始化新包
     pub fn init(&self, name: &str) -> Result<()> {
-        // 创建目录结构
         std::fs::create_dir_all(self.root.join("src"))?;
         std::fs::create_dir_all(self.root.join("tests"))?;
         std::fs::create_dir_all(self.root.join("examples"))?;
 
-        // 创建 Cell.toml
         let manifest = PackageManifest {
             package: PackageInfo {
                 name: name.to_string(),
@@ -270,7 +200,6 @@ impl PackageManager {
 
         self.write_manifest(&manifest)?;
 
-        // 创建默认入口文件
         let main_content = format!(
             r#"module {};
 
@@ -280,7 +209,6 @@ impl PackageManager {
         );
         std::fs::write(self.root.join("src/main.cell"), main_content)?;
 
-        // 创建 .gitignore
         let gitignore = r#"# CellScript
 .cell/
 build/
@@ -293,7 +221,6 @@ dist/
         Ok(())
     }
 
-    /// 添加依赖
     pub fn add_dependency(&self, name: &str, version: &str) -> Result<()> {
         let mut manifest = self.read_manifest()?;
 
@@ -303,7 +230,6 @@ dist/
         Ok(())
     }
 
-    /// 移除依赖
     pub fn remove_dependency(&self, name: &str) -> Result<()> {
         let mut manifest = self.read_manifest()?;
         manifest.dependencies.remove(name);
@@ -311,7 +237,6 @@ dist/
         Ok(())
     }
 
-    /// 解析依赖
     pub fn resolve_dependencies(&mut self) -> Result<()> {
         let manifest = self.read_manifest()?;
 
@@ -322,7 +247,6 @@ dist/
         Ok(())
     }
 
-    /// 解析单个依赖
     fn resolve_dependency(&mut self, name: &str, dep: &Dependency) -> Result<()> {
         if self.resolved.contains_key(name) {
             return Ok(());
@@ -345,7 +269,6 @@ dist/
         Ok(())
     }
 
-    /// 从注册表解析
     pub fn resolve_from_registry(&self, name: &str, version: &str) -> Result<ResolvedPackage> {
         Err(CompileError::without_span(format!(
             "registry dependency '{}' with version '{}' is not supported yet; use a local path dependency",
@@ -353,7 +276,6 @@ dist/
         )))
     }
 
-    /// 从本地路径解析
     pub fn resolve_from_path(&self, name: &str, path: &str) -> Result<ResolvedPackage> {
         let package_path = self.root.join(path);
         let manifest_path = package_path.join("Cell.toml");
@@ -374,40 +296,32 @@ dist/
         })
     }
 
-    /// 从 Git 解析
     pub fn resolve_from_git(&self, name: &str, url: &str, detailed: &DetailedDependency) -> Result<ResolvedPackage> {
         let cache_dir = self.git_cache_dir();
         std::fs::create_dir_all(&cache_dir).map_err(|e| {
             CompileError::without_span(format!("failed to create git cache directory '{}': {}", cache_dir.display(), e))
         })?;
 
-        // 生成缓存目录名 (基于 URL 的简短哈希)
         let cache_name = format!("{}-{:016x}", name, simple_hash(url));
         let clone_dir = cache_dir.join(&cache_name);
 
-        // 如果缓存已存在，尝试 git pull 更新
-        // 否则执行 git clone
         let git_result = if clone_dir.exists() && clone_dir.join(".git").exists() {
             Self::git_update(&clone_dir)
         } else {
-            // 删除可能残留的目录
             let _ = std::fs::remove_dir_all(&clone_dir);
             Self::git_clone(url, &clone_dir)
         };
 
         git_result.map_err(|e| CompileError::without_span(format!("git dependency '{}' from '{}' failed: {}", name, url, e)))?;
 
-        // 切换到指定分支/标签/修订
         if let Some(ref_str) = detailed.rev.as_ref().or(detailed.tag.as_ref()).or(detailed.branch.as_ref()) {
             Self::git_checkout(&clone_dir, ref_str).map_err(|e| {
                 CompileError::without_span(format!("git dependency '{}' failed to checkout '{}': {}", name, ref_str, e))
             })?;
         }
 
-        // 获取当前 commit hash
         let revision = Self::git_revision(&clone_dir).unwrap_or_else(|_| "unknown".to_string());
 
-        // 解析克隆仓库的 Cell.toml
         let manifest_path = clone_dir.join("Cell.toml");
         if !manifest_path.exists() {
             return Err(CompileError::without_span(format!(
@@ -428,12 +342,10 @@ dist/
         })
     }
 
-    /// 获取 git 缓存目录
     fn git_cache_dir(&self) -> PathBuf {
         self.root.join(".cell/git-cache")
     }
 
-    /// 执行 git clone
     fn git_clone(url: &str, target: &Path) -> std::result::Result<(), String> {
         let output = std::process::Command::new("git")
             .args(["clone", "--depth", "1", url, &target.to_string_lossy()])
@@ -448,7 +360,6 @@ dist/
         Ok(())
     }
 
-    /// 执行 git pull 更新已有克隆
     fn git_update(clone_dir: &Path) -> std::result::Result<(), String> {
         let output = std::process::Command::new("git")
             .args(["pull", "--ff-only"])
@@ -458,23 +369,18 @@ dist/
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            // pull 失败不是致命错误，使用现有缓存
             eprintln!("Warning: git pull failed for {}: {}", clone_dir.display(), stderr.trim());
         }
 
         Ok(())
     }
 
-    /// 执行 git checkout 切换分支/标签
     fn git_checkout(clone_dir: &Path, ref_str: &str) -> std::result::Result<(), String> {
-        // 先 fetch 指定 ref
         let _output = std::process::Command::new("git")
             .args(["fetch", "origin", ref_str])
             .current_dir(clone_dir)
             .output()
             .map_err(|e| format!("failed to execute git fetch: {}", e))?;
-
-        // fetch 失败仍然尝试 checkout（可能已经本地存在）
 
         let output = std::process::Command::new("git")
             .args(["checkout", ref_str])
@@ -490,7 +396,6 @@ dist/
         Ok(())
     }
 
-    /// 获取当前 git commit hash
     fn git_revision(clone_dir: &Path) -> std::result::Result<String, String> {
         let output = std::process::Command::new("git")
             .args(["rev-parse", "--short", "HEAD"])
@@ -505,12 +410,10 @@ dist/
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
-    /// 获取已解析的依赖
     pub fn get_resolved(&self) -> &HashMap<String, ResolvedPackage> {
         &self.resolved
     }
 
-    /// 构建依赖图
     pub fn build_dependency_graph(&self) -> DependencyGraph {
         let mut graph = DependencyGraph::new();
 
@@ -524,7 +427,6 @@ dist/
         graph
     }
 
-    /// 检查循环依赖
     pub fn check_circular_deps(&self) -> Result<()> {
         let graph = self.build_dependency_graph();
 
@@ -535,37 +437,31 @@ dist/
         Ok(())
     }
 
-    /// 获取依赖的源码路径
     pub fn get_source_paths(&self) -> Vec<PathBuf> {
         self.resolved.values().map(|p| p.path.join("src")).collect()
     }
 }
 
-/// 依赖图
 pub struct DependencyGraph {
     nodes: Vec<String>,
     edges: HashMap<String, Vec<String>>,
 }
 
 impl DependencyGraph {
-    /// 创建新的依赖图
     pub fn new() -> Self {
         Self { nodes: Vec::new(), edges: HashMap::new() }
     }
 
-    /// 添加节点
     pub fn add_node(&mut self, name: String) {
         if !self.nodes.contains(&name) {
             self.nodes.push(name);
         }
     }
 
-    /// 添加边
     pub fn add_edge(&mut self, from: String, to: String) {
         self.edges.entry(from).or_default().push(to);
     }
 
-    /// 查找循环
     pub fn find_cycle(&self) -> Option<Vec<String>> {
         let mut visited = HashMap::new();
         let mut rec_stack = Vec::new();
@@ -581,7 +477,6 @@ impl DependencyGraph {
         None
     }
 
-    /// DFS 查找循环
     fn dfs_find_cycle(&self, node: &str, visited: &mut HashMap<String, bool>, rec_stack: &mut Vec<String>) -> Option<Vec<String>> {
         visited.insert(node.to_string(), true);
         rec_stack.push(node.to_string());
@@ -593,7 +488,6 @@ impl DependencyGraph {
                         return Some(cycle);
                     }
                 } else if rec_stack.contains(neighbor) {
-                    // 发现循环
                     let idx = rec_stack.iter().position(|n| n == neighbor).unwrap();
                     let mut cycle = rec_stack[idx..].to_vec();
                     cycle.push(neighbor.to_string());
@@ -607,7 +501,6 @@ impl DependencyGraph {
     }
 }
 
-/// 简单哈希函数 (FNV-1a 风格) 用于生成缓存目录名
 fn simple_hash(s: &str) -> u64 {
     let mut hash: u64 = 0xcbf29ce484222325;
     for byte in s.bytes() {
@@ -617,25 +510,19 @@ fn simple_hash(s: &str) -> u64 {
     hash
 }
 
-/// 锁文件 (Cell.lock)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Lockfile {
-    /// 锁文件版本
     pub version: u32,
-    /// 锁定的依赖
     pub dependencies: BTreeMap<String, LockedDependency>,
 }
 
 impl Lockfile {
-    /// 当前锁文件格式版本
     pub const CURRENT_VERSION: u32 = 1;
 
-    /// 创建新的空锁文件
     pub fn new() -> Self {
         Self { version: Self::CURRENT_VERSION, dependencies: BTreeMap::new() }
     }
 
-    /// 从项目根目录读取锁文件
     pub fn read_from_root(root: &Path) -> Option<Self> {
         let lock_path = root.join("Cell.lock");
         if !lock_path.exists() {
@@ -645,7 +532,6 @@ impl Lockfile {
         toml::from_str(&content).ok()
     }
 
-    /// 写入锁文件到项目根目录
     pub fn write_to_root(&self, root: &Path) -> Result<()> {
         let lock_path = root.join("Cell.lock");
         let content = toml::to_string_pretty(self)?;
@@ -653,7 +539,6 @@ impl Lockfile {
         Ok(())
     }
 
-    /// 从已解析的依赖更新锁文件
     pub fn update_from_resolved(&mut self, resolved: &HashMap<String, ResolvedPackage>) {
         for (name, package) in resolved {
             let locked = LockedDependency {
@@ -670,18 +555,15 @@ impl Lockfile {
         }
     }
 
-    /// 用已解析依赖完整替换锁文件依赖集合。
     pub fn replace_with_resolved(&mut self, resolved: &HashMap<String, ResolvedPackage>) {
         self.dependencies.clear();
         self.update_from_resolved(resolved);
     }
 
-    /// 检查锁文件是否与清单一致
     pub fn is_consistent(&self, manifest: &PackageManifest) -> bool {
         self.consistency_issues(manifest).is_empty()
     }
 
-    /// 返回锁文件与清单不一致的诊断。
     pub fn consistency_issues(&self, manifest: &PackageManifest) -> Vec<String> {
         let mut issues = Vec::new();
         if self.version != Self::CURRENT_VERSION {
@@ -795,31 +677,22 @@ impl Default for Lockfile {
     }
 }
 
-/// 锁定的依赖
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LockedDependency {
-    /// 版本
     pub version: String,
-    /// 来源
     pub source: LockedSource,
 }
 
-/// 锁定的来源
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LockedSource {
-    /// 本地路径
     Path { path: String },
-    /// Git 仓库
     Git { url: String, revision: String },
-    /// 注册表
     Registry { name: String, version: String },
 }
 
-/// 版本解析
 pub mod version {
     use super::*;
 
-    /// 解析版本要求
     pub fn parse_version_req(req: &str) -> Result<VersionReq> {
         if req == "*" {
             return Ok(VersionReq::Any);
@@ -837,11 +710,9 @@ pub mod version {
             return Ok(VersionReq::Range(req.to_string()));
         }
 
-        // 默认为兼容版本
         Ok(VersionReq::Compatible(req.to_string()))
     }
 
-    /// 检查版本是否满足要求
     pub fn satisfies(version: &str, req: &VersionReq) -> bool {
         match req {
             VersionReq::Any => true,
@@ -851,7 +722,6 @@ pub mod version {
         }
     }
 
-    /// 检查是否兼容 (^)
     fn is_compatible(version: &str, base: &str) -> bool {
         let v_parts: Vec<u32> = version.split('.').filter_map(|p| p.parse().ok()).collect();
         let b_parts: Vec<u32> = base.split('.').filter_map(|p| p.parse().ok()).collect();
@@ -860,12 +730,10 @@ pub mod version {
             return false;
         }
 
-        // 主版本必须相同
         if v_parts[0] != b_parts[0] {
             return false;
         }
 
-        // 如果主版本为 0，次版本也必须相同
         if v_parts[0] == 0 {
             if v_parts.len() < 2 || b_parts.len() < 2 {
                 return false;
@@ -878,9 +746,7 @@ pub mod version {
         true
     }
 
-    /// 检查是否满足范围
     fn satisfies_range(_version: &str, _range: &str) -> bool {
-        // 简化实现
         true
     }
 }
@@ -932,7 +798,6 @@ mod tests {
 
         assert!(graph.find_cycle().is_none());
 
-        // 添加循环
         graph.add_edge("C".to_string(), "A".to_string());
         assert!(graph.find_cycle().is_some());
     }
@@ -1128,7 +993,6 @@ rev = "abc123"
         let mut manager = PackageManager::new(temp.path());
         let error = manager.resolve_dependencies().unwrap_err();
 
-        // git clone 会失败，错误信息包含 URL
         assert!(error.message.contains("remote"));
         assert!(error.message.contains("https://example.invalid/remote.git"));
         assert!(manager.get_resolved().is_empty());

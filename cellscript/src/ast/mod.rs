@@ -1,8 +1,5 @@
-//! CellScript 抽象语法树 (AST)
-
 use crate::error::Span;
 
-/// 模块声明
 #[derive(Debug, Clone)]
 pub struct Module {
     pub name: String,
@@ -10,7 +7,6 @@ pub struct Module {
     pub span: Span,
 }
 
-/// 模块项
 #[derive(Debug, Clone)]
 pub enum Item {
     Resource(ResourceDef),
@@ -25,7 +21,6 @@ pub enum Item {
     Use(UseStmt),
 }
 
-/// Resource 定义
 #[derive(Debug, Clone)]
 pub struct ResourceDef {
     pub name: String,
@@ -35,7 +30,6 @@ pub struct ResourceDef {
     pub span: Span,
 }
 
-/// Shared 定义
 #[derive(Debug, Clone)]
 pub struct SharedDef {
     pub name: String,
@@ -45,7 +39,6 @@ pub struct SharedDef {
     pub span: Span,
 }
 
-/// Receipt 定义
 #[derive(Debug, Clone)]
 pub struct ReceiptDef {
     pub name: String,
@@ -57,7 +50,6 @@ pub struct ReceiptDef {
     pub span: Span,
 }
 
-/// Struct 定义
 #[derive(Debug, Clone)]
 pub struct StructDef {
     pub name: String,
@@ -66,14 +58,12 @@ pub struct StructDef {
     pub span: Span,
 }
 
-/// 稳定类型身份。用于跨版本 schema/工具链识别，不替代运行时 Cell TypeHash。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeIdentity {
     pub value: String,
     pub span: Span,
 }
 
-/// 常量定义
 #[derive(Debug, Clone)]
 pub struct ConstDef {
     pub name: String,
@@ -82,7 +72,6 @@ pub struct ConstDef {
     pub span: Span,
 }
 
-/// 枚举定义
 #[derive(Debug, Clone)]
 pub struct EnumDef {
     pub name: String,
@@ -90,7 +79,6 @@ pub struct EnumDef {
     pub span: Span,
 }
 
-/// 枚举变体
 #[derive(Debug, Clone)]
 pub struct EnumVariant {
     pub name: String,
@@ -98,14 +86,12 @@ pub struct EnumVariant {
     pub span: Span,
 }
 
-/// 生命周期定义
 #[derive(Debug, Clone)]
 pub struct Lifecycle {
     pub states: Vec<String>,
     pub span: Span,
 }
 
-/// 能力
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Capability {
     Store,
@@ -113,7 +99,6 @@ pub enum Capability {
     Destroy,
 }
 
-/// 字段
 #[derive(Debug, Clone)]
 pub struct Field {
     pub name: String,
@@ -121,7 +106,6 @@ pub struct Field {
     pub span: Span,
 }
 
-/// Action 定义
 #[derive(Debug, Clone)]
 pub struct ActionDef {
     pub name: String,
@@ -135,7 +119,6 @@ pub struct ActionDef {
     pub span: Span,
 }
 
-/// Function 定义。`fn` 是纯计算 helper，不是状态转换入口。
 #[derive(Debug, Clone)]
 pub struct FnDef {
     pub name: String,
@@ -146,7 +129,6 @@ pub struct FnDef {
     pub span: Span,
 }
 
-/// Lock 定义
 #[derive(Debug, Clone)]
 pub struct LockDef {
     pub name: String,
@@ -156,7 +138,6 @@ pub struct LockDef {
     pub span: Span,
 }
 
-/// Use 语句
 #[derive(Debug, Clone)]
 pub struct UseStmt {
     pub module_path: Vec<String>,
@@ -164,14 +145,12 @@ pub struct UseStmt {
     pub span: Span,
 }
 
-/// Use 导入项
 #[derive(Debug, Clone)]
 pub struct UseImport {
     pub name: String,
     pub alias: Option<String>,
 }
 
-/// 参数
 #[derive(Debug, Clone)]
 pub struct Param {
     pub name: String,
@@ -182,7 +161,6 @@ pub struct Param {
     pub span: Span,
 }
 
-/// 类型
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     U8,
@@ -201,7 +179,6 @@ pub enum Type {
     MutRef(Box<Type>),
 }
 
-/// 语句
 #[derive(Debug, Clone)]
 pub enum Stmt {
     Let(LetStmt),
@@ -212,7 +189,6 @@ pub enum Stmt {
     While(WhileStmt),
 }
 
-/// 绑定模式
 #[derive(Debug, Clone)]
 pub enum BindingPattern {
     Name(String),
@@ -220,7 +196,6 @@ pub enum BindingPattern {
     Wildcard,
 }
 
-/// Let 语句
 #[derive(Debug, Clone)]
 pub struct LetStmt {
     pub pattern: BindingPattern,
@@ -230,7 +205,6 @@ pub struct LetStmt {
     pub span: Span,
 }
 
-/// If 语句
 #[derive(Debug, Clone)]
 pub struct IfStmt {
     pub condition: Expr,
@@ -239,7 +213,6 @@ pub struct IfStmt {
     pub span: Span,
 }
 
-/// For 语句
 #[derive(Debug, Clone)]
 pub struct ForStmt {
     pub pattern: BindingPattern,
@@ -248,7 +221,6 @@ pub struct ForStmt {
     pub span: Span,
 }
 
-/// While 语句
 #[derive(Debug, Clone)]
 pub struct WhileStmt {
     pub condition: Expr,
@@ -256,7 +228,6 @@ pub struct WhileStmt {
     pub span: Span,
 }
 
-/// 表达式
 #[derive(Debug, Clone)]
 pub enum Expr {
     Integer(u64),
@@ -288,7 +259,6 @@ pub enum Expr {
     Match(MatchExpr),
 }
 
-/// 赋值表达式
 #[derive(Debug, Clone)]
 pub struct AssignExpr {
     pub target: Box<Expr>,
@@ -297,14 +267,12 @@ pub struct AssignExpr {
     pub span: Span,
 }
 
-/// 赋值运算符
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssignOp {
     Assign,
     AddAssign,
 }
 
-/// 二元表达式
 #[derive(Debug, Clone)]
 pub struct BinaryExpr {
     pub op: BinaryOp,
@@ -313,7 +281,6 @@ pub struct BinaryExpr {
     pub span: Span,
 }
 
-/// 二元运算符
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
     Add,
@@ -331,7 +298,6 @@ pub enum BinaryOp {
     Or,
 }
 
-/// 一元表达式
 #[derive(Debug, Clone)]
 pub struct UnaryExpr {
     pub op: UnaryOp,
@@ -339,7 +305,6 @@ pub struct UnaryExpr {
     pub span: Span,
 }
 
-/// 一元运算符
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
     Neg,
@@ -348,7 +313,6 @@ pub enum UnaryOp {
     Deref,
 }
 
-/// 调用表达式
 #[derive(Debug, Clone)]
 pub struct CallExpr {
     pub func: Box<Expr>,
@@ -356,7 +320,6 @@ pub struct CallExpr {
     pub span: Span,
 }
 
-/// 字段访问表达式
 #[derive(Debug, Clone)]
 pub struct FieldAccessExpr {
     pub expr: Box<Expr>,
@@ -364,7 +327,6 @@ pub struct FieldAccessExpr {
     pub span: Span,
 }
 
-/// 索引表达式
 #[derive(Debug, Clone)]
 pub struct IndexExpr {
     pub expr: Box<Expr>,
@@ -372,7 +334,6 @@ pub struct IndexExpr {
     pub span: Span,
 }
 
-/// Create 表达式
 #[derive(Debug, Clone)]
 pub struct CreateExpr {
     pub ty: String,
@@ -381,14 +342,12 @@ pub struct CreateExpr {
     pub span: Span,
 }
 
-/// Consume 表达式
 #[derive(Debug, Clone)]
 pub struct ConsumeExpr {
     pub expr: Box<Expr>,
     pub span: Span,
 }
 
-/// Transfer 表达式
 #[derive(Debug, Clone)]
 pub struct TransferExpr {
     pub expr: Box<Expr>,
@@ -396,28 +355,24 @@ pub struct TransferExpr {
     pub span: Span,
 }
 
-/// Destroy 表达式
 #[derive(Debug, Clone)]
 pub struct DestroyExpr {
     pub expr: Box<Expr>,
     pub span: Span,
 }
 
-/// ReadRef 表达式
 #[derive(Debug, Clone)]
 pub struct ReadRefExpr {
     pub ty: String,
     pub span: Span,
 }
 
-/// Claim 表达式
 #[derive(Debug, Clone)]
 pub struct ClaimExpr {
     pub receipt: Box<Expr>,
     pub span: Span,
 }
 
-/// Settle 表达式
 #[derive(Debug, Clone)]
 pub struct SettleExpr {
     pub expr: Box<Expr>,
@@ -432,7 +387,6 @@ pub struct AssertExpr {
     pub span: Span,
 }
 
-/// If 表达式
 #[derive(Debug, Clone)]
 pub struct IfExpr {
     pub condition: Box<Expr>,
@@ -441,7 +395,6 @@ pub struct IfExpr {
     pub span: Span,
 }
 
-/// 类型转换表达式
 #[derive(Debug, Clone)]
 pub struct CastExpr {
     pub expr: Box<Expr>,
@@ -449,7 +402,6 @@ pub struct CastExpr {
     pub span: Span,
 }
 
-/// 区间表达式
 #[derive(Debug, Clone)]
 pub struct RangeExpr {
     pub start: Box<Expr>,
@@ -457,7 +409,6 @@ pub struct RangeExpr {
     pub span: Span,
 }
 
-/// Struct 初始化表达式
 #[derive(Debug, Clone)]
 pub struct StructInitExpr {
     pub ty: String,
@@ -465,7 +416,6 @@ pub struct StructInitExpr {
     pub span: Span,
 }
 
-/// Match 表达式
 #[derive(Debug, Clone)]
 pub struct MatchExpr {
     pub expr: Box<Expr>,
@@ -473,7 +423,6 @@ pub struct MatchExpr {
     pub span: Span,
 }
 
-/// Match 分支
 #[derive(Debug, Clone)]
 pub struct MatchArm {
     pub pattern: String,
@@ -481,7 +430,6 @@ pub struct MatchArm {
     pub span: Span,
 }
 
-/// 效果类别
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EffectClass {
     Pure,
@@ -491,7 +439,6 @@ pub enum EffectClass {
     Destroying,
 }
 
-/// 调度器提示
 #[derive(Debug, Clone)]
 pub struct SchedulerHint {
     pub parallelizable: bool,

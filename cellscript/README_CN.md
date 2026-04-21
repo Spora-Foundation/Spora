@@ -2,6 +2,8 @@
 
 [English](README.md) | [中文](README_CN.md)
 
+独立仓库：<https://github.com/tsukifune-kosei/CellScript>
+
 CellScript 是面向 Spora 和 CKB 的 Cell 模型智能合约 DSL。它把 `.cell`
 源码编译为 ckb-vm RISC-V assembly 或 ELF 产物，并同时输出可用于审计、
 策略检查、schema 绑定和调度感知执行的类型化 metadata。

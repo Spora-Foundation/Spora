@@ -520,6 +520,89 @@ cargo run -p cellscript --bin cellc -- \
 - CKB profile 编译/元数据检查不因 Spora devnet 验收代码退化。
 - CKB artifact/package 相关 fail-closed 行为保持明确，不被 Spora artifact 路径错误复用。
 
+### 10.3 CKB 本地集成 devnet 验收
+
+CKB profile 还必须用父目录 CKB 仓库跑真实本地节点验收。入口：
+
+```bash
+scripts/ckb_cellscript_acceptance.sh
+```
+
+默认行为：
+
+- 使用 `../ckb/test/template` 复制出临时 CKB integration devnet；该模板是 Dummy PoW、本地测试链，开启 `IntegrationTest` RPC，并带 always-success system cell。
+- 如果 `CKB_BIN` 未指定且 `../ckb/target/debug/ckb` 不存在，脚本会在父目录执行 `cargo build --bin ckb`。
+- 编译一个纯 no-arg CellScript baseline，以及固定 7 个 bundled examples：`amm_pool.cell`、`launch.cell`、`multisig.cell`、`nft.cell`、`timelock.cell`、`token.cell`、`vesting.cell`。
+- bundled examples 使用 acceptance-only smoke entry：脚本复制完整 examples 目录并追加 `action main() -> u64 { 0 }`，同时设置 `CELLSCRIPT_CKB_ACCEPTANCE_SMOKE_ALLOW_UNPORTABLE_EXAMPLES=1`。编译器只在 env 值精确为 `1`、target profile 是 `ckb`、且模块存在 no-arg `main() -> u64` 时接受该 bypass。这只证明 artifact packaging、CKB-VM 入口、code-cell dep resolution 和 lock-script invocation；原始业务 action 的 strict CKB lowering 仍单独记录并保持 fail-closed。
+- 调用 `cellc verify-artifact --expect-target-profile ckb` 校验每个 sidecar。
+- 硬校验每个 artifact 是 ELF，且没有 Spora `SPORABI` trailer。
+- 启动真实 CKB 节点，通过 JSON-RPC `generate_block` 出块，使用 CKB `send_test_transaction` 构造三段链上流程：
+  - always-success cellbase -> CellScript ELF code cell；
+  - always-success cellbase -> CellScript-locked probe cell；
+  - 缺失 CellScript code cell dep 的 malformed spend 必须被 `dry_run_transaction` 拒绝为脚本解析失败；
+  - 带 CellScript code cell dep 的合法 spend 必须先通过 `dry_run_transaction` 并记录 cycles；
+  - CellScript-locked probe cell + code cell dep -> always-success recipient cell。
+- 生成 `target/ckb-cellscript-acceptance/<run-id>/ckb-cellscript-acceptance-report.json`，记录 CKB repo/bin、每个 artifact metadata、CKB Blake2b data hash、部署 tx、创建 tx、spend tx、live-cell 查询、malformed spend 负例和 tip header。
+
+可选 compile-only 兜底：
+
+```bash
+scripts/ckb_cellscript_acceptance.sh --compile-only
+```
+
+compile-only 模式不要求父目录存在 CKB checkout，也不会解析或构建 CKB binary；它用于 CI/release gate 中证明 CKB-profile artifact packaging、sidecar、固定 7 个 example smoke matrix 和 `SPORABI` trailer 边界。完整链上模式仍必须使用父目录 CKB 本地 devnet。
+
+通过标准：
+
+- `bundled_examples_count == 7`，且 `bundled_examples_exact_order == ["amm_pool.cell", "launch.cell", "multisig.cell", "nft.cell", "timelock.cell", "token.cell", "vesting.cell"]`。
+- 每个 artifact 的 `target_profile == "ckb"`，`verify.expected_target_profile_verified == true`。
+- 每个 artifact 以 ELF magic 开头，且 `artifact_has_sporabi_trailer == false`。
+- compile-only 和完整模式都必须记录 bundled examples 的 `strict_original_ckb_compile.status`；当前预期是业务 action strict CKB 编译 fail-closed，但 smoke artifact 必须 compile/verify 通过。所有 strict original 失败都必须进入 `strict_original_ckb_compile_policy_fail_closed`，且 `strict_original_ckb_compile_unexpected_failures == []`，避免 backend/import/panic 类问题被 smoke bypass 掩盖。
+- 完整模式下 `onchain.status == "passed"`，`onchain.all_artifacts_deployed_and_spent == true`，并且每个 artifact 的 code cell、locked cell、spend recipient 都通过 CKB `get_live_cell` 查询为 live。
+- 完整模式下每个 artifact 的 `malformed_spend_without_code_dep.status == "rejected"`，`policy_or_capacity_reason == false`，且拒绝后 `locked_cell_live_after_malformed_spend == true`。
+- 完整模式下每个 artifact 的 `valid_spend_dry_run` 必须存在，证明合法 CellScript locked-cell spend 在提交前可被 CKB-VM 预执行。
+
+边界：
+
+- 这是 CKB 本地 integration devnet 验收，不是 mainnet/testnet 兼容声明。
+- 当前证明 v1 pure baseline 和所有 bundled example smoke artifact 能被真实 CKB 节点加载、作为 code cell 依赖、执行并花费。复杂 stateful CellScript 业务合约的原始 action 仍以 fail-closed/post-v1 builder 范围管理。
+- 该脚本只修改 Spora `target/` 临时目录，不修改父目录 CKB 仓库；父目录只用于读取模板和构建/运行 `ckb`。
+- 该验收不能替代 Spora profile 验收；每次修复 CKB 路径后仍需跑 Spora `cellscript`/smoke 回归，确保双 profile 没有互相污染。
+
+2026-04-21 首次完整运行结果：
+
+- CKB repo：`/Users/arthur/RustroverProjects/ckb`
+- CKB binary：`/Users/arthur/RustroverProjects/ckb/target/debug/ckb`
+- CKB version：`ckb 0.206.0 (5ebbc39 2026-04-10)`
+- compile-only report：`/Users/arthur/RustroverProjects/Spora/target/ckb-cellscript-acceptance/20260421-101222-13883/ckb-cellscript-acceptance-report.json`
+- full on-chain report：`/Users/arthur/RustroverProjects/Spora/target/ckb-cellscript-acceptance/20260421-101345-16333/ckb-cellscript-acceptance-report.json`
+- artifact size：`5576` bytes
+- CKB data hash：`0x7e475809edfbdb2affb7b87afb891f7407af90297bdedbda8e67d423ae3d5259`
+- code cell deploy tx：`0x0cb86bb39b56b2bc722c36c84faf672d6524459867cc7ffcd655ea2b534b438d`
+- locked probe cell create tx：`0x1d8516b13b7c7dde9b45dbdd3a8436f8fa94af922b436ab9e8137d72493e552d`
+- CellScript locked-cell spend tx：`0x8869f7e24e2993ed046256846527272bd9540b352ff63be59522eb24ccc43cf4`
+- report 关键字段：`status = passed`、`onchain.status = passed`、`artifact_has_sporabi_trailer = false`、`code_cell_live = true`、`locked_cell_live = true`、`spend_recipient_live = true`
+
+本轮寻找问题式验收暴露并修复了一个脚本构造问题：
+
+- 初版脚本用单个 CKB integration cellbase reward 部署 5.5KB CellScript ELF code cell，被 CKB tx-pool 正确拒绝为 `InsufficientCellCapacity(Outputs[0])`。这说明本地 CKB 节点确实在执行 CKB occupied-capacity 规则，而不是只做空转 RPC。
+- 修复后脚本按 CKB occupied-capacity 需求自动收集多个 always-success cellbase 输入来部署 code cell；创建小的 CellScript-locked probe cell 仍使用单个输入。该修复只在验收脚本内构造 CKB 测试交易，不改变 Spora/CellScript 编译器或 Spora profile 行为。
+- 同轮回归：`scripts/devnet_acceptance.sh --profile cellscript --keep-artifacts` 通过，artifact 目录为 `/Users/arthur/RustroverProjects/Spora/target/devnet-acceptance/20260421-101613-23089`，`cellscript = passed`。
+
+2026-04-21 收口：
+
+- `scripts/cellscript_phase4_release_gate.sh quick/full/v1` 已接入 `scripts/ckb_cellscript_acceptance.sh --compile-only`。CI/release gate 现在会检查 CKB-profile ELF、sidecar target profile、无 `SPORABI` trailer；但不会要求 CI runner 旁边有父目录 CKB checkout。
+- `.github/workflows/cellscript-v1.yml` 已把 `scripts/ckb_cellscript_acceptance.sh` 和本计划文档加入触发路径。
+- `scripts/cellscript_phase4_release_gate.sh quick` 通过。
+- `scripts/cellscript_phase4_release_gate.sh v1` 通过。
+- `CKB_REPO=/tmp/nonexistent-ckb-for-compile-only scripts/ckb_cellscript_acceptance.sh --compile-only` 通过，证明 compile-only 不依赖父目录 CKB。
+- `scripts/ckb_cellscript_acceptance.sh` 完整链上模式复跑通过，报告为 `/Users/arthur/RustroverProjects/Spora/target/ckb-cellscript-acceptance/20260421-104620-88056/ckb-cellscript-acceptance-report.json`，`onchain.status = passed`。
+- 补充 malformed 缺失 code-cell dep 负例后，`scripts/ckb_cellscript_acceptance.sh` 完整链上模式再次通过，报告为 `/Users/arthur/RustroverProjects/Spora/target/ckb-cellscript-acceptance/20260421-105139-823/ckb-cellscript-acceptance-report.json`。CKB `dry_run_transaction` 返回 `ScriptNotFound`，报告中 `malformed_spend_without_code_dep.status = rejected`、`policy_or_capacity_reason = false`、`locked_cell_live_after_malformed_spend = true`。
+- 扩展到全部 bundled examples 并硬化 strict-original 边界后，`scripts/cellscript_phase4_release_gate.sh v1` 内的 CKB compile-only 验收通过，报告为 `/Users/arthur/RustroverProjects/Spora/target/ckb-cellscript-acceptance/20260421-115713-21130/ckb-cellscript-acceptance-report.json`。
+- 扩展到全部 bundled examples 并硬化 strict-original 边界后，`scripts/ckb_cellscript_acceptance.sh` 完整链上模式通过，报告为 `/Users/arthur/RustroverProjects/Spora/target/ckb-cellscript-acceptance/20260421-115555-16636/ckb-cellscript-acceptance-report.json`。该报告中 8 个 artifact 均完成 code-cell deploy、locked probe create、malformed missing-dep dry-run reject、valid spend dry-run、actual spend commit；7 个 bundled examples 均出现在 `onchain.bundled_examples_deployed_and_spent`。
+- strict original example 编译边界已经硬化：报告必须给出 `strict_original_ckb_compile_policy_fail_closed`，并保持 `strict_original_ckb_compile_unexpected_failures = []`。这保证原始复杂业务 action 暂未进入 CKB v1 admitted subset 时只能按 target-profile policy fail-closed，不能因为 import/backend/codegen/panic 类非预期错误被 smoke artifact 路径掩盖。
+- 本轮 CKB example matrix 暴露并修复了真实问题：CKB GroupInput 64-bit source 常量需要内置 assembler 支持 64-bit `li`；ELF `_start` 必须通过 `_cellscript_entry` tail-call 选择 no-arg `main`，不能误执行第一个带参业务 action；跨 example helper 调用必须生成 fail-closed unresolved-call stub，避免 `launch.cell` 因外部 linker undefined symbol 落入内置 assembler 异常路径；内置 ELF assembler 的 LOAD segment 布局改为 CKB/GNU linker 风格。以上修复不改变 Spora profile 的 syscall、hash、scheduler witness 或 `SPORABI` packaging。
+
 ## 11. CellScript 合约部署和使用验收
 
 当前 smoke 已覆盖最小闭环：
@@ -1038,7 +1121,7 @@ scripts/devnet_acceptance.sh --profile cellscript --keep-artifacts
 
 - 对 Spora + CellScript v1 验收范围，这些修复是正确实现：public scheduler witness surface 是 Molecule-only；legacy Borsh 不再作为公开生成/读取 API；entry witness 的公开构造路径是 metadata/CLI builder；schema verifier 使用 `LOAD_CELL_DATA` 读取 cell data；所有 bundled examples 继续通过 metadata/ELF 编译验收。
 - 这些修复没有放宽验收标准：脚本仍硬校验 7 个 bundled examples 的固定清单和顺序、所有 code cell indexed、所有 malformed spend rejected、拒绝原因不能是 standard/mass/transient/cycles policy、smoke 关键布尔字段全为 true。
-- 这些修复不表示 CKB 本地开发网兼容已经完成；CKB local devnet 仍需下一阶段用父目录 CKB 节点做真实 artifact/deployment/signing 兼容测试。当前结论只覆盖 Spora profile、CellScript package/tooling、以及 CKB profile 的 compile/check fail-closed 非回归。
+- 这些修复当时还没有完成 CKB 本地开发网验收；后续已新增并扩展 `scripts/ckb_cellscript_acceptance.sh`，用父目录 CKB 节点做真实 artifact/deployment/spend 兼容测试。当前 CKB 结论覆盖 v1 pure baseline 与全部 7 个 bundled example 的 smoke artifact 链上执行；原始复杂 stateful 业务 action 仍保持 strict CKB fail-closed/post-v1 范围。
 
 ## 19. 当前风险和边界
 
@@ -1048,7 +1131,7 @@ scripts/devnet_acceptance.sh --profile cellscript --keep-artifacts
 - AMM/launch 等复杂经济合约已纳入编译和部署 smoke；完整经济学 action 成功路径放入 post-v1 builder/full suite。
 - 带参数 CellScript entry 的最小链上成功路径已覆盖标量/固定字节 witness ABI；复杂业务 action 的交易构造器仍需要 post-v1 完成。缺失 witness、错误 magic、不支持的参数形状或 ABI 超出 a0-a7 时，ELF `_start` 必须 fail-fast，防止 malformed spend 误进入业务逻辑或消耗到 cycles limit。
 - devnet coinbase maturity 可能导致测试耗时；PR gate 优先使用 prealloc cell 做转账，coinbase maturity 放入 full suite。
-- CKB profile 不是本 devnet 的运行目标，但必须保留 check/fail-closed 非回归测试，避免 Spora devnet 工具错误污染 CKB artifact 行为。
+- CKB profile 不是 Spora devnet 的运行目标，但必须保留 check/fail-closed 非回归测试，并用 `scripts/ckb_cellscript_acceptance.sh` 做父目录 CKB 本地集成 devnet 验收，避免 Spora devnet 工具错误污染 CKB artifact 行为。
 
 ## 20. 实施顺序
 
@@ -1069,3 +1152,4 @@ scripts/devnet_acceptance.sh --profile cellscript --keep-artifacts
 15. 已完成：CellScript 公共 metadata API 暴露 `entry_witness_args`/`encode_entry_witness_args_for_params`，devnet 参数化 amount 正例改用公共 builder 生成 `CSARGv1\0 + payload`，并用单测锁定 u64、fixed-byte Address、schema-backed 参数省略规则。
 16. 已完成：新增 `cellc entry-witness` CLI，把参数化 entry witness builder 暴露给 shell/wallet/package flow；`scripts/devnet_acceptance.sh --profile cellscript` 已纳入该 CLI 测试。
 17. 已完成：清理暴露的 deprecated/redundant code，移除 CellScript 标准库 Borsh scheduler witness generator 和 `cellscript` crate 的直接 borsh 依赖，合并重复 hex/type-width helper。
+18. 已完成：新增 `scripts/ckb_cellscript_acceptance.sh`，用父目录 CKB integration devnet 编译/校验 CKB profile artifact，并在真实 CKB RPC 上部署 code cell、创建 CellScript lock cell、花费 CellScript lock cell；该路径必须与 Spora devnet/profile 回归一起维护。

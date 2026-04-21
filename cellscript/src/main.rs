@@ -1,5 +1,3 @@
-//! CellScript CLI 编译器
-
 use camino::Utf8Path;
 use clap::Parser;
 use colored::Colorize;
@@ -9,49 +7,38 @@ use cellscript::{
     compile_path, default_metadata_path_for_artifact, default_output_path_for_input, resolve_input_path, CompileOptions,
 };
 
-/// CellScript 编译器
 #[derive(Parser, Debug)]
 #[command(name = "cellc")]
 #[command(about = "CellScript compiler for Spora blockchain")]
 #[command(version = cellscript::VERSION)]
 struct Cli {
-    /// 输入文件、包目录或 Cell.toml
     #[arg(value_name = "INPUT")]
     input: Option<String>,
 
-    /// 优化级别 (0-3)
     #[arg(short = 'O', long, default_value = "0")]
     opt: u8,
 
-    /// 输出文件
     #[arg(short, long, value_name = "FILE")]
     output: Option<String>,
 
-    /// 生成调试信息
     #[arg(short, long)]
     debug: bool,
 
-    /// 目标产物 (asm, riscv64-asm, riscv64-elf)
     #[arg(short, long)]
     target: Option<String>,
 
-    /// 目标 profile (spora, ckb, portable-cell)。portable-cell 只做源兼容检查。
     #[arg(long)]
     target_profile: Option<String>,
 
-    /// 仅词法分析
     #[arg(long)]
     lex: bool,
 
-    /// 仅解析
     #[arg(long)]
     parse: bool,
 
-    /// 交互式 REPL 模式
     #[arg(short, long)]
     interactive: bool,
 
-    /// 生成标准库汇编
     #[arg(long)]
     gen_stdlib: bool,
 }
@@ -94,10 +81,8 @@ fn main() {
 
     let cli = Cli::parse();
 
-    // 设置日志
     env_logger::init();
 
-    // REPL 模式
     if cli.interactive {
         if let Err(e) = cellscript::repl::run_repl() {
             eprintln!("{}: {}", "REPL error".red(), e);
@@ -106,7 +91,6 @@ fn main() {
         return;
     }
 
-    // 生成标准库
     if cli.gen_stdlib {
         let target_profile = cli
             .target_profile
@@ -123,13 +107,11 @@ fn main() {
         return;
     }
 
-    // 验证优化级别
     if cli.opt > 3 {
         eprintln!("{}: optimization level must be between 0 and 3", "error".red());
         process::exit(1);
     }
 
-    // 获取输入文件
     let input_file = cli.input.unwrap_or_else(|| ".".to_string());
     let resolved_input = match resolve_input_path(Utf8Path::new(&input_file)) {
         Ok(path) => path,
@@ -139,7 +121,6 @@ fn main() {
         }
     };
 
-    // 读取输入文件
     let source = match std::fs::read_to_string(&resolved_input) {
         Ok(s) => s,
         Err(e) => {
@@ -148,7 +129,6 @@ fn main() {
         }
     };
 
-    // 仅词法分析模式
     if cli.lex {
         match cellscript::lexer::lex(&source) {
             Ok(tokens) => {
@@ -165,7 +145,6 @@ fn main() {
         return;
     }
 
-    // 仅解析模式
     if cli.parse {
         let tokens = match cellscript::lexer::lex(&source) {
             Ok(t) => t,
@@ -188,7 +167,6 @@ fn main() {
         return;
     }
 
-    // 完整编译
     let output = cli.output.clone();
     let options = CompileOptions {
         opt_level: cli.opt,

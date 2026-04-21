@@ -1,12 +1,9 @@
-//! CellScript 解析器
 //!
-//! 递归下降解析器，将 token 流转换为 AST
 
 use crate::ast::*;
 use crate::error::{CompileError, Result, Span};
 use crate::lexer::token::{Token, TokenKind};
 
-/// 解析器
 pub struct Parser<'a> {
     tokens: &'a [Token],
     position: usize,
@@ -22,22 +19,18 @@ struct PendingAttrs {
 }
 
 impl<'a> Parser<'a> {
-    /// 创建新的解析器
     pub fn new(tokens: &'a [Token]) -> Self {
         Self { tokens, position: 0 }
     }
 
-    /// 获取当前 token
     fn current(&self) -> &Token {
         &self.tokens[self.position.min(self.tokens.len() - 1)]
     }
 
-    /// 查看下一个 token
     fn peek(&self, offset: usize) -> &Token {
         &self.tokens[(self.position + offset).min(self.tokens.len() - 1)]
     }
 
-    /// 前进到下一个 token
     fn advance(&mut self) -> &Token {
         let token = &self.tokens[self.position];
         if self.position < self.tokens.len() - 1 {
@@ -46,12 +39,10 @@ impl<'a> Parser<'a> {
         token
     }
 
-    /// 检查当前 token 是否匹配
     fn check(&self, kind: &TokenKind) -> bool {
         std::mem::discriminant(&self.current().kind) == std::mem::discriminant(kind)
     }
 
-    /// 检查并消费 token
     fn expect(&mut self, kind: TokenKind) -> Result<&Token> {
         if self.check(&kind) {
             Ok(self.advance())
@@ -60,7 +51,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// 跳过换行和空白
     fn skip_newlines(&mut self) {
         while self.check(&TokenKind::Newline) {
             self.advance();
@@ -337,11 +327,9 @@ impl<'a> Parser<'a> {
         Ok(attrs)
     }
 
-    /// 解析模块
     pub fn parse_module(&mut self) -> Result<Module> {
         let start_span = self.current().span;
 
-        // module 关键字
         self.expect(TokenKind::Module)?;
 
         let full_name = self.parse_name_path()?;
@@ -349,7 +337,6 @@ impl<'a> Parser<'a> {
 
         self.skip_newlines();
 
-        // 解析模块项
         let mut items = Vec::new();
         while !self.check(&TokenKind::Eof) {
             self.skip_newlines();
@@ -364,7 +351,6 @@ impl<'a> Parser<'a> {
         Ok(Module { name: full_name, items, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
     }
 
-    /// 解析模块项
     fn parse_item(&mut self) -> Result<Item> {
         let attrs = self.parse_attrs()?;
         match &self.current().kind {
@@ -422,7 +408,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// 解析 use 语句
     fn parse_use(&mut self) -> Result<UseStmt> {
         let start_span = self.current().span;
         self.expect(TokenKind::Use)?;
@@ -488,7 +473,6 @@ impl<'a> Parser<'a> {
         Ok(UseStmt { module_path, imports, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
     }
 
-    /// 解析 resource 定义
     fn parse_resource(&mut self, type_id: Option<TypeIdentity>, attr_capabilities: Option<Vec<Capability>>) -> Result<ResourceDef> {
         let start_span = self.current().span;
         self.expect(TokenKind::Resource)?;
@@ -496,10 +480,8 @@ impl<'a> Parser<'a> {
         let name = self.parse_name()?;
         self.reject_generic_type_params(&name)?;
 
-        // 可选的能力。属性形式和 `has ...` 形式可以共存，语义上合并。
         let capabilities = merge_capabilities(attr_capabilities, self.parse_capabilities()?);
 
-        // 字段
         let fields = self.parse_fields()?;
 
         let end_span = self.current().span;
@@ -512,7 +494,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// 解析 shared 定义
     fn parse_shared(&mut self, type_id: Option<TypeIdentity>, attr_capabilities: Option<Vec<Capability>>) -> Result<SharedDef> {
         let start_span = self.current().span;
         self.expect(TokenKind::Shared)?;
@@ -533,7 +514,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// 解析 receipt 定义
     fn parse_receipt(
         &mut self,
         type_id: Option<TypeIdentity>,
@@ -552,7 +532,6 @@ impl<'a> Parser<'a> {
             None
         };
 
-        // 可选的生命周期属性
         let lifecycle = if let Some(lifecycle) = attr_lifecycle {
             Some(lifecycle)
         } else if self.check(&TokenKind::LBracket) {
@@ -576,7 +555,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// 解析生命周期属性
     fn parse_lifecycle_attr(&mut self) -> Result<Lifecycle> {
         let start_span = self.current().span;
         self.expect(TokenKind::LBracket)?;
@@ -607,7 +585,6 @@ impl<'a> Parser<'a> {
         Ok(Lifecycle { states, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
     }
 
-    /// 解析 struct 定义
     fn parse_struct(&mut self, type_id: Option<TypeIdentity>) -> Result<StructDef> {
         let start_span = self.current().span;
         self.expect(TokenKind::Struct)?;
@@ -621,7 +598,6 @@ impl<'a> Parser<'a> {
         Ok(StructDef { name, type_id, fields, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
     }
 
-    /// 解析 const 定义
     fn parse_const(&mut self) -> Result<ConstDef> {
         let start_span = self.current().span;
         self.expect(TokenKind::Const)?;
@@ -636,7 +612,6 @@ impl<'a> Parser<'a> {
         Ok(ConstDef { name, ty, value, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
     }
 
-    /// 解析 enum 定义
     fn parse_enum(&mut self) -> Result<EnumDef> {
         let start_span = self.current().span;
         self.expect(TokenKind::Enum)?;
@@ -676,7 +651,6 @@ impl<'a> Parser<'a> {
         Ok(EnumDef { name, variants, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
     }
 
-    /// 解析能力
     fn parse_capabilities(&mut self) -> Result<Vec<Capability>> {
         let mut caps = Vec::new();
 
@@ -711,7 +685,6 @@ impl<'a> Parser<'a> {
         Ok(caps)
     }
 
-    /// 解析字段块
     fn parse_fields(&mut self) -> Result<Vec<Field>> {
         self.expect(TokenKind::LBrace)?;
         self.skip_newlines();
@@ -730,7 +703,6 @@ impl<'a> Parser<'a> {
         Ok(fields)
     }
 
-    /// 解析单个字段
     fn parse_field(&mut self) -> Result<Field> {
         let start_span = self.current().span;
 
@@ -743,7 +715,6 @@ impl<'a> Parser<'a> {
         Ok(Field { name, ty, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
     }
 
-    /// 解析类型
     fn parse_type(&mut self) -> Result<Type> {
         let ty = match &self.current().kind {
             TokenKind::U8 => {
@@ -870,17 +841,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// 解析 action 定义
     fn parse_action(&mut self, effect: Option<EffectClass>, scheduler_hint: Option<SchedulerHint>) -> Result<ActionDef> {
         let start_span = self.current().span;
         self.expect(TokenKind::Action)?;
 
         let name = self.parse_name()?;
 
-        // 参数
         let params = self.parse_params()?;
 
-        // 返回类型
         let return_type = if self.check(&TokenKind::Arrow) {
             self.advance();
             Some(self.parse_type()?)
@@ -888,7 +856,6 @@ impl<'a> Parser<'a> {
             None
         };
 
-        // 函数体
         let body = self.parse_block()?;
 
         let end_span = self.current().span;
@@ -932,7 +899,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// 解析 lock 定义
     fn parse_lock(&mut self) -> Result<LockDef> {
         let start_span = self.current().span;
         self.expect(TokenKind::Lock)?;
@@ -958,7 +924,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// 解析参数列表
     fn parse_params(&mut self) -> Result<Vec<Param>> {
         self.expect(TokenKind::LParen)?;
 
@@ -983,7 +948,6 @@ impl<'a> Parser<'a> {
         Ok(params)
     }
 
-    /// 解析单个参数
     fn parse_param(&mut self) -> Result<Param> {
         let start_span = self.current().span;
 
@@ -1019,7 +983,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// 解析代码块
     fn parse_block(&mut self) -> Result<Vec<Stmt>> {
         self.expect(TokenKind::LBrace)?;
         self.skip_newlines();
@@ -1034,7 +997,6 @@ impl<'a> Parser<'a> {
         Ok(stmts)
     }
 
-    /// 解析语句
     fn parse_stmt(&mut self) -> Result<Stmt> {
         let stmt = match &self.current().kind {
             TokenKind::Let => Stmt::Let(self.parse_let()?),
@@ -1043,7 +1005,6 @@ impl<'a> Parser<'a> {
             TokenKind::For => Stmt::For(self.parse_for()?),
             TokenKind::While => Stmt::While(self.parse_while()?),
             _ => {
-                // 尝试解析表达式语句
                 let expr = self.parse_expr()?;
                 Stmt::Expr(expr)
             }
@@ -1052,7 +1013,6 @@ impl<'a> Parser<'a> {
         Ok(stmt)
     }
 
-    /// 解析 let 语句
     fn parse_let(&mut self) -> Result<LetStmt> {
         let start_span = self.current().span;
         self.expect(TokenKind::Let)?;
@@ -1066,7 +1026,6 @@ impl<'a> Parser<'a> {
 
         let pattern = self.parse_binding_pattern()?;
 
-        // 可选的类型注解
         let ty = if self.check(&TokenKind::Colon) {
             self.advance();
             Some(self.parse_type()?)
@@ -1081,7 +1040,6 @@ impl<'a> Parser<'a> {
         Ok(LetStmt { pattern, ty, value, is_mut, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
     }
 
-    /// 解析 return 语句
     fn parse_return(&mut self) -> Result<Option<Expr>> {
         self.expect(TokenKind::Return)?;
 
@@ -1092,7 +1050,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// 解析 if 语句
     fn parse_if(&mut self) -> Result<IfStmt> {
         let start_span = self.current().span;
         self.expect(TokenKind::If)?;
@@ -1122,7 +1079,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// 解析 for 语句
     fn parse_for(&mut self) -> Result<ForStmt> {
         let start_span = self.current().span;
         self.expect(TokenKind::For)?;
@@ -1137,7 +1093,6 @@ impl<'a> Parser<'a> {
         Ok(ForStmt { pattern, iterable, body, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
     }
 
-    /// 解析 while 语句
     fn parse_while(&mut self) -> Result<WhileStmt> {
         let start_span = self.current().span;
         self.expect(TokenKind::While)?;
@@ -1149,13 +1104,11 @@ impl<'a> Parser<'a> {
         Ok(WhileStmt { condition, body, span: Span::new(start_span.start, end_span.end, start_span.line, start_span.column) })
     }
 
-    /// 解析表达式
     fn parse_expr(&mut self) -> Result<Expr> {
         self.skip_newlines();
         self.parse_assignment()
     }
 
-    /// 解析赋值表达式
     fn parse_assignment(&mut self) -> Result<Expr> {
         let left = self.parse_range()?;
         let start_span = self.current().span;
@@ -1199,7 +1152,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// 解析 or 表达式
     fn parse_or(&mut self) -> Result<Expr> {
         let mut left = self.parse_and()?;
 
@@ -1219,7 +1171,6 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    /// 解析 and 表达式
     fn parse_and(&mut self) -> Result<Expr> {
         let mut left = self.parse_equality()?;
 
@@ -1239,7 +1190,6 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    /// 解析相等表达式
     fn parse_equality(&mut self) -> Result<Expr> {
         let mut left = self.parse_comparison()?;
 
@@ -1268,7 +1218,6 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    /// 解析比较表达式
     fn parse_comparison(&mut self) -> Result<Expr> {
         let mut left = self.parse_term()?;
 
@@ -1303,7 +1252,6 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    /// 解析加减项
     fn parse_term(&mut self) -> Result<Expr> {
         let mut left = self.parse_factor()?;
 
@@ -1332,7 +1280,6 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    /// 解析乘除因子
     fn parse_factor(&mut self) -> Result<Expr> {
         let mut left = self.parse_cast()?;
 
@@ -1381,7 +1328,6 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    /// 解析一元表达式
     fn parse_unary(&mut self) -> Result<Expr> {
         if self.check(&TokenKind::Minus) {
             let start_span = self.current().span;
@@ -1414,7 +1360,6 @@ impl<'a> Parser<'a> {
         self.parse_postfix()
     }
 
-    /// 解析后缀表达式
     fn parse_postfix(&mut self) -> Result<Expr> {
         let mut expr = self.parse_primary()?;
 
@@ -1437,11 +1382,9 @@ impl<'a> Parser<'a> {
                 };
                 expr = Expr::FieldAccess(FieldAccessExpr { expr: Box::new(expr), field, span: self.current().span });
             } else if self.check(&TokenKind::LParen) {
-                // 函数调用
                 let args = self.parse_args()?;
                 expr = Expr::Call(CallExpr { func: Box::new(expr), args, span: self.current().span });
             } else if self.check(&TokenKind::LBracket) {
-                // 索引
                 self.advance();
                 let index = self.parse_expr()?;
                 self.expect(TokenKind::RBracket)?;
@@ -1454,7 +1397,6 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    /// 解析基本表达式
     fn parse_primary(&mut self) -> Result<Expr> {
         match &self.current().kind {
             TokenKind::Integer(n) => {
@@ -1510,7 +1452,6 @@ impl<'a> Parser<'a> {
                 }
                 let expr = self.parse_expr()?;
                 if self.check(&TokenKind::Comma) {
-                    // 元组
                     let mut elems = vec![expr];
                     while self.check(&TokenKind::Comma) {
                         self.advance();
@@ -1528,7 +1469,6 @@ impl<'a> Parser<'a> {
             }
             TokenKind::LBracket => self.parse_array_expr(),
             TokenKind::LBrace => {
-                // 块表达式
                 let stmts = self.parse_block()?;
                 Ok(Expr::Block(stmts))
             }
@@ -1556,7 +1496,6 @@ impl<'a> Parser<'a> {
         Ok(Expr::Array(elems))
     }
 
-    /// 解析参数列表
     fn parse_args(&mut self) -> Result<Vec<Expr>> {
         self.expect(TokenKind::LParen)?;
 
@@ -1579,7 +1518,6 @@ impl<'a> Parser<'a> {
         Ok(args)
     }
 
-    /// 解析 create 表达式
     fn parse_create(&mut self) -> Result<Expr> {
         let start_span = self.current().span;
         self.expect(TokenKind::Create)?;
@@ -1606,7 +1544,6 @@ impl<'a> Parser<'a> {
 
         self.expect(TokenKind::RBrace)?;
 
-        // 可选的 with_lock
         let lock = match &self.current().kind {
             TokenKind::Identifier(s) if s == "with_lock" => {
                 self.advance();
@@ -1627,7 +1564,6 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// 解析 consume 表达式
     fn parse_consume(&mut self) -> Result<Expr> {
         let start_span = self.current().span;
         self.expect(TokenKind::Consume)?;
@@ -1641,7 +1577,6 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// 解析 destroy 表达式
     fn parse_destroy(&mut self) -> Result<Expr> {
         let start_span = self.current().span;
         self.expect(TokenKind::DestroyKw)?;
@@ -1696,7 +1631,6 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// 解析 claim 表达式
     fn parse_claim(&mut self) -> Result<Expr> {
         let start_span = self.current().span;
         self.expect(TokenKind::Claim)?;
@@ -1710,7 +1644,6 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// 解析 settle 表达式
     fn parse_settle(&mut self) -> Result<Expr> {
         let start_span = self.current().span;
         self.expect(TokenKind::Settle)?;
@@ -1724,7 +1657,6 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// 解析 assert_invariant
     fn parse_assert(&mut self) -> Result<Expr> {
         let start_span = self.current().span;
         self.expect(TokenKind::Assert)?;
@@ -1828,7 +1760,6 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// 便利函数：解析 token 流
 pub fn parse(tokens: &[Token]) -> Result<Module> {
     let mut parser = Parser::new(tokens);
     parser.skip_newlines();

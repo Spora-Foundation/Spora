@@ -1,6 +1,4 @@
-//! 生命周期验证
 //!
-//! 验证 #[lifecycle(...)] 属性的正确性
 
 use crate::ast::*;
 use crate::error::{CompileError, Result, Span};
@@ -69,23 +67,18 @@ pub fn check(module: &Module) -> Result<()> {
     Ok(())
 }
 
-/// 生命周期验证器
 pub struct LifecycleChecker {
-    /// 已定义的生命周期状态
     states: HashMap<String, Vec<String>>,
-    /// 状态转换图
     transitions: HashMap<String, HashMap<String, Vec<TransitionRule>>>,
 }
 
-/// 状态转换规则
 #[derive(Debug, Clone)]
 pub struct TransitionRule {
     pub from: String,
     pub to: String,
-    pub condition: Option<String>, // 转换条件的表达式字符串
+    pub condition: Option<String>,
 }
 
-/// 资源生命周期信息
 #[derive(Debug, Clone)]
 pub struct LifecycleInfo {
     pub resource_name: String,
@@ -95,21 +88,17 @@ pub struct LifecycleInfo {
 }
 
 impl LifecycleChecker {
-    /// 创建新的生命周期验证器
     pub fn new() -> Self {
         Self { states: HashMap::new(), transitions: HashMap::new() }
     }
 
-    /// 注册资源的生命周期
     pub fn register_lifecycle(&mut self, resource_name: &str, lifecycle: &Lifecycle) -> Result<()> {
         let states = lifecycle.states.clone();
 
-        // 验证状态数量
         if states.len() < 2 {
             return Err(CompileError::new("lifecycle must have at least 2 states", lifecycle.span));
         }
 
-        // 检查重复状态
         let mut seen = HashSet::new();
         for state in &states {
             if !seen.insert(state.clone()) {
@@ -117,7 +106,6 @@ impl LifecycleChecker {
             }
         }
 
-        // 构建转换规则（只允许前向转换）
         let mut transitions = HashMap::new();
         for i in 0..states.len() - 1 {
             let from = states[i].clone();
@@ -136,14 +124,12 @@ impl LifecycleChecker {
         Ok(())
     }
 
-    /// 验证状态转换
     pub fn validate_transition(&self, resource_name: &str, from: &str, to: &str, span: Span) -> Result<()> {
         let states = self
             .states
             .get(resource_name)
             .ok_or_else(|| CompileError::new(format!("resource '{}' has no lifecycle defined", resource_name), span))?;
 
-        // 检查状态是否存在
         if !states.contains(&from.to_string()) {
             return Err(CompileError::new(format!("invalid from state: {}", from), span));
         }
@@ -152,7 +138,6 @@ impl LifecycleChecker {
             return Err(CompileError::new(format!("invalid to state: {}", to), span));
         }
 
-        // 获取允许的转换
         let transitions = self.transitions.get(resource_name).unwrap();
 
         if let Some(allowed) = transitions.get(from) {
@@ -161,7 +146,6 @@ impl LifecycleChecker {
             }
         }
 
-        // 检查是否尝试反向转换
         let from_idx = states.iter().position(|s| s == from).unwrap();
         let to_idx = states.iter().position(|s| s == to).unwrap();
 
@@ -173,11 +157,9 @@ impl LifecycleChecker {
             return Err(CompileError::new(format!("invalid lifecycle transition: '{}' to itself", from), span));
         }
 
-        // 跳过中间状态的转换
         Err(CompileError::new(format!("invalid lifecycle transition: cannot skip from '{}' to '{}'", from, to), span))
     }
 
-    /// 获取生命周期信息
     pub fn get_lifecycle_info(&self, resource_name: &str) -> Option<LifecycleInfo> {
         let states = self.states.get(resource_name)?;
 
@@ -189,7 +171,6 @@ impl LifecycleChecker {
         })
     }
 
-    /// 检查资源是否已到达最终状态
     pub fn is_final_state(&self, resource_name: &str, state: &str) -> bool {
         if let Some(states) = self.states.get(resource_name) {
             if let Some(last) = states.last() {
@@ -199,7 +180,6 @@ impl LifecycleChecker {
         false
     }
 
-    /// 获取下一个可能的状态
     pub fn get_next_states(&self, resource_name: &str, from: &str) -> Vec<String> {
         let mut next_states = Vec::new();
 
@@ -214,9 +194,7 @@ impl LifecycleChecker {
         next_states
     }
 
-    /// 验证 Action 中的生命周期使用
     pub fn validate_action(&self, action: &ActionDef) -> Result<()> {
-        // 简化实现：检查是否有状态字段的赋值
         for stmt in &action.body {
             self.validate_stmt(stmt)?;
         }
@@ -224,7 +202,6 @@ impl LifecycleChecker {
         Ok(())
     }
 
-    /// 验证语句
     fn validate_stmt(&self, stmt: &Stmt) -> Result<()> {
         match stmt {
             Stmt::Let(let_stmt) => {
@@ -265,7 +242,6 @@ impl LifecycleChecker {
         Ok(())
     }
 
-    /// 验证表达式
     fn validate_expr(&self, expr: &Expr) -> Result<()> {
         match expr {
             Expr::Create(create) => {
@@ -354,7 +330,6 @@ impl LifecycleChecker {
         Ok(())
     }
 
-    /// 生成生命周期验证代码
     pub fn generate_validation_code(&self, resource_name: &str) -> String {
         let mut code = String::new();
 
@@ -380,7 +355,6 @@ impl LifecycleChecker {
     }
 }
 
-/// 从 ReceiptDef 提取生命周期
 pub fn extract_lifecycle(receipt: &ReceiptDef) -> Option<&Lifecycle> {
     receipt.lifecycle.as_ref()
 }
@@ -722,11 +696,9 @@ mod tests {
 
         checker.register_lifecycle("VestingGrant", &lifecycle).unwrap();
 
-        // 验证有效转换
         assert!(checker.validate_transition("VestingGrant", "Created", "Active", Span::default()).is_ok());
         assert!(checker.validate_transition("VestingGrant", "Active", "Settled", Span::default()).is_ok());
 
-        // 验证无效转换
         assert!(checker.validate_transition("VestingGrant", "Settled", "Active", Span::default()).is_err());
         assert!(checker.validate_transition("VestingGrant", "Created", "Settled", Span::default()).is_err());
     }

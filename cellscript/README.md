@@ -2,6 +2,8 @@
 
 [English](README.md) | [中文](README_CN.md)
 
+Canonical standalone repository: <https://github.com/tsukifune-kosei/CellScript>
+
 CellScript is a domain-specific language for Cell-based smart contracts on
 Spora and CKB. It compiles `.cell` source into ckb-vm RISC-V assembly or ELF
 artifacts, together with typed metadata for auditing, policy checks, schema

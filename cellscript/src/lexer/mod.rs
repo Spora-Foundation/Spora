@@ -1,13 +1,10 @@
-//! CellScript 词法分析器
 //!
-//! 将 CellScript 源代码转换为 token 流
 
 pub mod token;
 
 use crate::error::{CompileError, Result, Span};
 use token::{keyword_or_identifier, Token, TokenKind};
 
-/// 词法分析器
 pub struct Lexer<'a> {
     input: &'a str,
     chars: std::str::Chars<'a>,
@@ -18,14 +15,12 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    /// 创建新的词法分析器
     pub fn new(input: &'a str) -> Self {
         let mut chars = input.chars();
         let current = chars.next();
         Self { input, chars, position: 0, line: 1, column: 1, current }
     }
 
-    /// 前进到下一个字符
     fn advance(&mut self) -> Option<char> {
         if let Some(c) = self.current {
             self.position += c.len_utf8();
@@ -40,17 +35,14 @@ impl<'a> Lexer<'a> {
         self.current
     }
 
-    /// 查看下一个字符但不前进
     fn peek(&self) -> Option<char> {
         self.current
     }
 
-    /// 查看下下一个字符
     fn peek_next(&self) -> Option<char> {
         self.input[self.position..].chars().nth(1)
     }
 
-    /// 跳过空白字符
     fn skip_whitespace(&mut self) {
         while let Some(c) = self.peek() {
             if c.is_whitespace() && c != '\n' {
@@ -61,9 +53,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// 跳过注释
     fn skip_comment(&mut self) {
-        // 单行注释 //
         if self.peek() == Some('/') && self.peek_next() == Some('/') {
             while let Some(c) = self.peek() {
                 if c == '\n' {
@@ -71,9 +61,7 @@ impl<'a> Lexer<'a> {
                 }
                 self.advance();
             }
-        }
-        // 多行注释 /* */
-        else if self.peek() == Some('/') && self.peek_next() == Some('*') {
+        } else if self.peek() == Some('/') && self.peek_next() == Some('*') {
             self.advance(); // /
             self.advance(); // *
             let mut depth = 1;
@@ -98,7 +86,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// 读取标识符或关键字
     fn read_identifier(&mut self) -> Token {
         let start = self.position;
         let start_line = self.line;
@@ -119,13 +106,11 @@ impl<'a> Lexer<'a> {
         Token::new(kind, span, text)
     }
 
-    /// 读取数字
     fn read_number(&mut self) -> Result<Token> {
         let start = self.position;
         let start_line = self.line;
         let start_col = self.column;
 
-        // 十六进制
         if self.peek() == Some('0') && self.peek_next() == Some('x') {
             self.advance(); // 0
             self.advance(); // x
@@ -142,7 +127,6 @@ impl<'a> Lexer<'a> {
             return Ok(Token::new(TokenKind::HexLiteral(text.to_string()), span, &self.input[start..self.position]));
         }
 
-        // 十进制
         while let Some(c) = self.peek() {
             if c.is_ascii_digit() {
                 self.advance();
@@ -160,14 +144,13 @@ impl<'a> Lexer<'a> {
         Ok(Token::new(TokenKind::Integer(value), span, text))
     }
 
-    /// 读取字符串
     fn read_string(&mut self) -> Result<Token> {
         let start = self.position;
         let start_line = self.line;
         let start_col = self.column;
 
         let quote = self.peek().unwrap();
-        self.advance(); // 跳过开头的引号
+        self.advance();
 
         let mut content = String::new();
         while let Some(c) = self.peek() {
@@ -219,7 +202,6 @@ impl<'a> Lexer<'a> {
         Ok(Token::new(TokenKind::String(content), span, &self.input[start..self.position]))
     }
 
-    /// 读取字节字符串 b"..."
     fn read_byte_string(&mut self) -> Result<Token> {
         let start = self.position;
         let start_line = self.line;
@@ -261,7 +243,6 @@ impl<'a> Lexer<'a> {
                         self.advance();
                     }
                     Some('x') => {
-                        // \xNN 格式
                         self.advance();
                         let hi = self.peek().ok_or_else(|| {
                             CompileError::new(
@@ -323,9 +304,7 @@ impl<'a> Lexer<'a> {
         Ok(Token::new(TokenKind::ByteString(bytes), span, &self.input[start..self.position]))
     }
 
-    /// 获取下一个 token
     pub fn next_token(&mut self) -> Result<Token> {
-        // 跳过空白和注释
         loop {
             self.skip_whitespace();
             if self.peek() == Some('/') && (self.peek_next() == Some('/') || self.peek_next() == Some('*')) {
@@ -346,33 +325,27 @@ impl<'a> Lexer<'a> {
             }
         };
 
-        // 换行
         if c == '\n' {
             self.advance();
             return Ok(Token::new(TokenKind::Newline, Span::new(start, self.position, start_line, start_col), "\n"));
         }
 
-        // 字节字符串 b"..."
         if c == 'b' && self.peek_next() == Some('"') {
             return self.read_byte_string();
         }
 
-        // 标识符或关键字
         if c.is_alphabetic() || c == '_' {
             return Ok(self.read_identifier());
         }
 
-        // 数字
         if c.is_ascii_digit() {
             return self.read_number();
         }
 
-        // 字符串
         if c == '"' || c == '\'' {
             return self.read_string();
         }
 
-        // 标点符号和运算符
         self.advance();
         let span = Span::new(start, self.position, start_line, start_col);
 
@@ -468,7 +441,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// 收集所有 token
     pub fn tokenize(mut self) -> Result<Vec<Token>> {
         let mut tokens = Vec::new();
         loop {
@@ -483,7 +455,6 @@ impl<'a> Lexer<'a> {
     }
 }
 
-/// 便利函数：将源代码转换为 token
 pub fn lex(input: &str) -> Result<Vec<Token>> {
     Lexer::new(input).tokenize()
 }

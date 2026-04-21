@@ -1,6 +1,4 @@
-//! CellScript 类型系统
 //!
-//! 包括类型检查、线性检查和生命周期验证
 
 use crate::ast::*;
 use crate::error::{CompileError, Result, Span};
@@ -28,43 +26,30 @@ enum CellTypeKind {
     Receipt,
 }
 
-/// 类型环境
 pub struct TypeEnv {
-    /// 变量类型
     vars: HashMap<String, Type>,
-    /// 变量可变性
     mutability: HashMap<String, bool>,
-    /// 资源线性状态
     linear_states: HashMap<String, LinearState>,
-    /// 父环境
     parent: Option<Box<TypeEnv>>,
 }
 
-/// 线性状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinearState {
-    /// 可用
     Available,
-    /// 已消费
     Consumed,
-    /// 已转移
     Transferred,
-    /// 已销毁
     Destroyed,
 }
 
 impl TypeEnv {
-    /// 创建新的类型环境
     pub fn new() -> Self {
         Self { vars: HashMap::new(), mutability: HashMap::new(), linear_states: HashMap::new(), parent: None }
     }
 
-    /// 创建子环境
     pub fn child(&self) -> Self {
         Self { vars: HashMap::new(), mutability: HashMap::new(), linear_states: HashMap::new(), parent: Some(Box::new(self.clone())) }
     }
 
-    /// 查找变量类型
     pub fn lookup(&self, name: &str) -> Option<&Type> {
         self.vars.get(name).or_else(|| self.parent.as_ref().and_then(|p| p.lookup(name)))
     }
@@ -73,7 +58,6 @@ impl TypeEnv {
         self.mutability.get(name).copied().or_else(|| self.parent.as_ref().map(|p| p.is_mutable(name))).unwrap_or(false)
     }
 
-    /// 插入变量
     pub fn insert(&mut self, name: String, ty: Type, is_linear: bool, is_mut: bool) {
         self.vars.insert(name.clone(), ty);
         self.mutability.insert(name.clone(), is_mut);
@@ -121,7 +105,6 @@ impl TypeEnv {
         }
     }
 
-    /// 标记资源为已消费
     pub fn consume(&mut self, name: &str) -> Result<()> {
         self.set_linear_state(name, LinearState::Consumed)
     }
@@ -144,7 +127,6 @@ impl TypeEnv {
                 Ok(())
             }
             None => {
-                // 检查父环境
                 if let Some(ref mut parent) = self.parent {
                     parent.set_linear_state(name, next)
                 } else {
@@ -249,7 +231,6 @@ impl TypeEnv {
         Ok(())
     }
 
-    /// 检查所有线性资源是否已正确处理
     pub fn check_linear_complete(&self) -> Result<()> {
         for (name, state) in &self.linear_states {
             if *state == LinearState::Available {
@@ -274,7 +255,6 @@ impl Clone for TypeEnv {
     }
 }
 
-/// 类型检查器
 pub struct TypeChecker<'a> {
     env: TypeEnv,
     type_fields: HashMap<String, HashMap<String, Type>>,
@@ -352,7 +332,6 @@ fn register_type_id(seen: &mut HashMap<String, Span>, type_name: &str, type_id: 
 }
 
 impl<'a> TypeChecker<'a> {
-    /// 创建新的类型检查器
     pub fn new() -> Self {
         Self {
             env: TypeEnv::new(),
@@ -379,7 +358,6 @@ impl<'a> TypeChecker<'a> {
         checker
     }
 
-    /// 检查模块
     pub fn check_module(&mut self, module: &Module) -> Result<()> {
         if self.current_module.is_none() {
             self.current_module = Some(module.name.clone());
@@ -511,7 +489,6 @@ impl<'a> TypeChecker<'a> {
         Ok(())
     }
 
-    /// 检查模块项
     fn check_item(&mut self, item: &Item) -> Result<()> {
         match item {
             Item::Resource(r) => self.check_resource(r),
@@ -523,21 +500,18 @@ impl<'a> TypeChecker<'a> {
             Item::Action(a) => self.check_action(a),
             Item::Function(f) => self.check_function(f),
             Item::Lock(l) => self.check_lock(l),
-            Item::Use(_) => Ok(()), // use 语句不需要类型检查
+            Item::Use(_) => Ok(()),
         }
     }
 
-    /// 检查 resource 定义
     fn check_resource(&mut self, resource: &ResourceDef) -> Result<()> {
         self.validate_schema_fields(&resource.fields, "resource", &resource.name)
     }
 
-    /// 检查 shared 定义
     fn check_shared(&mut self, shared: &SharedDef) -> Result<()> {
         self.validate_schema_fields(&shared.fields, "shared", &shared.name)
     }
 
-    /// 检查 receipt 定义
     fn check_receipt(&mut self, receipt: &ReceiptDef) -> Result<()> {
         self.validate_schema_fields(&receipt.fields, "receipt", &receipt.name)?;
         if let Some(output) = &receipt.claim_output {
@@ -547,7 +521,6 @@ impl<'a> TypeChecker<'a> {
         Ok(())
     }
 
-    /// 检查 struct 定义
     fn check_struct(&mut self, struct_def: &StructDef) -> Result<()> {
         self.validate_schema_fields(&struct_def.fields, "struct", &struct_def.name)
     }
@@ -610,7 +583,6 @@ impl<'a> TypeChecker<'a> {
         Ok(())
     }
 
-    /// 检查 action 定义
     fn check_action(&mut self, action: &ActionDef) -> Result<()> {
         let previous_callable = self.current_callable.replace(CallableKind::Action);
         let previous_return_type = self.current_return_type.replace(action.return_type.clone());
@@ -641,7 +613,6 @@ impl<'a> TypeChecker<'a> {
         result
     }
 
-    /// 检查纯函数定义
     fn check_function(&mut self, function: &FnDef) -> Result<()> {
         let previous_callable = self.current_callable.replace(CallableKind::Function);
         let previous_return_type = self.current_return_type.replace(function.return_type.clone());
@@ -679,7 +650,6 @@ impl<'a> TypeChecker<'a> {
         result
     }
 
-    /// 检查 lock 定义
     fn check_lock(&mut self, lock: &LockDef) -> Result<()> {
         let previous_callable = self.current_callable.replace(CallableKind::Lock);
         let previous_return_type = self.current_return_type.replace(Some(Type::Bool));
@@ -955,7 +925,6 @@ impl<'a> TypeChecker<'a> {
         Ok(Some((tail_base, last)))
     }
 
-    /// 检查语句
     fn check_stmt(&mut self, env: &mut TypeEnv, stmt: &Stmt) -> Result<()> {
         match stmt {
             Stmt::Let(let_stmt) => {
@@ -1108,7 +1077,6 @@ impl<'a> TypeChecker<'a> {
         self.infer_expr(env, &let_stmt.value)
     }
 
-    /// 推断表达式类型
     fn infer_expr(&mut self, env: &mut TypeEnv, expr: &Expr) -> Result<Type> {
         self.validate_expr_allowed_in_current_callable(expr)?;
         match expr {
@@ -2387,7 +2355,6 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    /// 验证类型
     fn validate_type(&self, ty: &Type) -> Result<()> {
         match ty {
             Type::Unit => Ok(()),
@@ -2454,7 +2421,6 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    /// 检查类型是否相等
     fn types_equal(&self, a: &Type, b: &Type) -> bool {
         if self.is_numeric_type(a) && self.is_numeric_type(b) {
             return true;
@@ -2583,7 +2549,6 @@ impl<'a> TypeChecker<'a> {
         self.base_type_name(ty).and_then(|name| self.resolve_cell_type_kind(name)).is_some_and(|kind| kind == CellTypeKind::Receipt)
     }
 
-    /// 检查是否为线性类型
     fn is_linear_type(&self, ty: &Type) -> bool {
         match ty {
             Type::Array(inner, _) => self.is_linear_type(inner),
@@ -2600,13 +2565,11 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    /// 检查是否为数值类型
     fn is_numeric_type(&self, ty: &Type) -> bool {
         matches!(ty, Type::U8 | Type::U16 | Type::U32 | Type::U64 | Type::U128)
             || matches!(ty, Type::Named(name) if name == "usize" || name == "isize")
     }
 
-    /// 检查是否为布尔类型
     fn is_bool_type(&self, ty: &Type) -> bool {
         matches!(ty, Type::Bool)
     }
@@ -2769,7 +2732,6 @@ fn capability_name(capability: Capability) -> &'static str {
     }
 }
 
-/// 类型检查入口函数
 pub fn check(module: &Module) -> Result<()> {
     let mut checker = TypeChecker::new();
     checker.check_module(module)
