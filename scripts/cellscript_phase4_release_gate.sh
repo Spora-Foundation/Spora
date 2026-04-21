@@ -12,6 +12,15 @@ export CELLSCRIPT_BACKEND_SHAPE_REPORT="${CELLSCRIPT_BACKEND_SHAPE_REPORT:-$ROOT
 cd "$ROOT_DIR"
 mkdir -p "$(dirname "$CELLSCRIPT_BACKEND_SHAPE_REPORT")"
 
+require_cmd() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        printf 'missing required command: %s\n' "$1" >&2
+        exit 127
+    fi
+}
+
+require_cmd rg
+
 run() {
     printf '\n==> %s\n' "$*"
     "$@"
@@ -373,6 +382,7 @@ check_v1_ci_workflow() {
         "name: CellScript V1 Gate"
         "workflow_dispatch:"
         "rustup toolchain install 1.85.0 --profile minimal --component rustfmt"
+        "ripgrep"
         "CARGO_TARGET_DIR: /tmp/spora-v1-release-gate-target"
         "CELLSCRIPT_BACKEND_SHAPE_REPORT:"
         '"cellscript"'

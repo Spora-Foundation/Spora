@@ -77,7 +77,7 @@ jobs:
       - name: Install native dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang libclang-dev llvm-dev pkg-config protobuf-compiler
+          sudo apt-get install -y --no-install-recommends clang libclang-dev llvm-dev pkg-config protobuf-compiler ripgrep
           echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=$(llvm-config --libdir):${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
 
