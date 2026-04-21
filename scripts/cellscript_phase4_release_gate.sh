@@ -7,8 +7,10 @@ MODE="${1:-quick}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/spora-cellscript-release-gate-target}"
 export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
+export CELLSCRIPT_BACKEND_SHAPE_REPORT="${CELLSCRIPT_BACKEND_SHAPE_REPORT:-$ROOT_DIR/target/cellscript-backend-shape/backend-shape-report-$MODE.json}"
 
 cd "$ROOT_DIR"
+mkdir -p "$(dirname "$CELLSCRIPT_BACKEND_SHAPE_REPORT")"
 
 run() {
     printf '\n==> %s\n' "$*"
@@ -534,6 +536,7 @@ run_quick_gate() {
     run ./scripts/ckb_cellscript_acceptance.sh --compile-only
     run git diff --check
     check_trailing_whitespace
+    printf '\nCellScript backend shape report: %s\n' "$CELLSCRIPT_BACKEND_SHAPE_REPORT"
 }
 
 run_full_gate() {
@@ -555,6 +558,7 @@ run_full_gate() {
     run ./scripts/ckb_cellscript_acceptance.sh --compile-only
     run git diff --check
     check_trailing_whitespace
+    printf '\nCellScript backend shape report: %s\n' "$CELLSCRIPT_BACKEND_SHAPE_REPORT"
 }
 
 case "$MODE" in
