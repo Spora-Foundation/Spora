@@ -20,6 +20,7 @@ run() {
 check_trailing_whitespace() {
     local files=(
         ".github/workflows/cellscript-v1.yml"
+        "cellscript/CHANGELOG.md"
         "cellscript/README.md"
         "cellscript/README_CN.md"
         "docs/CELLSCRIPT_CKB_COMPATIBILITY_DECISION.md"
@@ -436,6 +437,7 @@ check_v1_code_boundaries() {
         'cellscript/src/codegen/mod.rs::fn machine_layout_plan_reports_branch_relaxation_metrics()'
         'cellscript/src/codegen/mod.rs::fn machine_layout_plan_builds_explicit_machine_blocks()'
         'cellscript/src/codegen/mod.rs::fn machine_cfg_tracks_call_edges_to_local_helpers()'
+        'cellscript/src/codegen/mod.rs::fn machine_reachability_uses_entry_label_not_every_global()'
         'cellscript/src/codegen/mod.rs::fn machine_layout_order_rejects_missing_duplicate_or_unknown_blocks()'
         'cellscript/src/codegen/mod.rs::fn machine_layout_plan_rejects_branch_target_outside_text()'
         'cellscript/tests/examples.rs::fn bundled_examples_stay_within_backend_shape_budgets()'
