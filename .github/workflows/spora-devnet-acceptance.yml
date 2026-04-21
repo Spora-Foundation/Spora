@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/spora-devnet-acceptance.yml"
+      - ".gitmodules"
       - "Cargo.lock"
       - "Cargo.toml"
       - "cellscript/**"
@@ -30,6 +31,7 @@ on:
       - spora
     paths:
       - ".github/workflows/spora-devnet-acceptance.yml"
+      - ".gitmodules"
       - "Cargo.lock"
       - "Cargo.toml"
       - "cellscript/**"
@@ -82,6 +84,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Install Rust toolchain
         run: |
@@ -123,6 +127,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Install Rust toolchain
         run: |
@@ -164,6 +170,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Install Rust toolchain
         run: |

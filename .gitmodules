@@ -1,0 +1,3 @@
+[submodule "cellscript"]
+	path = cellscript
+	url = https://github.com/tsukifune-kosei/CellScript.git
