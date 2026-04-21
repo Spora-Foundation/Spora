@@ -366,7 +366,7 @@ check_v1_ci_workflow() {
     local required=(
         "name: CellScript V1 Gate"
         "workflow_dispatch:"
-        "rustup toolchain install 1.82.0 --profile minimal --component rustfmt"
+        "rustup toolchain install 1.85.0 --profile minimal --component rustfmt"
         "CARGO_TARGET_DIR: /tmp/spora-v1-release-gate-target"
         "./scripts/cellscript_phase4_release_gate.sh v1"
     )
