@@ -151,6 +151,9 @@ mod tests {
             data_hash: [0; 32],
             block_daa_score: 0,
             is_cellbase: false,
+            lock_script: Some(lock_script.clone()),
+            type_script: None,
+            data: Some(Vec::new()),
         });
 
         assert!(verify(&signed_tx.as_verifiable()).is_ok());

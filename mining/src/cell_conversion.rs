@@ -20,6 +20,7 @@ pub(crate) fn cell_output_to_placeholder_entry(
         block_daa_score,
         is_cellbase,
     )
+    .with_resolved_metadata(Some(output.lock.clone()), output.type_.clone(), Some(output_data.to_vec()))
 }
 
 pub(crate) fn cell_output_to_metadata(

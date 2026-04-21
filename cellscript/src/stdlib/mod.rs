@@ -3,8 +3,7 @@
 //! 提供 CKB syscall 包装器、数学函数、哈希函数和环境函数。
 //!
 //! VM 内对象 ABI 使用 Molecule；scheduler witness 的 launch/public 格式也
-//! 生成 Molecule。Borsh 仅作为 legacy transition metadata，不作为
-//! CellScript VM 标准库函数暴露。
+//! 生成 Molecule。CellScript 标准库不暴露 Borsh witness 生成入口。
 
 pub mod collections;
 
@@ -559,73 +558,6 @@ impl SchedulerMetadata {
         accesses: Vec<SchedulerAccess>,
     ) -> Vec<u8> {
         Self::generate_molecule(effect_class, parallelizable, touches_shared, estimated_cycles, accesses)
-    }
-
-    /// 生成 legacy Borsh 调度器见证元数据，仅用于迁移/旧产物排查。
-    #[deprecated(note = "new VM/CellScript public scheduler witness metadata is Molecule; use generate or generate_molecule")]
-    pub fn generate_legacy_borsh(
-        effect_class: &str,
-        parallelizable: bool,
-        touches_shared: Vec<[u8; 32]>,
-        estimated_cycles: u64,
-        accesses: Vec<SchedulerAccess>,
-    ) -> Vec<u8> {
-        use borsh::{to_vec, BorshSerialize};
-
-        #[derive(BorshSerialize)]
-        struct SchedulerWitness {
-            magic: u16,  // 0xCE11
-            version: u8, // 1
-            effect_class: u8,
-            parallelizable: bool,
-            touches_shared_count: u32,
-            touches_shared: Vec<[u8; 32]>,
-            estimated_cycles: u64,
-            access_count: u32,
-            accesses: Vec<SchedulerAccessWitness>,
-        }
-
-        #[derive(BorshSerialize)]
-        struct SchedulerAccessWitness {
-            operation: u8,
-            source: u8,
-            index: u32,
-            binding_hash: [u8; 32],
-        }
-
-        let effect_class_id = match effect_class {
-            "Pure" => 0,
-            "ReadOnly" => 1,
-            "Mutating" => 2,
-            "Creating" => 3,
-            "Destroying" => 4,
-            _ => 0,
-        };
-
-        let access_count = accesses.len() as u32;
-        let accesses = accesses
-            .into_iter()
-            .map(|access| SchedulerAccessWitness {
-                operation: scheduler_operation_id(&access.operation),
-                source: scheduler_source_id(&access.source),
-                index: access.index,
-                binding_hash: *blake3::hash(access.binding.as_bytes()).as_bytes(),
-            })
-            .collect();
-
-        let witness = SchedulerWitness {
-            magic: 0xCE11,
-            version: 1,
-            effect_class: effect_class_id,
-            parallelizable,
-            touches_shared_count: touches_shared.len() as u32,
-            touches_shared,
-            estimated_cycles,
-            access_count,
-            accesses,
-        };
-
-        to_vec(&witness).unwrap_or_default()
     }
 
     /// 生成 launch Molecule 调度器见证元数据。

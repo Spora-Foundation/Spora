@@ -8,6 +8,7 @@ use crate::tx::TransactionOutpoint;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use spora_exec::celltx::CapacityError;
+use spora_exec::Script;
 use spora_hashes::Hash;
 use spora_utils::mem_size::MemSizeEstimator;
 use std::collections::BTreeMap;
@@ -43,6 +44,22 @@ pub struct CellMeta {
 
     /// Whether this cell was created by a cellbase transaction
     pub is_cellbase: bool,
+
+    /// Full lock script when the diff source can retain it.
+    ///
+    /// This is not part of the state commitment; it is carried so validation
+    /// can resolve synthetic/imported cells such as devnet prealloc outputs.
+    pub lock_script: Option<Script>,
+
+    /// Full type script when the diff source can retain it.
+    ///
+    /// This is not part of the state commitment.
+    pub type_script: Option<Script>,
+
+    /// Full cell data when the diff source can retain it.
+    ///
+    /// This is not part of the state commitment.
+    pub data: Option<Vec<u8>>,
 }
 
 /// Collection of cells (OutPoint → CellMeta)
@@ -125,7 +142,19 @@ impl CellMeta {
             data_hash,
             block_daa_score,
             is_cellbase,
+            lock_script: None,
+            type_script: None,
+            data: None,
         }
+    }
+
+    /// Attach optional full script/data metadata without changing the compact
+    /// consensus commitment fields.
+    pub fn with_resolved_metadata(mut self, lock_script: Option<Script>, type_script: Option<Script>, data: Option<Vec<u8>>) -> Self {
+        self.lock_script = lock_script;
+        self.type_script = type_script;
+        self.data = data;
+        self
     }
 
     /// Returns the compact metadata view embedded in this cell entry.
@@ -157,6 +186,9 @@ impl MemSizeEstimator for CellMeta {
             + self.occupied_capacity() as usize
             + std::mem::size_of::<u64>() // block_daa_score
             + std::mem::size_of::<bool>() // is_cellbase
+            + self.lock_script.as_ref().map(|script| script.args.len() + 33).unwrap_or(0)
+            + self.type_script.as_ref().map(|script| script.args.len() + 33).unwrap_or(0)
+            + self.data.as_ref().map(Vec::len).unwrap_or(0)
     }
 }
 
@@ -317,6 +349,9 @@ mod tests {
             data_hash: [2u8; 32],
             block_daa_score: 100,
             is_cellbase: false,
+            lock_script: None,
+            type_script: None,
+            data: None,
         }
     }
 

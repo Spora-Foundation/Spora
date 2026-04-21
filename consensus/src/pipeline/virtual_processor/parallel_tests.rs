@@ -72,6 +72,9 @@ mod tests {
             data_hash: [2u8; 32],
             block_daa_score: daa,
             is_cellbase,
+            lock_script: None,
+            type_script: None,
+            data: None,
         }
     }
 

@@ -8,16 +8,6 @@
 use crate::ast::*;
 use std::collections::HashMap;
 
-fn hex_encode(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    out
-}
-
 /// 模拟值
 #[derive(Debug, Clone, PartialEq)]
 pub enum SimValue {
@@ -350,7 +340,7 @@ impl SimulateInterpreter {
             Expr::Integer(n) => Ok(SimValue::Integer(*n)),
             Expr::Bool(b) => Ok(SimValue::Bool(*b)),
             Expr::String(s) => Ok(SimValue::String(s.clone())),
-            Expr::ByteString(bytes) => Ok(SimValue::String(format!("0x{}", hex_encode(bytes)))),
+            Expr::ByteString(bytes) => Ok(SimValue::String(format!("0x{}", crate::hex_encode(bytes)))),
             Expr::Identifier(name) => {
                 self.env.get(name).cloned().ok_or_else(|| SimulateError::UndefinedVariable { name: name.clone() })
             }

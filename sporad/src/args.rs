@@ -54,6 +54,10 @@ pub struct Args {
     pub user_agent_comments: Vec<String>,
     pub cellindex: bool,
     pub reset_db: bool,
+    #[serde(rename = "relaynonstd")]
+    pub relay_non_std: bool,
+    #[serde(rename = "rejectnonstd")]
+    pub reject_non_std: bool,
     #[serde(rename = "outpeers")]
     pub outbound_target: usize,
     #[serde(rename = "maxinpeers")]
@@ -62,6 +66,7 @@ pub struct Args {
     pub rpc_max_clients: usize,
     pub max_tracked_addresses: usize,
     pub enable_unsynced_mining: bool,
+    pub skip_proof_of_work: bool,
     pub testnet: bool,
     #[serde(rename = "netsuffix")]
     pub testnet_suffix: u32,
@@ -75,6 +80,8 @@ pub struct Args {
     pub perf_metrics: bool,
     pub perf_metrics_interval_sec: u64,
     pub block_template_cache_lifetime: Option<u64>,
+    #[serde(rename = "blockmaxmass")]
+    pub block_max_mass: Option<u64>,
 
     #[cfg(feature = "devnet-prealloc")]
     pub num_prealloc_cells: Option<u64>,
@@ -104,11 +111,14 @@ impl Default for Args {
             async_threads: num_cpus::get(),
             cellindex: false,
             reset_db: false,
+            relay_non_std: false,
+            reject_non_std: false,
             outbound_target: 8,
             inbound_limit: 128,
             rpc_max_clients: 128,
             max_tracked_addresses: 0,
             enable_unsynced_mining: false,
+            skip_proof_of_work: false,
             testnet: false,
             testnet_suffix: 10,
             devnet: false,
@@ -128,6 +138,7 @@ impl Default for Args {
             perf_metrics_interval_sec: 10,
             externalip: None,
             block_template_cache_lifetime: None,
+            block_max_mass: None,
 
             #[cfg(feature = "devnet-prealloc")]
             num_prealloc_cells: None,
@@ -151,7 +162,14 @@ impl Args {
         config.cellindex = self.cellindex;
         config.disable_upnp = self.disable_upnp;
         config.unsafe_rpc = self.unsafe_rpc;
+        config.relay_non_std_transactions = self.relay_non_std && !self.reject_non_std;
         config.enable_unsynced_mining = self.enable_unsynced_mining;
+        if self.skip_proof_of_work {
+            config.params.skip_proof_of_work = true;
+        }
+        if let Some(block_max_mass) = self.block_max_mass {
+            config.params.max_block_mass = block_max_mass;
+        }
         config.is_archival = self.archival;
         // TODO: change to `config.enable_sanity_checks = self.sanity` when we reach stable versions
         config.enable_sanity_checks = true;
@@ -177,10 +195,9 @@ impl Args {
             .map(|i| {
                 let mut tx_hash = [0u8; 32];
                 tx_hash[..8].copy_from_slice(&i.to_le_bytes());
-                (
-                    TransactionOutpoint::new(tx_hash, 0),
-                    CellMeta::from_cell_metadata(self.prealloc_amount, 0, lock_script.hash(), None, [0; 32], 0, false),
-                )
+                let meta = CellMeta::from_cell_metadata(self.prealloc_amount, 0, lock_script.hash(), None, [0; 32], 0, false)
+                    .with_resolved_metadata(Some(lock_script.clone()), None, Some(Vec::new()));
+                (TransactionOutpoint::new(tx_hash, 0), meta)
             })
             .collect()
     }
@@ -307,7 +324,29 @@ pub fn cli() -> Command {
                 .help("Max number of RPC clients for standard connections (default: 128)."),
         )
         .arg(arg!(--"reset-db" "Reset database before starting node. It's needed when switching between networks."))
+        .arg(
+            Arg::new("relaynonstd")
+                .long("relaynonstd")
+                .action(ArgAction::SetTrue)
+                .conflicts_with("rejectnonstd")
+                .help("Relay non-standard transactions when explicitly enabled; applies to every network profile."),
+        )
+        .arg(
+            Arg::new("rejectnonstd")
+                .long("rejectnonstd")
+                .action(ArgAction::SetTrue)
+                .conflicts_with("relaynonstd")
+                .help("Reject non-standard transactions regardless of network defaults."),
+        )
+        .arg(
+            Arg::new("blockmaxmass")
+                .long("blockmaxmass")
+                .require_equals(true)
+                .value_parser(clap::value_parser!(u64))
+                .help("Maximum transaction mass to be used when creating a block."),
+        )
         .arg(arg!(--"enable-unsynced-mining" "Allow the node to accept blocks from RPC while not synced (this flag is mainly used for testing)"))
+        .arg(arg!(--"skip-proof-of-work" "Skip proof-of-work validation on devnet/simnet (testing only)"))
         .arg(arg!(--cellindex "Enable the cell index"))
         .arg(
             Arg::new("max-tracked-addresses")
@@ -440,7 +479,10 @@ impl Args {
             rpc_max_clients: arg_match_unwrap_or::<usize>(&m, "rpcmaxclients", defaults.rpc_max_clients),
             max_tracked_addresses: arg_match_unwrap_or::<usize>(&m, "max-tracked-addresses", defaults.max_tracked_addresses),
             reset_db: arg_match_unwrap_or::<bool>(&m, "reset-db", defaults.reset_db),
+            relay_non_std: arg_match_unwrap_or::<bool>(&m, "relaynonstd", defaults.relay_non_std),
+            reject_non_std: arg_match_unwrap_or::<bool>(&m, "rejectnonstd", defaults.reject_non_std),
             enable_unsynced_mining: arg_match_unwrap_or::<bool>(&m, "enable-unsynced-mining", defaults.enable_unsynced_mining),
+            skip_proof_of_work: arg_match_unwrap_or::<bool>(&m, "skip-proof-of-work", defaults.skip_proof_of_work),
             cellindex: arg_match_unwrap_or::<bool>(&m, "cellindex", defaults.cellindex),
             testnet: arg_match_unwrap_or::<bool>(&m, "testnet", defaults.testnet),
             testnet_suffix: arg_match_unwrap_or::<u32>(&m, "netsuffix", defaults.testnet_suffix),
@@ -455,6 +497,7 @@ impl Args {
             perf_metrics_interval_sec: arg_match_unwrap_or::<u64>(&m, "perf-metrics-interval-sec", defaults.perf_metrics_interval_sec),
             // Note: currently used programmatically by benchmarks and not exposed to CLI users
             block_template_cache_lifetime: defaults.block_template_cache_lifetime,
+            block_max_mass: m.get_one::<u64>("blockmaxmass").cloned().or(defaults.block_max_mass),
             disable_upnp: arg_match_unwrap_or::<bool>(&m, "disable-upnp", defaults.disable_upnp),
             disable_dns_seeding: arg_match_unwrap_or::<bool>(&m, "nodnsseed", defaults.disable_dns_seeding),
             disable_grpc: arg_match_unwrap_or::<bool>(&m, "nogrpc", defaults.disable_grpc),
@@ -505,6 +548,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_relay_non_standard_and_block_max_mass_from_cli() {
+        let args = Args::parse(["sporad", "--relaynonstd", "--blockmaxmass=123456789"])
+            .expect("cli parsing should accept explicit mass policy flags");
+        assert!(args.relay_non_std);
+        assert!(!args.reject_non_std);
+        assert_eq!(args.block_max_mass, Some(123_456_789));
+    }
+
+    #[test]
+    fn relay_and_reject_non_standard_conflict() {
+        assert!(Args::parse(["sporad", "--relaynonstd", "--rejectnonstd"]).is_err());
+    }
+
+    #[test]
     fn parse_resumable_virtual_state_step_cycles_from_config_file() {
         let mut config_file = NamedTempFile::new().expect("temp config file should be created");
         writeln!(config_file, "resumable-virtual-state-step-cycles = 321").expect("config file should be writable");
@@ -521,6 +578,17 @@ mod tests {
         let mut config = Config::new(NetworkType::Mainnet.into());
         args.apply_to_config(&mut config);
         assert_eq!(config.resumable_virtual_state_step_cycles, Some(77));
+    }
+
+    #[test]
+    fn apply_to_config_sets_opt_in_mass_policy_on_all_networks() {
+        let args = Args { relay_non_std: true, block_max_mass: Some(123_456_789), ..Default::default() };
+        for network in [NetworkType::Mainnet, NetworkType::Testnet, NetworkType::Devnet, NetworkType::Simnet] {
+            let mut config = Config::new(network.into());
+            args.apply_to_config(&mut config);
+            assert!(config.relay_non_std_transactions, "{network:?} should accept explicit non-standard relay opt-in");
+            assert_eq!(config.max_block_mass, 123_456_789, "{network:?} should apply explicit block max mass");
+        }
     }
 
     #[test]

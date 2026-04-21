@@ -2,7 +2,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use spora_addresses::{Address, Version as AddressVersion};
 use spora_consensus_core::cell_diff::CellMeta;
-use spora_consensus_core::tx::{CellInput, CellOutput, Script, ScriptClass, TransactionId, TransactionIndexType, TransactionOutpoint};
+use spora_consensus_core::tx::{
+    CellDep, CellInput, CellOutput, DepType, Script, ScriptClass, TransactionId, TransactionIndexType, TransactionOutpoint,
+};
 use spora_utils::{hex::ToHex, serde_bytes_fixed, serde_bytes_fixed_ref};
 use std::{
     fmt::{Display, Formatter},
@@ -225,6 +227,87 @@ impl Deserializer for RpcTransactionOutpoint {
         let index = load!(TransactionIndexType, reader)?;
 
         Ok(Self { transaction_id, index })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[serde(rename_all = "camelCase")]
+#[repr(u8)]
+#[borsh(use_discriminant = true)]
+pub enum RpcDepType {
+    Code = 0,
+    DepGroup = 1,
+}
+
+impl From<DepType> for RpcDepType {
+    fn from(dep_type: DepType) -> Self {
+        match dep_type {
+            DepType::Code => Self::Code,
+            DepType::DepGroup => Self::DepGroup,
+        }
+    }
+}
+
+impl From<RpcDepType> for DepType {
+    fn from(dep_type: RpcDepType) -> Self {
+        match dep_type {
+            RpcDepType::Code => Self::Code,
+            RpcDepType::DepGroup => Self::DepGroup,
+        }
+    }
+}
+
+impl Serializer for RpcDepType {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u8, &(*self as u8), writer)?;
+        Ok(())
+    }
+}
+
+impl Deserializer for RpcDepType {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        match load!(u8, reader)? {
+            0 => Ok(Self::Code),
+            1 => Ok(Self::DepGroup),
+            value => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("invalid RpcDepType {value}"))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcCellDep {
+    pub out_point: RpcTransactionOutpoint,
+    pub dep_type: RpcDepType,
+}
+
+impl From<CellDep> for RpcCellDep {
+    fn from(dep: CellDep) -> Self {
+        Self { out_point: dep.out_point.into(), dep_type: dep.dep_type.into() }
+    }
+}
+
+impl From<RpcCellDep> for CellDep {
+    fn from(dep: RpcCellDep) -> Self {
+        Self { out_point: dep.out_point.into(), dep_type: dep.dep_type.into() }
+    }
+}
+
+impl Serializer for RpcCellDep {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        store!(u8, &1, writer)?;
+        serialize!(RpcTransactionOutpoint, &self.out_point, writer)?;
+        store!(RpcDepType, &self.dep_type, writer)?;
+        Ok(())
+    }
+}
+
+impl Deserializer for RpcCellDep {
+    fn deserialize<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let _version = load!(u8, reader)?;
+        let out_point = deserialize!(RpcTransactionOutpoint, reader)?;
+        let dep_type = load!(RpcDepType, reader)?;
+        Ok(Self { out_point, dep_type })
     }
 }
 
@@ -546,6 +629,10 @@ impl Deserializer for RpcTransactionOutputVerboseData {
 pub struct RpcTransaction {
     pub version: u32,
     pub inputs: Vec<RpcTransactionInput>,
+    #[serde(default)]
+    pub cell_deps: Vec<RpcCellDep>,
+    #[serde(default)]
+    pub header_deps: Vec<RpcHash>,
     pub outputs: Vec<RpcTransactionOutput>,
     #[serde(with = "hex::serde")]
     pub payload: Vec<u8>,
@@ -560,6 +647,8 @@ impl std::fmt::Debug for RpcTransaction {
             .field("version", &self.version)
             .field("payload", &self.payload.to_hex())
             .field("mass", &self.mass)
+            .field("cell_deps", &self.cell_deps)
+            .field("header_deps", &self.header_deps)
             .field("inputs", &self.inputs) // Inputs and outputs are placed purposely at the end for better debug visibility 
             .field("outputs", &self.outputs)
             .field("verbose_data", &self.verbose_data)
@@ -569,9 +658,11 @@ impl std::fmt::Debug for RpcTransaction {
 
 impl Serializer for RpcTransaction {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        store!(u16, &3, writer)?;
+        store!(u16, &4, writer)?;
         store!(u32, &self.version, writer)?;
         serialize!(Vec<RpcTransactionInput>, &self.inputs, writer)?;
+        serialize!(Vec<RpcCellDep>, &self.cell_deps, writer)?;
+        store!(Vec<RpcHash>, &self.header_deps, writer)?;
         serialize!(Vec<RpcTransactionOutput>, &self.outputs, writer)?;
         store!(Vec<u8>, &self.payload, writer)?;
         store!(u64, &self.mass, writer)?;
@@ -586,18 +677,21 @@ impl Deserializer for RpcTransaction {
         let struct_version = load!(u16, reader)?;
         let version = load!(u32, reader)?;
         let inputs = deserialize!(Vec<RpcTransactionInput>, reader)?;
-        let outputs = deserialize!(Vec<RpcTransactionOutput>, reader)?;
-        if struct_version != 3 {
+        let (cell_deps, header_deps, outputs) = if struct_version >= 4 {
+            (deserialize!(Vec<RpcCellDep>, reader)?, load!(Vec<RpcHash>, reader)?, deserialize!(Vec<RpcTransactionOutput>, reader)?)
+        } else if struct_version == 3 {
+            (Vec::new(), Vec::new(), deserialize!(Vec<RpcTransactionOutput>, reader)?)
+        } else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("unsupported RpcTransaction serialization version: {struct_version}"),
             ));
-        }
+        };
         let payload = load!(Vec<u8>, reader)?;
         let mass = load!(u64, reader)?;
         let verbose_data = deserialize!(Option<RpcTransactionVerboseData>, reader)?;
 
-        Ok(Self { version, inputs, outputs, payload, mass, verbose_data })
+        Ok(Self { version, inputs, cell_deps, header_deps, outputs, payload, mass, verbose_data })
     }
 }
 

@@ -311,6 +311,7 @@ fn cell_meta_to_entry(meta: &CellMeta) -> CellEntry {
         meta.block_daa_score,
         meta.is_cellbase,
     )
+    .with_resolved_metadata(meta.lock_script.clone(), meta.type_script.clone(), meta.data.clone())
 }
 
 fn cell_entry_to_meta(out_point: &TransactionOutpoint, entry: &CellEntry) -> CellMeta {
@@ -323,6 +324,9 @@ fn cell_entry_to_meta(out_point: &TransactionOutpoint, entry: &CellEntry) -> Cel
         data_hash: entry.data_hash.as_bytes().try_into().expect("hash size is fixed"),
         block_daa_score: entry.block_daa_score,
         is_cellbase: entry.is_cellbase,
+        lock_script: entry.lock_script.clone(),
+        type_script: entry.type_script.clone(),
+        data: entry.data.clone(),
     }
 }
 
@@ -450,6 +454,23 @@ impl ExecutionSnapshot {
 }
 
 impl ReplayValidationContext {
+    fn seed_base_overrides_from_tree(&mut self, cell_state_tree: &CellStateTree) -> Result<(), RuleError> {
+        for (outpoint, _, entry) in cell_state_tree.iter_by_outpoint() {
+            if entry.lock_script.is_none() && entry.type_script.is_none() && entry.data.is_none() {
+                continue;
+            }
+
+            let tx_outpoint = TransactionOutpoint::new(outpoint.tx_hash, outpoint.index);
+            let mut metadata = CellMetadata::from(&cell_entry_to_meta(&tx_outpoint, entry));
+            metadata.block_hash = self.snapshot_pov;
+            self.provider
+                .add_base_override(exec_outpoint(&tx_outpoint), metadata)
+                .map_err(|err| RuleError::CellValidationError(format!("virtual replay overlay seed error: {err}")))?;
+        }
+
+        Ok(())
+    }
+
     fn validate_tx_pre_scripts(&self, tx: &spora_exec::CellTx) -> Result<(), RuleError> {
         // L1: Isolation (stateless) — no provider needed
         cell_validation_in_isolation::validate_cell_tx_in_isolation(tx, self.params.max_cell_data_size)
@@ -728,6 +749,9 @@ impl VirtualStateProcessor {
                 data_hash: self.compute_data_hash(output_data),
                 block_daa_score: selected_parent_daa_score,
                 is_cellbase: true,
+                lock_script: Some(output.lock.clone()),
+                type_script: output.type_.clone(),
+                data: Some(output_data.to_vec()),
             };
 
             effect.cell_diff.add_cell(outpoint, cell_meta);
@@ -875,6 +899,9 @@ impl VirtualStateProcessor {
                     data_hash,
                     block_daa_score: blue_block_daa_score,
                     is_cellbase: tx_index == 0 && tx.is_coinbase(),
+                    lock_script: Some(output.lock.clone()),
+                    type_script: output.type_.clone(),
+                    data: Some(output_data.to_vec()),
                 };
 
                 // Update local tree so subsequent txs in the same block can
@@ -1100,6 +1127,9 @@ impl VirtualStateProcessor {
                     data_hash,
                     block_daa_score: blue_block_daa_score,
                     is_cellbase: tx_index == 0 && tx.is_coinbase(),
+                    lock_script: Some(output.lock.clone()),
+                    type_script: output.type_.clone(),
+                    data: Some(output_data.to_vec()),
                 };
 
                 local_tree.insert_with_outpoint(outpoint_hash, exec_outpoint(&outpoint), cell_meta_to_entry(&cell_meta));
@@ -1349,6 +1379,7 @@ impl VirtualStateProcessor {
         let mut processed_txs = HashSet::new();
         let mut replay_validation =
             self.build_replay_validation_context(snapshot_pov, ctx.ghostdag_data.selected_parent, pov_daa_score, current_timestamp);
+        replay_validation.seed_base_overrides_from_tree(&ctx.cell_state_tree)?;
 
         self.process_selected_parent_coinbase(ctx, &mut processed_txs, &mut replay_validation)?;
         self.calculate_cell_state_blue_blocks_resumable(ctx, processed_txs, replay_validation, 0, None, limit_cycles)
@@ -1436,6 +1467,7 @@ impl VirtualStateProcessor {
         // so that subsequent blocks validate against the latest overlay state).
         let mut replay_validation =
             self.build_replay_validation_context(snapshot_pov, selected_parent, pov_daa_score, current_timestamp);
+        replay_validation.seed_base_overrides_from_tree(&ctx.cell_state_tree)?;
 
         // ── STEP 1: Selected parent coinbase (analyze → commit) ──────
         let selected_parent_txs = self.block_transactions_store.get(selected_parent).unwrap();

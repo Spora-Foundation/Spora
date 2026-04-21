@@ -332,10 +332,21 @@ impl RpcCoreService {
             meta.cell_data.len() as u64,
             meta.cell_output.lock.hash(),
             meta.cell_output.type_.as_ref().map(|script| script.hash()),
-            *blake3::hash(&meta.cell_data).as_bytes(),
+            Self::canonical_cell_data_hash(&meta.cell_data),
             meta.daa_score,
             meta.is_cellbase,
         )
+    }
+
+    fn canonical_cell_data_hash(data: &[u8]) -> [u8; 32] {
+        if data.is_empty() {
+            [0; 32]
+        } else {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(b"spora-cell/data");
+            hasher.update(data);
+            *hasher.finalize().as_bytes()
+        }
     }
 
     fn extract_tx_query(&self, filter_transaction_pool: bool, include_orphan_pool: bool) -> RpcResult<TransactionQuery> {

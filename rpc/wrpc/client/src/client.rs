@@ -11,6 +11,7 @@ use spora_notify::{
 };
 use spora_rpc_core::{
     api::ctl::RpcCtl,
+    api::ops::RPC_API_VERSION,
     notify::collector::{RpcCoreCollector, RpcCoreConverter},
 };
 pub use spora_rpc_macros::build_wrpc_client_interface;
@@ -23,7 +24,96 @@ pub use workflow_rpc::client::{
     ConnectOptions, ConnectResult, ConnectStrategy, Resolver as RpcResolver, ResolverResult, WebSocketConfig, WebSocketError,
 };
 use workflow_serializer::prelude::*;
+use workflow_websocket::client::{Error as WebSocketClientError, Handshake, Message as WebSocketMessage};
 type RpcClientNotifier = Arc<Notifier<Notification, ChannelConnection>>;
+
+const HANDSHAKE_PROTOCOL_VERSION: u32 = 1;
+
+#[derive(Debug, Serialize)]
+struct WrpcHandshakeRequest {
+    protocol_version: u32,
+    rpc_api_version: u16,
+    capabilities: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WrpcHandshakeResponse {
+    protocol_version: u32,
+    rpc_api_version: u16,
+    rpc_api_revision: u16,
+    capabilities: Vec<String>,
+}
+
+#[derive(Debug)]
+struct SporaWrpcHandshake {
+    capability: &'static str,
+}
+
+impl SporaWrpcHandshake {
+    fn new(encoding: Encoding) -> Self {
+        let capability = match encoding {
+            Encoding::Borsh => "borsh",
+            Encoding::SerdeJson => "json",
+        };
+        Self { capability }
+    }
+}
+
+#[async_trait]
+impl Handshake for SporaWrpcHandshake {
+    async fn handshake(
+        &self,
+        sender: &Sender<WebSocketMessage>,
+        receiver: &Receiver<WebSocketMessage>,
+    ) -> workflow_websocket::client::Result<()> {
+        let request = WrpcHandshakeRequest {
+            protocol_version: HANDSHAKE_PROTOCOL_VERSION,
+            rpc_api_version: RPC_API_VERSION,
+            capabilities: vec![self.capability.to_string(), "subscribe".to_string()],
+        };
+        let request_json = serde_json::to_string(&request).map_err(WebSocketClientError::custom)?;
+
+        sender.send(WebSocketMessage::Text(request_json)).await.map_err(WebSocketClientError::custom)?;
+
+        let response_message = receiver.recv().await.map_err(WebSocketClientError::custom)?;
+        let response_json = match response_message {
+            WebSocketMessage::Text(text) => text,
+            other => return Err(WebSocketClientError::custom(format!("wRPC handshake expected text response, got {other:?}"))),
+        };
+
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&response_json) {
+            if let Some(error) = value.get("error").and_then(|value| value.as_str()) {
+                return Err(WebSocketClientError::custom(format!("wRPC handshake rejected by server: {error}")));
+            }
+        }
+
+        let response: WrpcHandshakeResponse = serde_json::from_str(&response_json).map_err(WebSocketClientError::custom)?;
+        if response.protocol_version == 0 {
+            return Err(WebSocketClientError::custom("wRPC handshake negotiated invalid protocol version 0"));
+        }
+        if response.rpc_api_version != RPC_API_VERSION {
+            return Err(WebSocketClientError::custom(format!(
+                "wRPC API version mismatch: client={} server={}",
+                RPC_API_VERSION, response.rpc_api_version
+            )));
+        }
+        if !response.capabilities.iter().any(|capability| capability == self.capability) {
+            return Err(WebSocketClientError::custom(format!(
+                "wRPC server did not negotiate required {} capability",
+                self.capability
+            )));
+        }
+
+        log_trace!(
+            "wRPC handshake negotiated protocol v{} API {}.{} with capabilities {:?}",
+            response.protocol_version,
+            response.rpc_api_version,
+            response.rpc_api_revision,
+            response.capabilities
+        );
+        Ok(())
+    }
+}
 
 struct Inner {
     rpc_client: Arc<RpcClient<RpcApiOps>>,
@@ -447,6 +537,7 @@ impl SporaRpcClient {
             max_frame_size: Some(1024 * 1024 * 1024),
             accept_unmasked_frames: false,
             resolver: Some(self.inner.clone()),
+            handshake: Some(Arc::new(SporaWrpcHandshake::new(self.inner.encoding))),
             ..Default::default()
         };
 

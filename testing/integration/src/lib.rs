@@ -20,20 +20,24 @@ pub mod consensus_pipeline_tests;
 pub mod daemon_integration_tests;
 
 #[cfg(test)]
-#[cfg(feature = "devnet-prealloc")]
+#[cfg(all(feature = "integration-tests", feature = "devnet-prealloc"))]
+pub mod devnet_acceptance_tests;
+
+#[cfg(test)]
+#[cfg(all(feature = "devnet-prealloc", feature = "mempool-benchmarks"))]
 pub mod mempool_benchmarks;
 
 #[cfg(test)]
-#[cfg(feature = "devnet-prealloc")]
+#[cfg(all(feature = "devnet-prealloc", feature = "subscribe-benchmarks"))]
 pub mod subscribe_benchmarks;
 
 #[cfg(test)]
 pub mod rpc_tests;
 
 #[cfg(test)]
-#[cfg(feature = "integration-tests")]
+#[cfg(all(feature = "integration-tests", feature = "wallet-account-variant-tests"))]
 pub mod wallet_account_variant_tests;
 
 #[cfg(test)]
-#[cfg(feature = "integration-tests")]
+#[cfg(all(feature = "integration-tests", feature = "consensus-mempool-template-matrix-tests"))]
 pub mod consensus_mempool_template_matrix_tests;

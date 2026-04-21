@@ -45,6 +45,11 @@ pub struct Config {
     /// Enable RPC commands which affect the state of the node
     pub unsafe_rpc: bool,
 
+    /// Relay non-standard transactions when explicitly requested by the node
+    /// operator. The opt-in applies to every network; defaults preserve standard
+    /// relay policy.
+    pub relay_non_std_transactions: bool,
+
     /// Allow the node to accept blocks from RPC while not synced
     /// (required when initiating a new network from genesis)
     pub enable_unsynced_mining: bool,
@@ -89,6 +94,7 @@ impl Config {
             enable_sanity_checks: false,
             cellindex: false,
             unsafe_rpc: false,
+            relay_non_std_transactions: false,
             enable_unsynced_mining: false,
             user_agent_comments: Default::default(),
             externalip: None,

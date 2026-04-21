@@ -73,6 +73,7 @@ async fn daemon_mining_test() {
     rpc_client1.start_notify(Default::default(), VirtualDaaScoreChangedScope {}.into()).await.unwrap();
 
     // Mine 10 blocks to daemon #1
+    let mut first_block_hash = None;
     let mut last_block_hash = None;
     for i in 0..10 {
         let template = rpc_client1
@@ -83,6 +84,9 @@ async fn daemon_mining_test() {
             .await
             .unwrap();
         let header: Header = (&template.block.header).into();
+        if first_block_hash.is_none() {
+            first_block_hash = Some(header.hash);
+        }
         last_block_hash = Some(header.hash);
         rpc_client1.submit_block(template.block, false).await.unwrap();
 
@@ -109,19 +113,13 @@ async fn daemon_mining_test() {
     assert_eq!(dag_info.block_count, 10);
     assert_eq!(dag_info.sink, last_block_hash.unwrap());
 
-    // Check that acceptance data contains the expected coinbase tx ids
-    let vc = rpc_client2
-        .get_virtual_chain_from_block(
-            spora_consensus::params::SIMNET_GENESIS.hash, //
-            true,
-        )
-        .await
-        .unwrap();
+    // Check that acceptance data is returned for each added chain block.
+    let vc = rpc_client2.get_virtual_chain_from_block(first_block_hash.unwrap(), true).await.unwrap();
     assert_eq!(vc.removed_chain_block_hashes.len(), 0);
-    assert_eq!(vc.added_chain_block_hashes.len(), 10);
-    assert_eq!(vc.accepted_transaction_ids.len(), 10);
-    for accepted_txs_pair in vc.accepted_transaction_ids {
-        assert_eq!(accepted_txs_pair.accepted_transaction_ids.len(), 1);
+    assert_eq!(vc.added_chain_block_hashes.len(), 9);
+    assert_eq!(vc.accepted_transaction_ids.len(), 9);
+    for (accepted_txs_pair, added_hash) in vc.accepted_transaction_ids.iter().zip(vc.added_chain_block_hashes.iter()) {
+        assert_eq!(&accepted_txs_pair.accepting_block_hash, added_hash);
     }
 }
 
@@ -333,10 +331,14 @@ async fn daemon_cells_propagation_test() {
 
     // Mine 1000 blocks to daemon #1
     let initial_blocks = coinbase_maturity;
+    let mut first_block_hash = None;
     let mut last_block_hash = None;
     for i in 0..initial_blocks {
         let template = rpc_client1.get_block_template(miner_address.clone(), vec![]).await.unwrap();
         let header: Header = (&template.block.header).into();
+        if first_block_hash.is_none() {
+            first_block_hash = Some(header.hash);
+        }
         last_block_hash = Some(header.hash);
         rpc_client1.submit_block(template.block, false).await.unwrap();
 
@@ -378,13 +380,13 @@ async fn daemon_cells_propagation_test() {
     assert_eq!(dag_info.block_count, initial_blocks);
     assert_eq!(dag_info.sink, last_block_hash.unwrap());
 
-    // Check that acceptance data contains the expected coinbase tx ids
-    let vc = rpc_client2.get_virtual_chain_from_block(spora_consensus::params::SIMNET_GENESIS.hash, true).await.unwrap();
+    // Check that acceptance data is returned for each added chain block.
+    let vc = rpc_client2.get_virtual_chain_from_block(first_block_hash.unwrap(), true).await.unwrap();
     assert_eq!(vc.removed_chain_block_hashes.len(), 0);
-    assert_eq!(vc.added_chain_block_hashes.len() as u64, initial_blocks);
-    assert_eq!(vc.accepted_transaction_ids.len() as u64, initial_blocks);
-    for accepted_txs_pair in vc.accepted_transaction_ids {
-        assert_eq!(accepted_txs_pair.accepted_transaction_ids.len(), 1);
+    assert_eq!(vc.added_chain_block_hashes.len() as u64, initial_blocks - 1);
+    assert_eq!(vc.accepted_transaction_ids.len() as u64, initial_blocks - 1);
+    for (accepted_txs_pair, added_hash) in vc.accepted_transaction_ids.iter().zip(vc.added_chain_block_hashes.iter()) {
+        assert_eq!(&accepted_txs_pair.accepting_block_hash, added_hash);
     }
 
     // Create a multi-listener RPC client on each node...
@@ -411,7 +413,7 @@ async fn daemon_cells_propagation_test() {
 
     // Get the miner cells
     let cells = fetch_spendable_cells(&rpc_client1, miner_address.clone(), coinbase_maturity).await;
-    assert_eq!(cells.len(), EXTRA_BLOCKS - 1);
+    assert_eq!(cells.len(), EXTRA_BLOCKS);
     for cell in cells.iter() {
         assert!(cell.1.is_cellbase);
         assert_eq!(cell.1.amount(), SIMNET_PARAMS.pre_deflationary_phase_base_subsidy);
@@ -450,7 +452,12 @@ async fn daemon_cells_propagation_test() {
 
     // Check cells changed notifications
     for x in clients.iter() {
-        let Notification::CellsChanged(uc) = x.cells_changed_listener().unwrap().receiver.recv().await.unwrap() else {
+        let Notification::CellsChanged(uc) =
+            tokio::time::timeout(Duration::from_secs(2), x.cells_changed_listener().unwrap().receiver.recv())
+                .await
+                .expect("timed out waiting for CellsChanged notification")
+                .unwrap()
+        else {
             panic!("wrong notification type")
         };
         assert!(uc.removed.iter().all(|x| x.address.is_some() && *x.address.as_ref().unwrap() == miner_address));

@@ -92,6 +92,7 @@ pub enum Dependency {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetailedDependency {
     /// 版本要求
+    #[serde(default = "default_any_version")]
     pub version: String,
     /// Git 仓库
     #[serde(default)]
@@ -121,6 +122,10 @@ pub struct DetailedDependency {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_any_version() -> String {
+    "*".to_string()
 }
 
 /// 构建配置
@@ -665,14 +670,122 @@ impl Lockfile {
         }
     }
 
+    /// 用已解析依赖完整替换锁文件依赖集合。
+    pub fn replace_with_resolved(&mut self, resolved: &HashMap<String, ResolvedPackage>) {
+        self.dependencies.clear();
+        self.update_from_resolved(resolved);
+    }
+
     /// 检查锁文件是否与清单一致
     pub fn is_consistent(&self, manifest: &PackageManifest) -> bool {
+        self.consistency_issues(manifest).is_empty()
+    }
+
+    /// 返回锁文件与清单不一致的诊断。
+    pub fn consistency_issues(&self, manifest: &PackageManifest) -> Vec<String> {
+        let mut issues = Vec::new();
+        if self.version != Self::CURRENT_VERSION {
+            issues.push(format!("Cell.lock version {} is not supported; expected {}", self.version, Self::CURRENT_VERSION));
+        }
+
         for name in manifest.dependencies.keys() {
-            if !self.dependencies.contains_key(name) {
-                return false;
+            let Some(locked) = self.dependencies.get(name) else {
+                issues.push(format!("dependency '{}' is missing from Cell.lock", name));
+                continue;
+            };
+            if let Some(dep) = manifest.dependencies.get(name) {
+                issues.extend(lock_dependency_consistency_issues(name, dep, locked));
             }
         }
-        true
+
+        for name in self.dependencies.keys() {
+            if !manifest.dependencies.contains_key(name) {
+                issues.push(format!("Cell.lock contains stale dependency '{}' not present in Cell.toml", name));
+            }
+        }
+
+        issues
+    }
+}
+
+fn lock_dependency_consistency_issues(name: &str, dep: &Dependency, locked: &LockedDependency) -> Vec<String> {
+    let mut issues = Vec::new();
+
+    match dep {
+        Dependency::Simple(version) => match &locked.source {
+            LockedSource::Registry { name: locked_name, version: locked_version }
+                if locked_name == name && locked_version == version => {}
+            source => issues.push(format!(
+                "dependency '{}' expects registry source {}@{} but Cell.lock records {}",
+                name,
+                name,
+                version,
+                locked_source_display(source)
+            )),
+        },
+        Dependency::Detailed(detail) => {
+            if let Some(path) = &detail.path {
+                match &locked.source {
+                    LockedSource::Path { path: locked_path } if locked_path == path => {}
+                    source => issues.push(format!(
+                        "dependency '{}' expects path source '{}' but Cell.lock records {}",
+                        name,
+                        path,
+                        locked_source_display(source)
+                    )),
+                }
+                push_locked_version_issue(name, &detail.version, &locked.version, &mut issues);
+            } else if let Some(git) = &detail.git {
+                match &locked.source {
+                    LockedSource::Git { url, revision } if url == git => {
+                        if let Some(rev) = &detail.rev {
+                            let rev_matches = revision == rev || revision.starts_with(rev) || rev.starts_with(revision);
+                            if !rev_matches {
+                                issues.push(format!(
+                                    "dependency '{}' expects git revision '{}' but Cell.lock records '{}'",
+                                    name, rev, revision
+                                ));
+                            }
+                        }
+                    }
+                    source => issues.push(format!(
+                        "dependency '{}' expects git source '{}' but Cell.lock records {}",
+                        name,
+                        git,
+                        locked_source_display(source)
+                    )),
+                }
+                push_locked_version_issue(name, &detail.version, &locked.version, &mut issues);
+            } else {
+                match &locked.source {
+                    LockedSource::Registry { name: locked_name, version: locked_version }
+                        if locked_name == name && locked_version == &detail.version => {}
+                    source => issues.push(format!(
+                        "dependency '{}' expects registry source {}@{} but Cell.lock records {}",
+                        name,
+                        name,
+                        detail.version,
+                        locked_source_display(source)
+                    )),
+                }
+            }
+        }
+    }
+
+    issues
+}
+
+fn push_locked_version_issue(name: &str, expected: &str, actual: &str, issues: &mut Vec<String>) {
+    if expected != "*" && expected != actual {
+        issues.push(format!("dependency '{}' expects package version '{}' but Cell.lock records '{}'", name, expected, actual));
+    }
+}
+
+fn locked_source_display(source: &LockedSource) -> String {
+    match source {
+        LockedSource::Path { path } => format!("path '{}'", path),
+        LockedSource::Git { url, revision } => format!("git '{}#{}'", url, revision),
+        LockedSource::Registry { name, version } => format!("registry {}@{}", name, version),
     }
 }
 
@@ -869,6 +982,104 @@ version = "0.1.0"
         assert_eq!(math.version, "0.1.0");
         assert!(matches!(math.source, PackageSource::Local(_)));
         assert_eq!(manager.get_source_paths(), vec![root.join("deps/math/src")]);
+    }
+
+    #[test]
+    fn package_manager_allows_path_dependency_without_version() {
+        let temp = tempdir().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("deps/math/src")).unwrap();
+        std::fs::write(
+            root.join("Cell.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies.math]
+path = "deps/math"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("deps/math/Cell.toml"),
+            r#"
+[package]
+name = "math"
+version = "0.2.0"
+"#,
+        )
+        .unwrap();
+
+        let mut manager = PackageManager::new(root);
+        manager.resolve_dependencies().unwrap();
+
+        let math = manager.get_resolved().get("math").expect("path dependency should resolve");
+        assert_eq!(math.version, "0.2.0");
+    }
+
+    #[test]
+    fn lockfile_consistency_reports_stale_and_mismatched_path_sources() {
+        let manifest: PackageManifest = toml::from_str(
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies.math]
+version = "0.1.0"
+path = "deps/math"
+"#,
+        )
+        .unwrap();
+        let mut lockfile = Lockfile::new();
+        lockfile.dependencies.insert(
+            "math".to_string(),
+            LockedDependency { version: "0.2.0".to_string(), source: LockedSource::Path { path: "deps/old-math".to_string() } },
+        );
+        lockfile.dependencies.insert(
+            "stale".to_string(),
+            LockedDependency {
+                version: "1.0.0".to_string(),
+                source: LockedSource::Registry { name: "stale".to_string(), version: "1.0.0".to_string() },
+            },
+        );
+
+        let issues = lockfile.consistency_issues(&manifest);
+
+        assert!(issues.iter().any(|issue| issue.contains("expects path source 'deps/math'")), "{issues:?}");
+        assert!(issues.iter().any(|issue| issue.contains("expects package version '0.1.0'")), "{issues:?}");
+        assert!(issues.iter().any(|issue| issue.contains("stale dependency 'stale'")), "{issues:?}");
+        assert!(!lockfile.is_consistent(&manifest));
+    }
+
+    #[test]
+    fn lockfile_replace_with_resolved_prunes_removed_dependencies() {
+        let mut lockfile = Lockfile::new();
+        lockfile.dependencies.insert(
+            "old".to_string(),
+            LockedDependency {
+                version: "1.0.0".to_string(),
+                source: LockedSource::Registry { name: "old".to_string(), version: "1.0.0".to_string() },
+            },
+        );
+
+        let mut resolved = HashMap::new();
+        resolved.insert(
+            "math".to_string(),
+            ResolvedPackage {
+                name: "math".to_string(),
+                version: "0.1.0".to_string(),
+                path: PathBuf::from("deps/math"),
+                source: PackageSource::Local(PathBuf::from("deps/math")),
+                dependencies: Vec::new(),
+            },
+        );
+
+        lockfile.replace_with_resolved(&resolved);
+
+        assert!(lockfile.dependencies.contains_key("math"));
+        assert!(!lockfile.dependencies.contains_key("old"));
     }
 
     #[test]

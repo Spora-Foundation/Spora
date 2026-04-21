@@ -17,6 +17,7 @@ run() {
 
 check_trailing_whitespace() {
     local files=(
+        ".github/workflows/cellscript-v1.yml"
         "cellscript/README.md"
         "cellscript/README_CN.md"
         "docs/CELLSCRIPT_CKB_COMPATIBILITY_DECISION.md"
@@ -304,8 +305,12 @@ check_v1_release_process_docs() {
         'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::original CKB P0 blockers are closed for the v1 admitted subset'
         'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::the feature matrix, the CKB compatibility decision, status-doc boundaries'
         'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::full arbitrary CKB contract compatibility remain outside the v1 promise'
+        'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::.github/workflows/cellscript-v1.yml'
+        'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::runs `./scripts/cellscript_phase4_release_gate.sh v1`'
         'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::cellc verify-artifact --expect-target-profile'
         'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::reject profile mixups'
+        'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::local path install writes `Cell.lock`'
+        'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::normal dependency removal prunes stale lock entries'
         'docs/CELLSCRIPT_EXECUTION_PHASES.md::Status: **Closed for the v1 core-language convergence gate**.'
         'docs/CELLSCRIPT_EXECUTION_PHASES.md::Release-v1 can remain closed only if these surfaces stay outside the v1 core'
         'docs/CELLSCRIPT_EXECUTION_PHASES.md::feature-completeness, the feature matrix, CKB-compatibility decision, status-doc'
@@ -339,6 +344,42 @@ check_v1_release_process_docs() {
     done
 }
 
+check_v1_ci_workflow() {
+    local workflow=".github/workflows/cellscript-v1.yml"
+    local required=(
+        "name: CellScript V1 Gate"
+        "workflow_dispatch:"
+        "rustup toolchain install 1.82.0 --profile minimal --component rustfmt"
+        "CARGO_TARGET_DIR: /tmp/spora-v1-release-gate-target"
+        "./scripts/cellscript_phase4_release_gate.sh v1"
+    )
+    local forbidden=(
+        "./scripts/cellscript_phase4_release_gate.sh quick"
+        "./scripts/cellscript_phase4_release_gate.sh full"
+    )
+
+    if [[ ! -f "$workflow" ]]; then
+        printf 'missing v1 CI workflow: %s\n' "$workflow" >&2
+        exit 1
+    fi
+
+    local pattern
+    for pattern in "${required[@]}"; do
+        if ! rg --quiet --fixed-strings "$pattern" "$workflow"; then
+            printf 'v1 CI workflow is missing required gate boundary: %s\n' "$pattern" >&2
+            exit 1
+        fi
+    done
+
+    for pattern in "${forbidden[@]}"; do
+        if rg --quiet --fixed-strings "$pattern" "$workflow"; then
+            printf 'v1 CI workflow must run the v1 gate, not a weaker mode: %s\n' "$pattern" >&2
+            rg -n --fixed-strings "$pattern" "$workflow" >&2
+            exit 1
+        fi
+    done
+}
+
 check_v1_code_boundaries() {
     local required=(
         'exec/src/vm/syscalls/mod.rs::pub const LOAD_SCRIPT_SYSCALL_NUMBER: u64 = 2075;'
@@ -358,7 +399,11 @@ check_v1_code_boundaries() {
         'cellscript/src/lib.rs::fn compile_rejects_spora_claim_signature_helpers_under_ckb_profile()'
         'cellscript/src/cli/commands.rs::fn validate_expected_target_profile'
         'cellscript/src/cli/commands.rs::expect_target_profile: m.get_one::<String>("expect-target-profile").cloned(),'
+        'cellscript/src/cli/commands.rs::fn prune_locked_dependencies(removed: &[String]) -> Result<()>'
+        'cellscript/src/package/mod.rs::pub fn replace_with_resolved(&mut self, resolved: &HashMap<String, ResolvedPackage>)'
+        'cellscript/src/package/mod.rs::pub fn consistency_issues(&self, manifest: &PackageManifest) -> Vec<String>'
         'cellscript/tests/cli.rs::fn cellc_build_accepts_pure_ckb_target_profile_without_sporabi_trailer()'
+        'cellscript/tests/cli.rs::fn cellc_install_path_updates_lockfile_and_remove_prunes_it()'
         'cellscript/tests/cli.rs::.arg("--expect-target-profile")'
         'cellscript/tests/cli.rs::assert!(!artifact.ends_with(b"SPORABI'
         'wallet/core/src/tx/generator/settings.rs::CellScript metadata action'
@@ -381,6 +426,7 @@ check_v1_code_boundaries() {
         "cellscript/src/codegen/mod.rs"
         "cellscript/src/lib.rs"
         "cellscript/src/cli/commands.rs"
+        "cellscript/src/package/mod.rs"
         "cellscript/tests/cli.rs"
         "wallet/core/src/tx/generator/settings.rs"
         "wallet/core/src/wasm/tx/generator/generator.rs"
@@ -453,6 +499,7 @@ case "$MODE" in
         check_v1_public_docs_boundaries
         check_v1_status_docs_boundaries
         check_v1_release_process_docs
+        check_v1_ci_workflow
         check_v1_code_boundaries
         run_full_gate
         ;;

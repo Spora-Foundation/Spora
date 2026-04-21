@@ -60,6 +60,9 @@ impl MuHashExtensions for MuHash {
                 data_hash,
                 block_daa_score,
                 is_cellbase: tx.is_coinbase(),
+                lock_script: Some(output.lock.clone()),
+                type_script: output.type_.clone(),
+                data: Some(data.to_vec()),
             };
             self.add_cell_entry(&outpoint, &entry);
             info!(

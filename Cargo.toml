@@ -85,6 +85,7 @@ include = [
 [workspace.dependencies]
 blake3 = { version = "1.8.2"}
 log = "0.4.20"
+cellscript = { version = "0.1.0", path = "cellscript" }
 # spora-testing-integration = { version = "1.21.0", path = "testing/integration" }
 spora-addresses = { version = "1.21.0", path = "crypto/addresses" }
 spora-addressmanager = { version = "1.21.0", path = "components/addressmanager" }
@@ -298,6 +299,7 @@ workflow-serializer = { version = "0.18.0" }
 workflow-store = { version = "0.18.0" }
 workflow-terminal = { version = "0.18.0" }
 workflow-wasm = { version = "0.18.0" }
+workflow-websocket = { version = "0.18.0", default-features = false }
 
 # if below is enabled, this means that there is an ongoing work
 # on the workflow-rs crate. This requires that you clone workflow-rs

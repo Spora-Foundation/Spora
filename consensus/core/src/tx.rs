@@ -544,6 +544,9 @@ mod tests {
                 data_hash: [0u8; 32],
                 block_daa_score: 100,
                 is_cellbase: false,
+                lock_script: None,
+                type_script: None,
+                data: None,
             },
             CellMeta {
                 out_point: cell_tx.inputs[1].previous_output,
@@ -554,6 +557,9 @@ mod tests {
                 data_hash: [0u8; 32],
                 block_daa_score: 100,
                 is_cellbase: false,
+                lock_script: None,
+                type_script: None,
+                data: None,
             },
         ];
 

@@ -326,12 +326,12 @@ impl CellIndexer {
 }
 
 fn index_cell_meta_from_diff(meta: &DiffCellMeta, block_hash: [u8; 32], block_daa_score: u64) -> CellMeta {
-    let lock = placeholder_script_from_hash(meta.lock_hash);
-    let type_ = meta.type_hash.map(placeholder_script_from_hash);
+    let lock = meta.lock_script.clone().unwrap_or_else(|| placeholder_script_from_hash(meta.lock_hash));
+    let type_ = meta.type_script.clone().or_else(|| meta.type_hash.map(placeholder_script_from_hash));
 
     CellMeta {
         cell_output: CellOutput { lock, type_, capacity: meta.capacity },
-        cell_data: Vec::new(),
+        cell_data: meta.data.clone().unwrap_or_default(),
         daa_score: block_daa_score,
         block_hash,
         is_cellbase: meta.is_cellbase,
@@ -463,6 +463,9 @@ mod tests {
             data_hash: [0x33; 32],
             block_daa_score: 99,
             is_cellbase: false,
+            lock_script: None,
+            type_script: None,
+            data: None,
         };
 
         let mut add_diff = CellDiff::new();
@@ -522,6 +525,9 @@ mod tests {
             data_hash: [0x71; 32],
             block_daa_score: 150,
             is_cellbase: false,
+            lock_script: None,
+            type_script: None,
+            data: None,
         };
 
         let mut add_diff = CellDiff::new();

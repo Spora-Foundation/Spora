@@ -73,6 +73,7 @@ fn main() {
                     | "repl"
                     | "check"
                     | "metadata"
+                    | "entry-witness"
                     | "verify-artifact"
                     | "run"
                     | "publish"

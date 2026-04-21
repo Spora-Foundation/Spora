@@ -714,7 +714,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "blake3",
- "borsh",
  "camino",
  "ckb-vm",
  "clap 4.5.49",
@@ -5999,6 +5998,9 @@ dependencies = [
  "async-channel 2.5.0",
  "async-trait",
  "bincode",
+ "blake3",
+ "camino",
+ "cellscript",
  "chrono",
  "clap 4.5.49",
  "criterion",
@@ -6029,6 +6031,7 @@ dependencies = [
  "spora-consensusmanager",
  "spora-core",
  "spora-database",
+ "spora-exec",
  "spora-grpc-client",
  "spora-grpc-core",
  "spora-grpc-server",
@@ -6043,6 +6046,7 @@ dependencies = [
  "spora-rpc-service",
  "spora-utils",
  "spora-wallet-core",
+ "spora-wrpc-client",
  "spora-wrpc-server",
  "sporad",
  "tempfile",
@@ -6359,6 +6363,7 @@ dependencies = [
  "workflow-rpc",
  "workflow-serializer",
  "workflow-wasm",
+ "workflow-websocket",
 ]
 
 [[package]]

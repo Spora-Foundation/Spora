@@ -17,6 +17,9 @@ pub enum ConfigError {
     #[error("Configuration: --max-tracked-addresses cannot be set above {0}")]
     MaxTrackedAddressesTooHigh(usize),
 
+    #[error("Configuration: --skip-proof-of-work can only be used on devnet or simnet")]
+    SkipProofOfWorkOnNonDevnet,
+
     #[cfg(feature = "devnet-prealloc")]
     #[error("Cannot preallocate cells on any network except devnet")]
     PreallocCellsOnNonDevnet,

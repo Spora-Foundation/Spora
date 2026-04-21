@@ -6,9 +6,12 @@ use std::{
 
 #[cfg(feature = "integration-tests")]
 pub mod args;
+#[cfg(feature = "integration-tests")]
+pub mod cellscript_contracts;
 pub mod client;
 pub mod client_notify;
 pub mod daemon;
+pub mod devnet_bootstrap;
 pub mod listener;
 #[cfg(feature = "integration-tests")]
 pub mod utils;

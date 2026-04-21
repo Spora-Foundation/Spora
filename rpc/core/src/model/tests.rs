@@ -271,6 +271,8 @@ mod mockery {
             RpcTransaction {
                 version: mock(),
                 inputs: mock(),
+                cell_deps: vec![],
+                header_deps: vec![],
                 outputs: mock(),
                 payload: Hash::mock().as_bytes().to_vec(),
                 mass: mock(),

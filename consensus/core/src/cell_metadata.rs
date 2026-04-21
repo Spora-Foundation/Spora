@@ -76,11 +76,11 @@ impl CellMetadata {
             block_daa_score: meta.block_daa_score,
             is_cellbase: is_cellbase || meta.is_cellbase,
             block_hash,
-            lock_code_hash: None,
-            type_code_hash: None,
-            lock_script: None,
-            type_script: None,
-            data: None,
+            lock_code_hash: meta.lock_script.as_ref().map(|script| script.code_hash),
+            type_code_hash: meta.type_script.as_ref().map(|script| script.code_hash),
+            lock_script: meta.lock_script.clone(),
+            type_script: meta.type_script.clone(),
+            data: meta.data.clone(),
         }
     }
 
@@ -95,6 +95,9 @@ impl CellMetadata {
             data_hash: self.data_hash,
             block_daa_score: self.block_daa_score,
             is_cellbase: self.is_cellbase,
+            lock_script: self.lock_script.clone(),
+            type_script: self.type_script.clone(),
+            data: self.data.clone(),
         }
     }
 
@@ -123,11 +126,11 @@ impl From<&CellMeta> for CellMetadata {
             block_daa_score: meta.block_daa_score,
             is_cellbase: meta.is_cellbase,
             block_hash: Hash::default(),
-            lock_code_hash: None,
-            type_code_hash: None,
-            lock_script: None,
-            type_script: None,
-            data: None,
+            lock_code_hash: meta.lock_script.as_ref().map(|script| script.code_hash),
+            type_code_hash: meta.type_script.as_ref().map(|script| script.code_hash),
+            lock_script: meta.lock_script.clone(),
+            type_script: meta.type_script.clone(),
+            data: meta.data.clone(),
         }
     }
 }
@@ -149,6 +152,9 @@ mod tests {
             data_hash: [3u8; 32],
             block_daa_score: 1000,
             is_cellbase: true,
+            lock_script: None,
+            type_script: None,
+            data: None,
         };
 
         let metadata = CellMetadata::from_cell_meta(&meta, true, Hash::from_bytes([4u8; 32]));
@@ -173,6 +179,9 @@ mod tests {
             data_hash: [6u8; 32],
             block_daa_score: 2000,
             is_cellbase: false,
+            lock_script: None,
+            type_script: None,
+            data: None,
         };
 
         let metadata = CellMetadata::from(&meta);
@@ -198,6 +207,9 @@ mod tests {
             data_hash: [3u8; 32],
             block_daa_score: 1000,
             is_cellbase: false,
+            lock_script: None,
+            type_script: None,
+            data: None,
         };
 
         let metadata = CellMetadata::from(&meta).with_data(vec![0xde, 0xad, 0xbe, 0xef]);

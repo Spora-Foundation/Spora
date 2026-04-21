@@ -141,6 +141,7 @@ impl Miner {
             entry.block_daa_score,
             entry.is_cellbase,
         )
+        .with_resolved_metadata(entry.lock_script.clone(), entry.type_script.clone(), entry.data.clone())
     }
 
     fn get_spendable_entry(

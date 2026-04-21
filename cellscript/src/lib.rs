@@ -61,6 +61,9 @@ fn validate_compile_options(options: &CompileOptions) -> Result<()> {
 const DEFAULT_TARGET: &str = "riscv64-asm";
 const DEFAULT_TARGET_PROFILE: &str = "spora";
 pub const METADATA_SCHEMA_VERSION: u32 = 26;
+pub const ENTRY_WITNESS_ABI: &str = "cellscript-entry-witness-v1";
+pub(crate) const ENTRY_WITNESS_ABI_MAGIC: &[u8; 8] = b"CSARGv1\0";
+pub(crate) const ENTRY_WITNESS_ABI_MAX_REGISTER_ARGS: usize = 8;
 const METADATA_MUTATE_CELL_BUFFER_SIZE: usize = 512;
 const CLAIM_SIGNER_PUBKEY_HASH_FIELDS: [&str; 5] =
     ["signer_pubkey_hash", "claim_pubkey_hash", "owner_pubkey_hash", "beneficiary_pubkey_hash", "pubkey_hash"];
@@ -588,7 +591,7 @@ fn type_has_public_molecule_schema(ty: &TypeMetadata) -> bool {
         .is_some_and(|schema| schema.abi == "molecule" && schema.layout == "fixed-struct-v1" && !schema.schema.is_empty())
 }
 
-fn hex_encode(bytes: &[u8]) -> String {
+pub(crate) fn hex_encode(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -1238,9 +1241,9 @@ pub struct ActionMetadata {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub scheduler_witness_hex: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub scheduler_witness_molecule_hex: String,
+    scheduler_witness_molecule_hex: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub scheduler_witness_borsh_hex: String,
+    scheduler_witness_borsh_hex: String,
     pub consume_set: Vec<CellPatternMetadata>,
     pub read_refs: Vec<CellPatternMetadata>,
     pub create_set: Vec<CreatePatternMetadata>,
@@ -1271,13 +1274,10 @@ impl ActionMetadata {
     /// Transaction builders can pass the returned bytes to
     /// `CellTx::push_cellscript_compiled_scheduler_witness` and use the returned
     /// access summary as the trusted scheduler policy input. Public scheduler
-    /// witness bytes are Molecule-only; legacy Borsh metadata must be consumed
-    /// through `legacy_scheduler_witness_borsh_bytes()`.
+    /// witness bytes are Molecule-only; legacy Borsh metadata is migration-only.
     pub fn scheduler_witness_bytes(&self) -> Result<Vec<u8>> {
         if !self.scheduler_witness_borsh_hex.is_empty() {
-            return Err(CompileError::without_span(
-                "legacy scheduler_witness_borsh_hex is not public scheduler witness metadata; use legacy_scheduler_witness_borsh_bytes",
-            ));
+            return Err(CompileError::without_span("legacy scheduler_witness_borsh_hex is not public scheduler witness metadata"));
         }
         let scheduler_witness_hex = non_empty_metadata_field(&self.scheduler_witness_hex);
         let scheduler_witness_molecule_hex = non_empty_metadata_field(&self.scheduler_witness_molecule_hex);
@@ -1303,12 +1303,13 @@ impl ActionMetadata {
         Err(CompileError::without_span("scheduler witness metadata is missing"))
     }
 
-    /// Decode the legacy Borsh scheduler witness bytes for transition tooling.
-    pub fn legacy_scheduler_witness_borsh_bytes(&self) -> Result<Vec<u8>> {
-        if self.scheduler_witness_borsh_hex.is_empty() {
-            return Err(CompileError::without_span("legacy scheduler_witness_borsh_hex is not present in this metadata"));
-        }
-        decode_scheduler_witness_hex(&self.scheduler_witness_borsh_hex)
+    /// Encode positional entry witness bytes for the generated `_cellscript_entry` wrapper.
+    ///
+    /// Schema-backed parameters are loaded from transaction cells by the wrapper and
+    /// are intentionally omitted from `args`; scalar and fixed-byte parameters are
+    /// encoded in source order after the `CSARGv1\0` header.
+    pub fn entry_witness_args(&self, args: &[EntryWitnessArg]) -> Result<Vec<u8>> {
+        encode_entry_witness_args_for_params(&self.params, args)
     }
 }
 
@@ -1323,6 +1324,11 @@ impl LockMetadata {
     /// script for newly-created cells.
     pub fn ckb_type_id_output_indexes(&self) -> Vec<usize> {
         ckb_type_id_output_indexes_from_create_set(&self.create_set)
+    }
+
+    /// Encode positional entry witness bytes for the generated `_cellscript_entry` wrapper.
+    pub fn entry_witness_args(&self, args: &[EntryWitnessArg]) -> Result<Vec<u8>> {
+        encode_entry_witness_args_for_params(&self.params, args)
     }
 }
 
@@ -1346,6 +1352,236 @@ pub fn decode_scheduler_witness_hex(hex: &str) -> Result<Vec<u8>> {
         bytes.push(byte);
     }
     Ok(bytes)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EntryWitnessArg {
+    Unit,
+    Bool(bool),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    U128(u128),
+    Address([u8; 32]),
+    Hash([u8; 32]),
+    Bytes(Vec<u8>),
+}
+
+/// Encode positional witness bytes for CellScript's generated entry wrapper.
+///
+/// The result is suitable for transaction witnesses consumed by `_cellscript_entry`.
+/// It mirrors the codegen wrapper ABI: named schema parameters are runtime-loaded
+/// from cells and consume no witness payload, fixed-byte parameters are appended
+/// verbatim, and scalar parameters are little-endian encoded.
+pub fn encode_entry_witness_args_for_params(params: &[ParamMetadata], args: &[EntryWitnessArg]) -> Result<Vec<u8>> {
+    let abi_arg_count = entry_witness_metadata_abi_arg_count(params);
+    if abi_arg_count > ENTRY_WITNESS_ABI_MAX_REGISTER_ARGS {
+        return Err(CompileError::without_span(format!(
+            "{} requires {} ABI args; entry wrapper supports a0-a7 only",
+            ENTRY_WITNESS_ABI, abi_arg_count
+        )));
+    }
+
+    let payload_len = entry_witness_metadata_payload_len(params)?;
+    let mut witness = Vec::with_capacity(ENTRY_WITNESS_ABI_MAGIC.len() + payload_len);
+    witness.extend_from_slice(ENTRY_WITNESS_ABI_MAGIC);
+
+    let mut arg_index = 0usize;
+    for param in params {
+        if param.schema_pointer_abi || param.schema_length_abi {
+            continue;
+        }
+
+        if let Some(width) = param.fixed_byte_len {
+            let arg = args.get(arg_index).ok_or_else(|| entry_witness_missing_arg_error(param, arg_index))?;
+            witness.extend_from_slice(&entry_witness_fixed_arg_bytes(param, arg, width)?);
+            arg_index += 1;
+            continue;
+        }
+
+        let Some(width) = entry_witness_scalar_param_width(&param.ty) else {
+            return Err(CompileError::without_span(format!(
+                "entry witness parameter '{}' has unsupported type '{}'",
+                param.name, param.ty
+            )));
+        };
+        if width == 0 {
+            if matches!(args.get(arg_index), Some(EntryWitnessArg::Unit)) {
+                arg_index += 1;
+            }
+            continue;
+        }
+        let arg = args.get(arg_index).ok_or_else(|| entry_witness_missing_arg_error(param, arg_index))?;
+        entry_witness_append_scalar_arg(&mut witness, param, arg, width)?;
+        arg_index += 1;
+    }
+
+    if arg_index != args.len() {
+        return Err(CompileError::without_span(format!(
+            "entry witness received {} payload args but consumed {}; schema-backed parameters are omitted from {}",
+            args.len(),
+            arg_index,
+            ENTRY_WITNESS_ABI
+        )));
+    }
+
+    Ok(witness)
+}
+
+fn entry_witness_metadata_abi_arg_count(params: &[ParamMetadata]) -> usize {
+    params
+        .iter()
+        .map(|param| {
+            if param.schema_pointer_abi || param.schema_length_abi {
+                2 + usize::from(param.type_hash_pointer_abi || param.type_hash_length_abi) * 2
+            } else if param.fixed_byte_len.is_some() {
+                2
+            } else {
+                1
+            }
+        })
+        .sum()
+}
+
+fn entry_witness_metadata_payload_len(params: &[ParamMetadata]) -> Result<usize> {
+    params.iter().try_fold(0usize, |acc, param| {
+        if param.schema_pointer_abi || param.schema_length_abi {
+            Ok(acc)
+        } else if let Some(width) = param.fixed_byte_len {
+            Ok(acc + width)
+        } else if let Some(width) = entry_witness_scalar_param_width(&param.ty) {
+            Ok(acc + width)
+        } else {
+            Err(CompileError::without_span(format!("entry witness parameter '{}' has unsupported type '{}'", param.name, param.ty)))
+        }
+    })
+}
+
+fn entry_witness_fixed_arg_bytes(param: &ParamMetadata, arg: &EntryWitnessArg, width: usize) -> Result<Vec<u8>> {
+    let bytes = match (param.ty.as_str(), arg) {
+        ("u128", EntryWitnessArg::U128(value)) if width == 16 => value.to_le_bytes().to_vec(),
+        ("Address", EntryWitnessArg::Address(bytes)) if width == 32 => bytes.to_vec(),
+        ("Hash", EntryWitnessArg::Hash(bytes)) if width == 32 => bytes.to_vec(),
+        (_, EntryWitnessArg::Bytes(bytes)) if bytes.len() == width => bytes.clone(),
+        _ => {
+            return Err(CompileError::without_span(format!(
+                "entry witness parameter '{}' expects {} fixed bytes for type '{}'",
+                param.name, width, param.ty
+            )));
+        }
+    };
+    Ok(bytes)
+}
+
+fn entry_witness_append_scalar_arg(witness: &mut Vec<u8>, param: &ParamMetadata, arg: &EntryWitnessArg, width: usize) -> Result<()> {
+    match (param.ty.as_str(), arg) {
+        ("bool", EntryWitnessArg::Bool(value)) if width == 1 => witness.push(u8::from(*value)),
+        ("u8", EntryWitnessArg::U8(value)) if width == 1 => witness.push(*value),
+        ("u16", EntryWitnessArg::U16(value)) if width == 2 => witness.extend_from_slice(&value.to_le_bytes()),
+        ("u32", EntryWitnessArg::U32(value)) if width == 4 => witness.extend_from_slice(&value.to_le_bytes()),
+        ("u64", EntryWitnessArg::U64(value)) if width == 8 => witness.extend_from_slice(&value.to_le_bytes()),
+        (_, EntryWitnessArg::Bytes(bytes)) if bytes.len() == width && entry_witness_type_is_small_aggregate(&param.ty) => {
+            witness.extend_from_slice(bytes);
+        }
+        _ => {
+            return Err(CompileError::without_span(format!(
+                "entry witness parameter '{}' expects scalar payload for type '{}'",
+                param.name, param.ty
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn entry_witness_missing_arg_error(param: &ParamMetadata, index: usize) -> CompileError {
+    CompileError::without_span(format!(
+        "entry witness missing payload arg {} for parameter '{}' of type '{}'",
+        index, param.name, param.ty
+    ))
+}
+
+fn entry_witness_scalar_param_width(ty: &str) -> Option<usize> {
+    match ty.trim() {
+        "()" => Some(0),
+        "bool" | "u8" => Some(1),
+        "u16" => Some(2),
+        "u32" => Some(4),
+        "u64" => Some(8),
+        other => entry_witness_static_type_len(other).filter(|width| (1..=8).contains(width)),
+    }
+}
+
+fn entry_witness_type_is_small_aggregate(ty: &str) -> bool {
+    let ty = ty.trim();
+    (ty.starts_with('[') || ty.starts_with('(')) && entry_witness_static_type_len(ty).is_some_and(|width| width <= 8)
+}
+
+pub(crate) fn entry_witness_static_type_len(ty: &str) -> Option<usize> {
+    let ty = ty.trim();
+    match ty {
+        "()" => return Some(0),
+        "bool" | "u8" => return Some(1),
+        "u16" => return Some(2),
+        "u32" => return Some(4),
+        "u64" => return Some(8),
+        "u128" => return Some(16),
+        "Address" | "Hash" => return Some(32),
+        _ => {}
+    }
+
+    if let Some(inner) = ty.strip_prefix('&') {
+        return entry_witness_static_type_len(inner.trim_start_matches("mut ").trim());
+    }
+
+    if let Some(body) = ty.strip_prefix('[').and_then(|value| value.strip_suffix(']')) {
+        let (inner, len) = split_top_level_once(body, ';')?;
+        let len = len.trim().parse::<usize>().ok()?;
+        return entry_witness_static_type_len(inner).map(|inner_len| inner_len * len);
+    }
+
+    if let Some(body) = ty.strip_prefix('(').and_then(|value| value.strip_suffix(')')) {
+        if body.trim().is_empty() {
+            return Some(0);
+        }
+        return split_top_level_commas(body)
+            .iter()
+            .try_fold(0usize, |acc, item| entry_witness_static_type_len(item).map(|len| acc + len));
+    }
+
+    None
+}
+
+fn split_top_level_once(input: &str, separator: char) -> Option<(&str, &str)> {
+    let mut depth = 0i32;
+    for (index, ch) in input.char_indices() {
+        match ch {
+            '[' | '(' => depth += 1,
+            ']' | ')' => depth -= 1,
+            _ if ch == separator && depth == 0 => return Some((&input[..index], &input[index + ch.len_utf8()..])),
+            _ => {}
+        }
+    }
+    None
+}
+
+fn split_top_level_commas(input: &str) -> Vec<&str> {
+    let mut items = Vec::new();
+    let mut depth = 0i32;
+    let mut start = 0usize;
+    for (index, ch) in input.char_indices() {
+        match ch {
+            '[' | '(' => depth += 1,
+            ']' | ')' => depth -= 1,
+            ',' if depth == 0 => {
+                items.push(input[start..index].trim());
+                start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    items.push(input[start..].trim());
+    items
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -8355,8 +8591,9 @@ pub const NAME: &str = "cellc";
 #[cfg(test)]
 mod tests {
     use super::{
-        compile, compile_file, compile_path, decode_scheduler_witness_hex, default_output_path_for_input, load_modules_for_input,
-        resolve_input_path, ActionMetadata, ArtifactFormat, CompileOptions, SCHEDULER_WITNESS_ABI_MOLECULE,
+        compile, compile_file, compile_path, decode_scheduler_witness_hex, default_output_path_for_input,
+        encode_entry_witness_args_for_params, load_modules_for_input, resolve_input_path, ActionMetadata, ArtifactFormat,
+        CompileError, CompileOptions, EntryWitnessArg, Result, ENTRY_WITNESS_ABI_MAGIC, SCHEDULER_WITNESS_ABI_MOLECULE,
     };
     use crate::{ir, lexer, parser};
     use camino::{Utf8Path, Utf8PathBuf};
@@ -12316,7 +12553,7 @@ action activate(ticket: Ticket) -> Ticket {
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
         assert!(
-            asm.contains("# cellscript abi: LOAD_CELL reason=create source=Output index=0"),
+            asm.contains("# cellscript abi: LOAD_CELL_DATA reason=create source=Output index=0"),
             "create output was not loaded from CKB Output source:\n{}",
             asm
         );
@@ -12538,7 +12775,7 @@ action activate(ticket: Ticket) -> Ticket {
             asm
         );
         assert!(
-            asm.contains("# cellscript abi: LOAD_CELL reason=destroy source=Input index=1"),
+            asm.contains("# cellscript abi: LOAD_CELL_DATA reason=destroy source=Input index=1"),
             "destroy input data load did not use operation-specific Input LOAD_CELL ABI:\n{}",
             asm
         );
@@ -12636,7 +12873,7 @@ action activate(ticket: Ticket) -> Ticket {
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
         assert!(
-            asm.contains("# cellscript abi: LOAD_CELL reason=read_ref source=CellDep index=0"),
+            asm.contains("# cellscript abi: LOAD_CELL_DATA reason=read_ref source=CellDep index=0"),
             "read_ref did not lower to CKB LOAD_CELL CellDep ABI:\n{}",
             asm
         );
@@ -12696,12 +12933,12 @@ action activate(ticket: Ticket) -> Ticket {
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
         assert!(
-            asm.contains("# cellscript abi: LOAD_CELL reason=read_ref source=CellDep index=0"),
+            asm.contains("# cellscript abi: LOAD_CELL_DATA reason=read_ref source=CellDep index=0"),
             "first read_ref did not bind to CellDep index 0:\n{}",
             asm
         );
         assert!(
-            asm.contains("# cellscript abi: LOAD_CELL reason=read_ref source=CellDep index=1"),
+            asm.contains("# cellscript abi: LOAD_CELL_DATA reason=read_ref source=CellDep index=1"),
             "second read_ref did not bind to CellDep index 1:\n{}",
             asm
         );
@@ -12719,17 +12956,17 @@ action activate(ticket: Ticket) -> Ticket {
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
         assert!(
-            asm.contains("# cellscript abi: LOAD_CELL reason=consume source=Input index=0"),
+            asm.contains("# cellscript abi: LOAD_CELL_DATA reason=consume source=Input index=0"),
             "consume summary did not use CKB Source::Input LOAD_CELL ABI:\n{}",
             asm
         );
         assert!(
-            asm.contains("# cellscript abi: LOAD_CELL reason=read_ref source=CellDep index=0"),
+            asm.contains("# cellscript abi: LOAD_CELL_DATA reason=read_ref source=CellDep index=0"),
             "read_ref summary did not use CKB Source::CellDep LOAD_CELL ABI:\n{}",
             asm
         );
         assert!(
-            asm.contains("# cellscript abi: LOAD_CELL reason=create source=Output index=0"),
+            asm.contains("# cellscript abi: LOAD_CELL_DATA reason=create source=Output index=0"),
             "create summary did not use CKB Source::Output LOAD_CELL ABI:\n{}",
             asm
         );
@@ -12740,7 +12977,7 @@ action activate(ticket: Ticket) -> Ticket {
         assert!(asm.contains("li a4, 1"), "Input source register was not prepared:\n{}", asm);
         assert!(asm.contains("li a4, 2"), "Output source register was not prepared:\n{}", asm);
         assert!(asm.contains("li a4, 3"), "CellDep source register was not prepared:\n{}", asm);
-        assert!(asm.contains("li a7, 2071"), "LOAD_CELL syscall number was not emitted:\n{}", asm);
+        assert!(asm.contains("li a7, 2092"), "LOAD_CELL_DATA syscall number was not emitted:\n{}", asm);
         assert!(!asm.contains("li a7, 2073"), "summary consume regressed to LOAD_INPUT with stale argument order:\n{}", asm);
     }
 
@@ -12867,12 +13104,12 @@ action activate(ticket: Ticket) -> Ticket {
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
         assert!(
-            asm.contains("# cellscript abi: LOAD_CELL reason=consume source=Input index=0"),
+            asm.contains("# cellscript abi: LOAD_CELL_DATA reason=consume source=Input index=0"),
             "scalar alias verifier did not load consumed input:\n{}",
             asm
         );
         assert!(
-            asm.contains("# cellscript abi: LOAD_CELL reason=create source=Output index=0"),
+            asm.contains("# cellscript abi: LOAD_CELL_DATA reason=create source=Output index=0"),
             "scalar alias verifier did not load created output:\n{}",
             asm
         );
@@ -12899,7 +13136,7 @@ action activate(ticket: Ticket) -> Ticket {
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
         assert!(
-            asm.contains("# cellscript abi: LOAD_CELL reason=consume source=Input index=0"),
+            asm.contains("# cellscript abi: LOAD_CELL_DATA reason=consume source=Input index=0"),
             "consume summary did not load the consumed input cell:\n{}",
             asm
         );
@@ -12931,12 +13168,12 @@ action activate(ticket: Ticket) -> Ticket {
         let asm = String::from_utf8(result.artifact_bytes.clone()).unwrap();
 
         assert!(
-            asm.contains("# cellscript abi: LOAD_CELL reason=consume source=Input index=0"),
+            asm.contains("# cellscript abi: LOAD_CELL_DATA reason=consume source=Input index=0"),
             "conservation prelude did not load consumed input:\n{}",
             asm
         );
         assert!(
-            asm.contains("# cellscript abi: LOAD_CELL reason=create source=Output index=0"),
+            asm.contains("# cellscript abi: LOAD_CELL_DATA reason=create source=Output index=0"),
             "conservation prelude did not load created output:\n{}",
             asm
         );
@@ -15743,7 +15980,7 @@ source_roots = ["src", "shared"]
         assert!(!action.scheduler_witness_hex.starts_with("11ce"));
         assert!(action.scheduler_witness_molecule_hex.is_empty());
         assert!(action.scheduler_witness_borsh_hex.is_empty());
-        assert!(action.legacy_scheduler_witness_borsh_bytes().is_err());
+        assert!(decode_legacy_scheduler_witness_borsh_for_regression(action).is_err());
         assert_eq!(
             action.scheduler_witness_bytes().expect("scheduler witness hex should decode"),
             decode_scheduler_witness_hex(&action.scheduler_witness_hex).expect("scheduler witness hex should decode")
@@ -15845,13 +16082,20 @@ source_roots = ["src", "shared"]
         }
     }
 
+    fn decode_legacy_scheduler_witness_borsh_for_regression(action: &ActionMetadata) -> Result<Vec<u8>> {
+        if action.scheduler_witness_borsh_hex.is_empty() {
+            return Err(CompileError::without_span("legacy scheduler_witness_borsh_hex is not present in this metadata"));
+        }
+        decode_scheduler_witness_hex(&action.scheduler_witness_borsh_hex)
+    }
+
     #[test]
     fn action_scheduler_witness_bytes_rejects_legacy_borsh_default_path() {
         let action = action_metadata_with_scheduler_fields("", "", "11ce01");
 
         let public_error = action.scheduler_witness_bytes().unwrap_err();
         assert!(public_error.message.contains("not public scheduler witness metadata"));
-        assert_eq!(action.legacy_scheduler_witness_borsh_bytes().unwrap(), vec![0x11, 0xce, 0x01]);
+        assert_eq!(decode_legacy_scheduler_witness_borsh_for_regression(&action).unwrap(), vec![0x11, 0xce, 0x01]);
     }
 
     #[test]
@@ -15861,7 +16105,7 @@ source_roots = ["src", "shared"]
         let public_error = action.scheduler_witness_bytes().unwrap_err();
 
         assert!(public_error.message.contains("not public scheduler witness metadata"));
-        assert_eq!(action.legacy_scheduler_witness_borsh_bytes().unwrap(), vec![0x11, 0xce, 0x01]);
+        assert_eq!(decode_legacy_scheduler_witness_borsh_for_regression(&action).unwrap(), vec![0x11, 0xce, 0x01]);
     }
 
     #[test]
@@ -16386,6 +16630,107 @@ action main() -> u64 {
         assert!(disassembly.contains("<main>:"));
         assert!(disassembly.contains("a7,93"), "expected exit syscall trampoline in disassembly:\n{}", disassembly);
         assert!(disassembly.contains("a0,0"), "expected zero return value in disassembly:\n{}", disassembly);
+    }
+
+    #[test]
+    fn parameterized_entrypoint_emits_witness_entry_wrapper() {
+        let program = r#"
+module vm::entry_abi
+
+action spend(amount: u64) -> u64 {
+    return amount
+}
+"#;
+
+        let result = compile(program, CompileOptions::default()).unwrap();
+        let asm = String::from_utf8(result.artifact_bytes).unwrap();
+
+        assert!(asm.contains(".global _cellscript_entry"), "parameterized entrypoints need a generated ELF entry wrapper:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript entry abi: _cellscript_entry loads GroupInput witness args for spend"),
+            "entry wrapper did not document its target ABI:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript abi: LOAD_WITNESS reason=entry_args source=GroupInput index=0"),
+            "entry wrapper did not load positional arguments from GroupInput witness:\n{}",
+            asm
+        );
+        assert!(
+            asm.contains("# cellscript entry abi: scalar param amount -> a0 size=8"),
+            "entry wrapper did not lower u64 witness payload into the action ABI register:\n{}",
+            asm
+        );
+        assert!(asm.contains("call spend"), "entry wrapper did not call the original action label:\n{}", asm);
+        assert!(
+            asm.contains("# cellscript entry abi: spend requires-explicit-parameter-abi"),
+            "direct action entry still needs an explicit ABI marker for non-wrapper callers:\n{}",
+            asm
+        );
+
+        let elf = compile(program, CompileOptions { target: Some("riscv64-elf".to_string()), ..CompileOptions::default() }).unwrap();
+        assert!(elf.artifact_bytes.starts_with(b"\x7fELF"));
+    }
+
+    #[test]
+    fn entry_witness_encoder_matches_u64_wrapper_abi() {
+        let program = r#"
+module vm::entry_abi
+
+action spend(amount: u64) -> u64 {
+    return amount
+}
+"#;
+
+        let result = compile(program, CompileOptions::default()).unwrap();
+        let action = result.metadata.actions.iter().find(|action| action.name == "spend").unwrap();
+        let witness = action.entry_witness_args(&[EntryWitnessArg::U64(77)]).unwrap();
+
+        let mut expected = ENTRY_WITNESS_ABI_MAGIC.to_vec();
+        expected.extend_from_slice(&77u64.to_le_bytes());
+        assert_eq!(witness, expected);
+        assert_eq!(encode_entry_witness_args_for_params(&action.params, &[EntryWitnessArg::U64(77)]).unwrap(), expected);
+    }
+
+    #[test]
+    fn entry_witness_encoder_supports_fixed_byte_params() {
+        let program = r#"
+module vm::entry_abi
+
+action owned(owner: Address) -> u64 {
+    return 0
+}
+"#;
+
+        let result = compile(program, CompileOptions::default()).unwrap();
+        let action = result.metadata.actions.iter().find(|action| action.name == "owned").unwrap();
+        let owner = [9u8; 32];
+        let witness = action.entry_witness_args(&[EntryWitnessArg::Address(owner)]).unwrap();
+
+        let mut expected = ENTRY_WITNESS_ABI_MAGIC.to_vec();
+        expected.extend_from_slice(&owner);
+        assert_eq!(witness, expected);
+
+        let err = action.entry_witness_args(&[EntryWitnessArg::U64(9)]).unwrap_err();
+        assert!(err.message.contains("expects 32 fixed bytes for type 'Address'"), "unexpected error: {}", err.message);
+    }
+
+    #[test]
+    fn entry_witness_encoder_omits_schema_backed_params() {
+        let program = r#"
+module vm::entry_abi
+
+action bad(items: Vec<Address>) -> u64 {
+    return 0
+}
+"#;
+
+        let result = compile(program, CompileOptions::default()).unwrap();
+        let action = result.metadata.actions.iter().find(|action| action.name == "bad").unwrap();
+        assert_eq!(action.entry_witness_args(&[]).unwrap(), ENTRY_WITNESS_ABI_MAGIC.to_vec());
+
+        let err = action.entry_witness_args(&[EntryWitnessArg::Bytes(Vec::new())]).unwrap_err();
+        assert!(err.message.contains("schema-backed parameters are omitted"), "unexpected error: {}", err.message);
     }
 
     fn find_riscv_objdump() -> Option<String> {

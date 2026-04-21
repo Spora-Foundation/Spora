@@ -9,6 +9,24 @@ pub struct ArgsBuilder {
 
 impl ArgsBuilder {
     #[cfg(feature = "devnet-prealloc")]
+    pub fn devnet(num_prealloc_cells: u64, prealloc_amount: u64) -> Self {
+        let args = Args {
+            devnet: true,
+            disable_upnp: true,
+            enable_unsynced_mining: true,
+            skip_proof_of_work: true,
+            num_prealloc_cells: Some(num_prealloc_cells),
+            prealloc_amount: prealloc_amount * spora_consensus_core::constants::SAU_PER_SPORA,
+            block_template_cache_lifetime: Some(0),
+            rpc_max_clients: 2500,
+            unsafe_rpc: true,
+            ..Default::default()
+        };
+
+        Self { args }
+    }
+
+    #[cfg(feature = "devnet-prealloc")]
     pub fn simnet(num_prealloc_cells: u64, prealloc_amount: u64) -> Self {
         let args = Args {
             simnet: true,
@@ -58,6 +76,17 @@ impl ArgsBuilder {
 
     pub fn cellindex(mut self, cellindex: bool) -> Self {
         self.args.cellindex = cellindex;
+        self
+    }
+
+    pub fn relay_non_standard(mut self, relay_non_standard: bool) -> Self {
+        self.args.relay_non_std = relay_non_standard;
+        self.args.reject_non_std = false;
+        self
+    }
+
+    pub fn block_max_mass(mut self, block_max_mass: u64) -> Self {
+        self.args.block_max_mass = Some(block_max_mass);
         self
     }
 

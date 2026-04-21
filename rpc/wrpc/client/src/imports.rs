@@ -31,7 +31,7 @@ pub use std::sync::{
 };
 pub use wasm_bindgen::prelude::*;
 pub use workflow_core::{
-    channel::{Channel, DuplexChannel, Receiver},
+    channel::{Channel, DuplexChannel, Receiver, Sender},
     task::spawn,
 };
 pub use workflow_log::*;

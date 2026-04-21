@@ -12,6 +12,7 @@ repository.workspace = true
 [dependencies]
 spora-alloc.workspace = true            # This changes the global allocator for all of the next dependencies so should be kept first
 
+cellscript.workspace = true
 spora-addresses.workspace = true
 spora-bip32.workspace = true
 spora-consensus-core.workspace = true
@@ -20,6 +21,7 @@ spora-consensus.workspace = true
 spora-consensusmanager.workspace = true
 spora-core.workspace = true
 spora-database.workspace = true
+spora-exec.workspace = true
 spora-grpc-client.workspace = true
 spora-grpc-core.workspace = true
 spora-grpc-server.workspace = true
@@ -34,6 +36,7 @@ spora-pow.workspace = true
 spora-rpc-core.workspace = true
 spora-rpc-service.workspace = true
 spora-utils.workspace = true
+spora-wrpc-client.workspace = true
 spora-wrpc-server.workspace = true
 spora-wallet-core.workspace = true
 sporad.workspace = true
@@ -41,6 +44,8 @@ sporad.workspace = true
 async-channel.workspace = true
 async-trait.workspace = true
 bincode.workspace = true
+blake3.workspace = true
+camino = "1.1"
 clap.workspace = true
 chrono.workspace = true
 crossbeam-channel.workspace = true
@@ -62,7 +67,7 @@ serde.workspace = true
 smallvec.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 workflow-perf-monitor.workspace = true
 
 [dev-dependencies]
@@ -77,3 +82,7 @@ devnet-prealloc = ["sporad/devnet-prealloc"]
 cellindex-tests = []
 integration-tests = []
 vm = ["spora-consensus/vm"]
+mempool-benchmarks = []
+subscribe-benchmarks = []
+wallet-account-variant-tests = []
+consensus-mempool-template-matrix-tests = []

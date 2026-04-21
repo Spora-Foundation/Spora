@@ -789,6 +789,9 @@ mod tests {
                 data_hash: [0; 32],
                 block_daa_score: 1000,
                 is_cellbase: false,
+                lock_script: None,
+                type_script: None,
+                data: None,
             },
         )];
 
@@ -819,6 +822,9 @@ mod tests {
                 data_hash: [0; 32],
                 block_daa_score: 1000,
                 is_cellbase: false,
+                lock_script: None,
+                type_script: None,
+                data: None,
             },
         )];
 
@@ -847,6 +853,9 @@ mod tests {
                     data_hash: [0; 32],
                     block_daa_score: 1000,
                     is_cellbase: false,
+                    lock_script: None,
+                    type_script: None,
+                    data: None,
                 },
             ),
             (
@@ -860,6 +869,9 @@ mod tests {
                     data_hash: [0; 32],
                     block_daa_score: 1000,
                     is_cellbase: false,
+                    lock_script: None,
+                    type_script: None,
+                    data: None,
                 },
             ),
         ];

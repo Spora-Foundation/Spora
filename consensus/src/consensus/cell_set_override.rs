@@ -66,7 +66,8 @@ mod cell_set_override_inner {
                 Hash::from_bytes(cell_meta.data_hash),
                 cell_meta.block_daa_score,
                 cell_meta.is_cellbase,
-            );
+            )
+            .with_resolved_metadata(cell_meta.lock_script.clone(), cell_meta.type_script.clone(), cell_meta.data.clone());
 
             genesis_tree.insert_with_outpoint(outpoint_hash, exec_outpoint(outpoint), entry);
         }
@@ -75,6 +76,7 @@ mod cell_set_override_inner {
         let cell_root = genesis_tree.root();
 
         // Calculate cell_commitment (v0: H(domain || cell_root))
+        config.params.genesis.cell_root = cell_root;
         config.params.genesis.cell_commitment = compute_cell_commitment_v0(cell_root);
 
         // Recalculate genesis hash with new cell_root and cell_commitment
@@ -100,7 +102,8 @@ mod cell_set_override_inner {
                 Hash::from_bytes(meta.data_hash),
                 meta.block_daa_score,
                 meta.is_cellbase,
-            );
+            )
+            .with_resolved_metadata(meta.lock_script.clone(), meta.type_script.clone(), meta.data.clone());
             cell_tree.insert_with_outpoint(outpoint_hash, exec_outpoint(outpoint), entry);
         }
 

@@ -100,6 +100,9 @@ pub fn validate_args(args: &Args) -> ConfigResult<()> {
     if !args.connect_peers.is_empty() && !args.add_peers.is_empty() {
         return Err(ConfigError::MixedConnectAndAddPeers);
     }
+    if args.skip_proof_of_work && !(args.devnet || args.simnet) {
+        return Err(ConfigError::SkipProofOfWorkOnNonDevnet);
+    }
     if args.logdir.is_some() && args.no_log_files {
         return Err(ConfigError::MixedLogDirAndNoLogFiles);
     }
@@ -628,7 +631,7 @@ do you confirm? (answer y/n or pass --yes to the Sporad command line to confirm 
 
     let mining_manager = MiningManagerProxy::new(Arc::new(MiningManager::new_with_extended_config(
         config.target_time_per_block(),
-        false,
+        config.relay_non_std_transactions,
         config.max_block_mass,
         config.ram_scale,
         config.block_template_cache_lifetime,

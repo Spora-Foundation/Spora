@@ -3207,6 +3207,57 @@ version = "0.1.0"
 }
 
 #[test]
+fn cellc_install_path_updates_lockfile_and_remove_prunes_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let dep_root = root.join("math");
+
+    std::fs::create_dir_all(dep_root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dep_root.join("Cell.toml"),
+        r#"
+[package]
+name = "math"
+version = "0.2.0"
+"#,
+    )
+    .unwrap();
+
+    let install = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .current_dir(root)
+        .arg("install")
+        .arg("math")
+        .arg("--path")
+        .arg("math")
+        .output()
+        .unwrap();
+    assert!(install.status.success(), "stderr: {}", String::from_utf8_lossy(&install.stderr));
+
+    let manifest: toml::Value = std::fs::read_to_string(root.join("Cell.toml")).unwrap().parse().unwrap();
+    assert_eq!(manifest["dependencies"]["math"]["path"].as_str().unwrap(), "math");
+
+    let lockfile: cellscript::package::Lockfile = toml::from_str(&std::fs::read_to_string(root.join("Cell.lock")).unwrap()).unwrap();
+    let locked = lockfile.dependencies.get("math").expect("math should be locked");
+    assert_eq!(locked.version, "0.2.0");
+    assert!(matches!(&locked.source, cellscript::package::LockedSource::Path { path } if path == "math"));
+
+    let remove = Command::new(env!("CARGO_BIN_EXE_cellc")).current_dir(root).arg("remove").arg("math").output().unwrap();
+    assert!(remove.status.success(), "stderr: {}", String::from_utf8_lossy(&remove.stderr));
+
+    let pruned: cellscript::package::Lockfile = toml::from_str(&std::fs::read_to_string(root.join("Cell.lock")).unwrap()).unwrap();
+    assert!(!pruned.dependencies.contains_key("math"));
+}
+
+#[test]
 fn cellc_metadata_subcommand_emits_lowering_runtime_json() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
@@ -3261,6 +3312,112 @@ action update(amount: u64) -> u64 {
     assert!(stdout.contains("read-cell-dep"));
     assert!(stdout.contains("verify-output-cell"));
     assert!(!stdout.contains("schema-field-access"));
+}
+
+#[test]
+fn cellc_entry_witness_subcommand_emits_parameterized_witness_json() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+action main(amount: u64) -> u64 {
+    return amount
+}
+"#,
+    )
+    .unwrap();
+
+    let output_path = root.join("witness.bin");
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .current_dir(root)
+        .arg("entry-witness")
+        .arg("--action")
+        .arg("main")
+        .arg("--arg")
+        .arg("77")
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["status"], "ok");
+    assert_eq!(stdout["abi"], "cellscript-entry-witness-v1");
+    assert_eq!(stdout["entry_kind"], "action");
+    assert_eq!(stdout["entry"], "main");
+    assert_eq!(stdout["witness_hex"], "43534152477631004d00000000000000");
+    assert_eq!(stdout["witness_size_bytes"], 16);
+    assert_eq!(stdout["payload_params"][0], "amount");
+    assert_eq!(stdout["payload_args"], 1);
+
+    let mut expected = b"CSARGv1\0".to_vec();
+    expected.extend_from_slice(&77u64.to_le_bytes());
+    assert_eq!(std::fs::read(output_path).unwrap(), expected);
+}
+
+#[test]
+fn cellc_entry_witness_subcommand_omits_schema_backed_params() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cell.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src").join("main.cell"),
+        r#"
+module demo::main
+
+struct Snapshot {
+    amount: u64,
+}
+
+action main(snapshot: Snapshot, amount: u64) -> u64 {
+    return amount
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cellc"))
+        .current_dir(root)
+        .arg("entry-witness")
+        .arg("--action")
+        .arg("main")
+        .arg("--arg")
+        .arg("5")
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["witness_hex"], "43534152477631000500000000000000");
+    assert_eq!(stdout["payload_params"][0], "amount");
+    assert_eq!(stdout["schema_backed_params_omitted"][0], "snapshot");
 }
 
 #[test]

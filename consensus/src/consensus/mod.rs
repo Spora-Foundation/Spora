@@ -174,6 +174,7 @@ impl Consensus {
             meta.block_daa_score,
             meta.is_cellbase,
         )
+        .with_resolved_metadata(meta.lock_script.clone(), meta.type_script.clone(), meta.data.clone())
     }
 
     fn revert_cell_diff_from_tree(tree: &mut CellStateTree, diff: &spora_consensus_core::cell_diff::CellDiff) {
@@ -210,6 +211,7 @@ impl Consensus {
             entry.block_daa_score,
             entry.is_cellbase,
         )
+        .with_resolved_metadata(entry.lock_script.clone(), entry.type_script.clone(), entry.data.clone())
     }
 
     fn paged_tree_outpoints(

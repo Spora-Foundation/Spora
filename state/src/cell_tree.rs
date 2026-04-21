@@ -4,7 +4,7 @@
 // Cell State Tree - Merkle tree for live cells
 // Provides state root for lightweight client verification
 
-use spora_exec::OutPoint;
+use spora_exec::{OutPoint, Script};
 use spora_hashes::{Hash, HasherBase, MerkleBranchHash};
 use spora_muhash::MuHash;
 use std::{
@@ -29,6 +29,19 @@ pub struct CellEntry {
     pub block_daa_score: u64,
     /// Whether this cell was created by a cellbase transaction
     pub is_cellbase: bool,
+    /// Full lock script when the live state source can retain it.
+    ///
+    /// This field is intentionally excluded from [`CellEntry::serialize`] so
+    /// state roots remain committed only to the canonical compact metadata.
+    pub lock_script: Option<Script>,
+    /// Full type script when the live state source can retain it.
+    ///
+    /// This field is intentionally excluded from [`CellEntry::serialize`].
+    pub type_script: Option<Script>,
+    /// Full cell data when the live state source can retain it.
+    ///
+    /// This field is intentionally excluded from [`CellEntry::serialize`].
+    pub data: Option<Vec<u8>>,
 }
 
 impl CellEntry {
@@ -42,7 +55,26 @@ impl CellEntry {
         block_daa_score: u64,
         is_cellbase: bool,
     ) -> Self {
-        Self { capacity, data_bytes, lock_hash, type_hash, data_hash, block_daa_score, is_cellbase }
+        Self {
+            capacity,
+            data_bytes,
+            lock_hash,
+            type_hash,
+            data_hash,
+            block_daa_score,
+            is_cellbase,
+            lock_script: None,
+            type_script: None,
+            data: None,
+        }
+    }
+
+    /// Attach optional full script/data metadata without changing the state commitment.
+    pub fn with_resolved_metadata(mut self, lock_script: Option<Script>, type_script: Option<Script>, data: Option<Vec<u8>>) -> Self {
+        self.lock_script = lock_script;
+        self.type_script = type_script;
+        self.data = data;
+        self
     }
 
     /// Serialize cell entry for hashing

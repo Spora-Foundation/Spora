@@ -126,6 +126,8 @@ impl ConsensusConverter {
                     self.get_cell_transaction_input(input, witness)
                 })
                 .collect(),
+            cell_deps: transaction.cell_deps.iter().cloned().map(Into::into).collect(),
+            header_deps: transaction.header_deps.iter().copied().map(Into::into).collect(),
             outputs: transaction
                 .outputs
                 .iter()

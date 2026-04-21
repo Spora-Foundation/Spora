@@ -216,14 +216,20 @@ impl<
             if diff.remove.contains_key(outpoint) {
                 return Ok(None);
             }
-            if diff.add.contains_key(outpoint) {
-                return self.resolve_added_cell_in_diff(current, outpoint).and_then(|metadata| {
-                    metadata
-                        .ok_or_else(|| {
-                            format!("Cell {} is present in diff for {} but creator transaction is missing", outpoint, current)
-                        })
-                        .map(Some)
-                });
+            if let Some(cell_meta) = diff.add.get(outpoint) {
+                let synthetic_metadata = || {
+                    let mut synthetic = CellMetadata::from(cell_meta);
+                    synthetic.block_hash = current;
+                    synthetic
+                };
+                return match self.resolve_added_cell_in_diff(current, outpoint) {
+                    Ok(Some(metadata)) => Ok(Some(metadata)),
+                    Ok(None) => Ok(Some(synthetic_metadata())),
+                    Err(err) if cell_meta.lock_script.is_some() || cell_meta.type_script.is_some() || cell_meta.data.is_some() => {
+                        Ok(Some(synthetic_metadata()))
+                    }
+                    Err(err) => Err(err),
+                };
             }
 
             current = self.ghostdag_store.get_selected_parent(current).map_err(|e| format!("GhostDAG lookup error: {}", e))?;
@@ -238,13 +244,23 @@ pub(crate) struct OverlayCellProvider<B> {
     snapshot_pov: Hash,
     base_pov: Hash,
     base: B,
+    base_overrides: HashMap<OutPoint, CellMetadata>,
     added: HashMap<OutPoint, CellMetadata>,
     removed: HashSet<OutPoint>,
 }
 
 impl<B> OverlayCellProvider<B> {
     pub(crate) fn new(base: B, snapshot_pov: Hash, base_pov: Hash) -> Self {
-        Self { snapshot_pov, base_pov, base, added: HashMap::new(), removed: HashSet::new() }
+        Self { snapshot_pov, base_pov, base, base_overrides: HashMap::new(), added: HashMap::new(), removed: HashSet::new() }
+    }
+
+    pub(crate) fn add_base_override(&mut self, out_point: OutPoint, metadata: CellMetadata) -> Result<(), String> {
+        if self.added.contains_key(&out_point) || self.removed.contains(&out_point) {
+            return Err(format!("overlay attempted to seed an already-mutated outpoint {:?}", out_point));
+        }
+
+        self.base_overrides.insert(out_point, metadata);
+        Ok(())
     }
 
     pub(crate) fn add_cell(&mut self, out_point: OutPoint, metadata: CellMetadata) -> Result<(), String> {
@@ -284,6 +300,10 @@ impl<B: DagCellProvider> OverlayCellProvider<B> {
         }
 
         if let Some(metadata) = self.added.get(out_point) {
+            return Ok(Some(metadata.clone()));
+        }
+
+        if let Some(metadata) = self.base_overrides.get(out_point) {
             return Ok(Some(metadata.clone()));
         }
 
@@ -332,6 +352,10 @@ impl<B: CellScriptDataProvider + DagCellProvider> CellScriptDataProvider for Ove
         }
 
         if let Some(metadata) = self.added.get(out_point) {
+            return Ok(metadata.data.clone());
+        }
+
+        if let Some(metadata) = self.base_overrides.get(out_point) {
             return Ok(metadata.data.clone());
         }
 

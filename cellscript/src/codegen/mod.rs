@@ -5,7 +5,7 @@
 use crate::ast::{BinaryOp, UnaryOp};
 use crate::error::{CompileError, Result};
 use crate::ir::*;
-use crate::{ArtifactFormat, TargetProfile};
+use crate::{ArtifactFormat, TargetProfile, ENTRY_WITNESS_ABI_MAGIC};
 use std::collections::{BTreeSet, HashMap};
 use std::env;
 use std::fs;
@@ -13,11 +13,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const CKB_LOAD_CELL_SYSCALL_NUMBER: u64 = 2071;
 const CKB_LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER: u64 = 2082;
 const CKB_LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER: u64 = 2083;
 const CKB_LOAD_WITNESS_SYSCALL_NUMBER: u64 = 2074;
 const CKB_LOAD_CELL_BY_FIELD_SYSCALL_NUMBER: u64 = 2081;
+const CKB_LOAD_CELL_DATA_SYSCALL_NUMBER: u64 = 2092;
 const SPORA_SECP256K1_VERIFY_SYSCALL_NUMBER: u64 = 3002;
 const SPORA_LOAD_ECDSA_SIGNATURE_HASH_SYSCALL_NUMBER: u64 = 3004;
 const CKB_HEADER_FIELD_EPOCH_NUMBER: u64 = 0;
@@ -44,16 +44,24 @@ const RUNTIME_EXPR_TEMP_SIZE: usize = RUNTIME_EXPR_TEMP_SLOTS * 8;
 const RUNTIME_CELL_BUFFER_SIZE: usize = 512;
 const RUNTIME_CELL_SLOT_SIZE: usize = 8 + RUNTIME_CELL_BUFFER_SIZE;
 const RUNTIME_COLLECTION_BUFFER_SIZE: usize = 256;
+const ENTRY_WITNESS_LABEL: &str = "_cellscript_entry";
+const ENTRY_WITNESS_MAGIC: &[u8; 8] = ENTRY_WITNESS_ABI_MAGIC;
+const ENTRY_WITNESS_HEADER_SIZE: usize = 8;
+const ENTRY_WITNESS_BUFFER_SIZE: usize = 1024;
+const ENTRY_WITNESS_FRAME_SIZE: usize = 1280;
+const ENTRY_WITNESS_SIZE_OFFSET: usize = 0;
+const ENTRY_WITNESS_BUFFER_OFFSET: usize = 8;
+const ENTRY_WITNESS_RA_OFFSET: usize = ENTRY_WITNESS_FRAME_SIZE - 8;
 const CLAIM_SIGNER_PUBKEY_HASH_FIELDS: [&str; 5] =
     ["signer_pubkey_hash", "claim_pubkey_hash", "owner_pubkey_hash", "beneficiary_pubkey_hash", "pubkey_hash"];
 
 #[derive(Debug, Clone, Copy)]
 struct RuntimeSyscallAbi {
-    load_cell: u64,
     load_header_by_field: u64,
     load_input_by_field: u64,
     load_witness: u64,
     load_cell_by_field: u64,
+    load_cell_data: u64,
     secp256k1_verify: u64,
     load_ecdsa_signature_hash: u64,
     source_group_input: u64,
@@ -62,11 +70,11 @@ struct RuntimeSyscallAbi {
 }
 
 const SPORA_RUNTIME_SYSCALL_ABI: RuntimeSyscallAbi = RuntimeSyscallAbi {
-    load_cell: CKB_LOAD_CELL_SYSCALL_NUMBER,
     load_header_by_field: CKB_LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER,
     load_input_by_field: CKB_LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER,
     load_witness: CKB_LOAD_WITNESS_SYSCALL_NUMBER,
     load_cell_by_field: CKB_LOAD_CELL_BY_FIELD_SYSCALL_NUMBER,
+    load_cell_data: CKB_LOAD_CELL_DATA_SYSCALL_NUMBER,
     secp256k1_verify: SPORA_SECP256K1_VERIFY_SYSCALL_NUMBER,
     load_ecdsa_signature_hash: SPORA_LOAD_ECDSA_SIGNATURE_HASH_SYSCALL_NUMBER,
     source_group_input: CKB_SOURCE_GROUP_INPUT,
@@ -75,11 +83,11 @@ const SPORA_RUNTIME_SYSCALL_ABI: RuntimeSyscallAbi = RuntimeSyscallAbi {
 };
 
 const CKB_RUNTIME_SYSCALL_ABI: RuntimeSyscallAbi = RuntimeSyscallAbi {
-    load_cell: CKB_LOAD_CELL_SYSCALL_NUMBER,
     load_header_by_field: CKB_LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER,
     load_input_by_field: CKB_LOAD_INPUT_BY_FIELD_SYSCALL_NUMBER,
     load_witness: CKB_LOAD_WITNESS_SYSCALL_NUMBER,
     load_cell_by_field: CKB_LOAD_CELL_BY_FIELD_SYSCALL_NUMBER,
+    load_cell_data: CKB_LOAD_CELL_DATA_SYSCALL_NUMBER,
     // These Spora extension syscalls are rejected by CKB profile policy before
     // codegen. Keep the values here only to avoid silently changing Spora paths
     // while shared helpers are split into CKB-compatible lock/dependency code.
@@ -291,6 +299,24 @@ enum PreludeU64ValueSource {
     Min { left: Box<PreludeU64ValueSource>, right: PreludeU64OperandSource },
 }
 
+#[derive(Debug, Clone)]
+struct CallableAbi {
+    params: Vec<IrParam>,
+    type_hash_param_indices: BTreeSet<usize>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CallLengthKind {
+    Schema,
+    FixedBytes,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct EntryWitnessPayloadArg {
+    width: usize,
+    unsupported: bool,
+}
+
 /// 代码生成选项
 #[derive(Debug, Clone)]
 pub struct CodegenOptions {
@@ -332,6 +358,8 @@ pub struct CodeGenerator {
     receipt_type_names: BTreeSet<String>,
     /// Lifecycle state names for receipt schemas that declared #[lifecycle(...)].
     lifecycle_states: HashMap<String, Vec<String>>,
+    /// ABI summaries for locally emitted actions/functions/locks.
+    callable_abis: HashMap<String, CallableAbi>,
     /// Function parameters whose slot contains a pointer to encoded schema bytes.
     schema_pointer_vars: BTreeSet<usize>,
     /// Function parameter slots available before the prelude summaries run.
@@ -401,6 +429,7 @@ impl CodeGenerator {
             type_fixed_sizes: HashMap::new(),
             receipt_type_names: BTreeSet::new(),
             lifecycle_states: HashMap::new(),
+            callable_abis: HashMap::new(),
             schema_pointer_vars: BTreeSet::new(),
             param_vars: BTreeSet::new(),
             schema_pointer_size_offsets: HashMap::new(),
@@ -445,6 +474,7 @@ impl CodeGenerator {
         for type_def in &ir.external_type_defs {
             self.register_type_def(type_def);
         }
+        self.register_callable_abis(ir);
 
         // 生成文件头
         self.emit_header();
@@ -458,6 +488,11 @@ impl CodeGenerator {
 
         // 生成代码段
         self.emit_section(".text");
+        if let Some((entry_name, entry_params)) = first_entrypoint(ir) {
+            if !entry_params.is_empty() {
+                self.emit_entry_witness_wrapper(entry_name, entry_params)?;
+            }
+        }
 
         for item in &ir.items {
             match item {
@@ -516,6 +551,140 @@ impl CodeGenerator {
         self.assembly.push(format!("    {}", instruction.into()));
     }
 
+    fn emit_entry_abi_marker(&mut self, name: &str) {
+        self.assembly.push(format!("# cellscript entry abi: {} requires-explicit-parameter-abi", name));
+    }
+
+    fn emit_entry_witness_wrapper(&mut self, target: &str, params: &[IrParam]) -> Result<()> {
+        let type_hash_param_indices =
+            self.callable_abis.get(target).map(|abi| abi.type_hash_param_indices.clone()).unwrap_or_default();
+        let abi_arg_count = entry_witness_abi_arg_count(params, &type_hash_param_indices);
+        let payload = entry_witness_payload_layout(params);
+        let payload_len = payload.iter().map(|arg| arg.width).sum::<usize>();
+        let min_witness_len = ENTRY_WITNESS_HEADER_SIZE + payload_len;
+        let loaded_label = self.fresh_label("entry_witness_loaded");
+        let size_ok_label = self.fresh_label("entry_witness_size_ok");
+        let fail_label = self.fresh_label("entry_witness_fail");
+        let done_label = self.fresh_label("entry_witness_done");
+
+        self.emit_global(ENTRY_WITNESS_LABEL);
+        self.emit_label(ENTRY_WITNESS_LABEL);
+        self.emit(format!("# cellscript entry abi: {} loads GroupInput witness args for {}", ENTRY_WITNESS_LABEL, target));
+        self.emit("# cellscript entry abi: witness magic CSARGv1 followed by positional fixed/scalar payload");
+        self.emit_large_addi("sp", "sp", -(ENTRY_WITNESS_FRAME_SIZE as i64));
+        self.emit_stack_sd("ra", ENTRY_WITNESS_RA_OFFSET);
+        self.emit_load_witness_syscall_to_offsets(
+            "entry_args",
+            self.runtime_abi().source_group_input,
+            0,
+            ENTRY_WITNESS_SIZE_OFFSET,
+            ENTRY_WITNESS_BUFFER_OFFSET,
+            ENTRY_WITNESS_BUFFER_SIZE,
+        );
+        self.emit(format!("beqz a0, {}", loaded_label));
+        self.emit(format!("j {}", fail_label));
+        self.emit_label(&loaded_label);
+
+        self.emit_stack_ld("t0", ENTRY_WITNESS_SIZE_OFFSET);
+        self.emit(format!("li t1, {}", min_witness_len));
+        self.emit("sltu t2, t0, t1");
+        self.emit(format!("beqz t2, {}", size_ok_label));
+        self.emit(format!("j {}", fail_label));
+        self.emit_label(&size_ok_label);
+
+        for (index, byte) in ENTRY_WITNESS_MAGIC.iter().enumerate() {
+            self.emit(format!("lbu t0, {}(sp)", ENTRY_WITNESS_BUFFER_OFFSET + index));
+            self.emit(format!("li t1, {}", byte));
+            self.emit("sub t2, t0, t1");
+            self.emit(format!("bnez t2, {}", fail_label));
+        }
+
+        if payload.iter().any(|arg| arg.unsupported) {
+            self.emit("# cellscript entry abi: unsupported witness parameter shape; fail closed");
+            self.emit(format!("j {}", fail_label));
+        } else if abi_arg_count > 8 {
+            self.emit(format!(
+                "# cellscript entry abi: {} requires {} ABI args; entry wrapper supports a0-a7 only",
+                target, abi_arg_count
+            ));
+            self.emit(format!("j {}", fail_label));
+        } else {
+            let mut abi_index = 0usize;
+            let mut payload_cursor = 0usize;
+            for (param_index, param) in params.iter().enumerate() {
+                if named_type_name(&param.ty).is_some() {
+                    self.emit(format!("# cellscript entry abi: schema param {} is runtime-loaded; pass null ABI bytes", param.name));
+                    self.emit_entry_abi_zero_arg(abi_index);
+                    self.emit_entry_abi_zero_arg(abi_index + 1);
+                    abi_index += 2;
+                    if type_hash_param_indices.contains(&param_index) {
+                        self.emit(format!(
+                            "# cellscript entry abi: schema param {} TypeHash witness bytes unavailable; pass null ABI bytes",
+                            param.name
+                        ));
+                        self.emit_entry_abi_zero_arg(abi_index);
+                        self.emit_entry_abi_zero_arg(abi_index + 1);
+                        abi_index += 2;
+                    }
+                } else if let Some(width) =
+                    fixed_byte_pointer_param_width(&param.ty).or_else(|| fixed_aggregate_pointer_param_width(&param.ty))
+                {
+                    self.emit(format!(
+                        "# cellscript entry abi: fixed-byte param {} pointer=a{} length=a{} size={}",
+                        param.name,
+                        abi_index,
+                        abi_index + 1,
+                        width
+                    ));
+                    self.emit_sp_addi(
+                        &format!("a{}", abi_index),
+                        ENTRY_WITNESS_BUFFER_OFFSET + ENTRY_WITNESS_HEADER_SIZE + payload_cursor,
+                    );
+                    self.emit(format!("li a{}, {}", abi_index + 1, width));
+                    payload_cursor += width;
+                    abi_index += 2;
+                } else if let Some(width) = entry_witness_register_param_width(&param.ty) {
+                    self.emit(format!("# cellscript entry abi: scalar param {} -> a{} size={}", param.name, abi_index, width));
+                    self.emit_entry_witness_scalar_load(
+                        &format!("a{}", abi_index),
+                        ENTRY_WITNESS_BUFFER_OFFSET + ENTRY_WITNESS_HEADER_SIZE + payload_cursor,
+                        width,
+                    );
+                    payload_cursor += width;
+                    abi_index += 1;
+                } else {
+                    self.emit(format!("# cellscript entry abi: unsupported param {} shape; fail closed", param.name));
+                    self.emit(format!("j {}", fail_label));
+                }
+            }
+            self.emit(format!("call {}", target));
+            self.emit(format!("j {}", done_label));
+        }
+
+        self.emit_label(&fail_label);
+        self.emit("li a0, 25");
+        self.emit_label(&done_label);
+        self.emit_stack_ld("ra", ENTRY_WITNESS_RA_OFFSET);
+        self.emit_large_addi("sp", "sp", ENTRY_WITNESS_FRAME_SIZE as i64);
+        self.emit("ret");
+        Ok(())
+    }
+
+    fn emit_entry_abi_zero_arg(&mut self, abi_index: usize) {
+        self.emit(format!("li a{}, 0", abi_index));
+    }
+
+    fn emit_entry_witness_scalar_load(&mut self, dest_reg: &str, stack_offset: usize, width: usize) {
+        self.emit(format!("li {}, 0", dest_reg));
+        for byte_index in 0..width {
+            self.emit(format!("lbu t0, {}(sp)", stack_offset + byte_index));
+            if byte_index != 0 {
+                self.emit(format!("slli t0, t0, {}", byte_index * 8));
+            }
+            self.emit(format!("or {}, {}, t0", dest_reg, dest_reg));
+        }
+    }
+
     /// 生成类型定义
     fn generate_type_def(&mut self, type_def: &IrTypeDef) -> Result<()> {
         // 生成类型布局描述符
@@ -559,6 +728,36 @@ impl CodeGenerator {
         self.type_layouts.insert(type_def.name.clone(), fields);
     }
 
+    fn register_callable_abis(&mut self, ir: &IrModule) {
+        self.callable_abis.clear();
+        for item in &ir.items {
+            let (name, params, body) = match item {
+                IrItem::Action(action) => (&action.name, &action.params, &action.body),
+                IrItem::PureFn(function) => (&function.name, &function.params, &function.body),
+                IrItem::Lock(lock) => (&lock.name, &lock.params, &lock.body),
+                IrItem::TypeDef(_) => continue,
+            };
+            let param_indices = params.iter().enumerate().map(|(index, param)| (param.binding.id, index)).collect::<HashMap<_, _>>();
+            let mut type_hash_param_indices = BTreeSet::new();
+            for block in &body.blocks {
+                for instruction in &block.instructions {
+                    if let IrInstruction::TypeHash { operand: IrOperand::Var(var), .. } = instruction {
+                        if let Some(index) = param_indices.get(&var.id).copied() {
+                            type_hash_param_indices.insert(index);
+                        }
+                    }
+                }
+            }
+            self.callable_abis.insert(name.clone(), CallableAbi { params: params.clone(), type_hash_param_indices });
+        }
+        for external in &ir.external_callable_abis {
+            self.callable_abis.entry(external.name.clone()).or_insert_with(|| CallableAbi {
+                params: external.params.clone(),
+                type_hash_param_indices: external.type_hash_param_indices.clone(),
+            });
+        }
+    }
+
     /// 获取类型 ID
     fn type_id(&self, ty: &IrType) -> u32 {
         match ty {
@@ -590,6 +789,9 @@ impl CodeGenerator {
         self.set_schema_field_value_sources(&action.body);
         self.set_verified_operation_outputs(&action.body);
 
+        if !action.params.is_empty() {
+            self.emit_entry_abi_marker(&action.name);
+        }
         self.emit_global(&action.name);
         self.emit_label(&action.name);
 
@@ -673,6 +875,9 @@ impl CodeGenerator {
         self.set_schema_field_value_sources(&lock.body);
         self.set_verified_operation_outputs(&lock.body);
 
+        if !lock.params.is_empty() {
+            self.emit_entry_abi_marker(&lock.name);
+        }
         self.emit_global(&lock.name);
         self.emit_label(&lock.name);
 
@@ -1020,7 +1225,7 @@ impl CodeGenerator {
                 (self.cell_buffer_size_offsets.get(&var_id).copied(), self.cell_buffer_offsets.get(&var_id).copied())
             {
                 let input_index = self.consume_indices.get(&var_id).copied().unwrap_or(index);
-                self.emit_load_cell_syscall_to_offsets(
+                self.emit_load_cell_data_syscall_to_offsets(
                     &pattern.operation,
                     CKB_SOURCE_INPUT,
                     input_index,
@@ -1042,7 +1247,8 @@ impl CodeGenerator {
             }
         }
 
-        self.emit_load_cell_syscall(&pattern.operation, CKB_SOURCE_INPUT, index);
+        self.emit_load_cell_data_syscall(&pattern.operation, CKB_SOURCE_INPUT, index);
+        self.emit_return_on_syscall_error(1);
         if pattern.operation == "claim" {
             self.emit_claim_witness_authorization_domain_check(index, &pattern.binding, None);
         }
@@ -1060,7 +1266,7 @@ impl CodeGenerator {
                 (self.cell_buffer_size_offsets.get(&var_id).copied(), self.cell_buffer_offsets.get(&var_id).copied())
             {
                 let dep_index = self.read_ref_indices.get(&var_id).copied().unwrap_or(index);
-                self.emit_load_cell_syscall_to_offsets(
+                self.emit_load_cell_data_syscall_to_offsets(
                     "read_ref",
                     CKB_SOURCE_CELL_DEP,
                     dep_index,
@@ -1075,7 +1281,8 @@ impl CodeGenerator {
             }
         }
 
-        self.emit_load_cell_syscall("read_ref", CKB_SOURCE_CELL_DEP, index);
+        self.emit_load_cell_data_syscall("read_ref", CKB_SOURCE_CELL_DEP, index);
+        self.emit_return_on_syscall_error(1);
         Ok(())
     }
 
@@ -1084,7 +1291,7 @@ impl CodeGenerator {
         // The verifier cannot create cells inside CKB-VM; it can only verify the
         // transaction output selected by the lowering metadata.
         self.emit(format!("# {} output {}", pattern.operation, pattern.ty));
-        self.emit_load_cell_syscall(&pattern.operation, CKB_SOURCE_OUTPUT, index);
+        self.emit_load_cell_data_syscall(&pattern.operation, CKB_SOURCE_OUTPUT, index);
         self.emit_return_on_syscall_error(1);
 
         // 如果有 lock 脚本，设置 lock
@@ -1489,13 +1696,13 @@ impl CodeGenerator {
         self.emit("li a2, 0");
     }
 
-    fn emit_load_cell_syscall(&mut self, reason: &str, source: u64, index: usize) {
+    fn emit_load_cell_data_syscall(&mut self, reason: &str, source: u64, index: usize) {
         let size_offset = self.runtime_scratch_size_offset();
         let buffer_offset = self.runtime_scratch_buffer_offset();
-        self.emit_load_cell_syscall_to_offsets(reason, source, index, size_offset, buffer_offset, RUNTIME_SCRATCH_BUFFER_SIZE);
+        self.emit_load_cell_data_syscall_to_offsets(reason, source, index, size_offset, buffer_offset, RUNTIME_SCRATCH_BUFFER_SIZE);
     }
 
-    fn emit_load_cell_syscall_to_offsets(
+    fn emit_load_cell_data_syscall_to_offsets(
         &mut self,
         reason: &str,
         source: u64,
@@ -1504,11 +1711,11 @@ impl CodeGenerator {
         buffer_offset: usize,
         max_bytes: usize,
     ) {
-        self.emit(format!("# cellscript abi: LOAD_CELL reason={} source={} index={}", reason, ckb_source_name(source), index));
+        self.emit(format!("# cellscript abi: LOAD_CELL_DATA reason={} source={} index={}", reason, ckb_source_name(source), index));
         self.emit_store_data_args_at(max_bytes, size_offset, buffer_offset);
         self.emit(format!("li a3, {}", index));
         self.emit(format!("li a4, {}", source));
-        self.emit(format!("li a7, {}", self.runtime_abi().load_cell));
+        self.emit(format!("li a7, {}", self.runtime_abi().load_cell_data));
         self.emit("ecall");
         self.emit("# a0 = CKB syscall return code");
     }
@@ -1971,7 +2178,7 @@ impl CodeGenerator {
         let input_buffer_offset = self.runtime_scratch_buffer_offset();
         let output_size_offset = self.runtime_scratch2_size_offset();
         let output_buffer_offset = self.runtime_scratch2_buffer_offset();
-        self.emit_load_cell_syscall_to_offsets(
+        self.emit_load_cell_data_syscall_to_offsets(
             "mutate_input_data",
             CKB_SOURCE_INPUT,
             pattern.input_index,
@@ -1980,7 +2187,7 @@ impl CodeGenerator {
             RUNTIME_SCRATCH_BUFFER_SIZE,
         );
         self.emit_return_on_syscall_error(1);
-        self.emit_load_cell_syscall_to_offsets(
+        self.emit_load_cell_data_syscall_to_offsets(
             "mutate_output_data",
             CKB_SOURCE_OUTPUT,
             pattern.output_index,
@@ -2084,7 +2291,7 @@ impl CodeGenerator {
         let input_buffer_offset = self.runtime_scratch_buffer_offset();
         let output_size_offset = self.runtime_scratch2_size_offset();
         let output_buffer_offset = self.runtime_scratch2_buffer_offset();
-        self.emit_load_cell_syscall_to_offsets(
+        self.emit_load_cell_data_syscall_to_offsets(
             "mutate_input_transition",
             CKB_SOURCE_INPUT,
             pattern.input_index,
@@ -2093,7 +2300,7 @@ impl CodeGenerator {
             RUNTIME_SCRATCH_BUFFER_SIZE,
         );
         self.emit_return_on_syscall_error(1);
-        self.emit_load_cell_syscall_to_offsets(
+        self.emit_load_cell_data_syscall_to_offsets(
             "mutate_output_transition",
             CKB_SOURCE_OUTPUT,
             pattern.output_index,
@@ -2172,7 +2379,7 @@ impl CodeGenerator {
         // If the scratch buffers were already loaded by the preserved-field
         // path, the syscall results are cached in the buffer; we only need
         // to reload if this function is called independently.
-        self.emit_load_cell_syscall_to_offsets(
+        self.emit_load_cell_data_syscall_to_offsets(
             "mutate_input_u128_transition",
             CKB_SOURCE_INPUT,
             pattern.input_index,
@@ -2181,7 +2388,7 @@ impl CodeGenerator {
             RUNTIME_SCRATCH_BUFFER_SIZE,
         );
         self.emit_return_on_syscall_error(1);
-        self.emit_load_cell_syscall_to_offsets(
+        self.emit_load_cell_data_syscall_to_offsets(
             "mutate_output_u128_transition",
             CKB_SOURCE_OUTPUT,
             pattern.output_index,
@@ -3730,16 +3937,20 @@ impl CodeGenerator {
         }
         self.emit(format!("# call {}", func));
 
-        // 设置参数
-        for (i, arg) in args.iter().enumerate() {
-            match arg {
-                IrOperand::Const(IrConst::U64(n)) => {
-                    self.emit(format!("li a{}, {}", i, n));
+        let abi = self.callable_abis.get(func).cloned();
+        let mut abi_index = 0usize;
+        for (arg_index, arg) in args.iter().enumerate() {
+            if let Some(abi) = &abi {
+                if let Some(param) = abi.params.get(arg_index) {
+                    let needs_type_hash = abi.type_hash_param_indices.contains(&arg_index);
+                    if !self.emit_call_param_arg(func, param, needs_type_hash, &mut abi_index, arg) {
+                        return Ok(());
+                    }
+                    continue;
                 }
-                IrOperand::Var(v) => {
-                    self.emit(format!("ld a{}, {}(sp)", i, v.id * 8));
-                }
-                _ => {}
+            }
+            if !self.emit_call_scalar_arg(func, &format!("arg{}", arg_index), &mut abi_index, arg) {
+                return Ok(());
             }
         }
 
@@ -3764,13 +3975,208 @@ impl CodeGenerator {
         Ok(())
     }
 
+    fn emit_call_param_arg(
+        &mut self,
+        func: &str,
+        param: &IrParam,
+        needs_type_hash: bool,
+        abi_index: &mut usize,
+        arg: &IrOperand,
+    ) -> bool {
+        if named_type_name(&param.ty).is_some() {
+            self.emit(format!(
+                "# cellscript abi: call {} schema param {} pointer={} length={}",
+                func,
+                param.name,
+                abi_arg_label(*abi_index),
+                abi_arg_label(*abi_index + 1)
+            ));
+            if !self.emit_call_pointer_arg(func, &param.name, abi_index, arg, None) {
+                return false;
+            }
+            if !self.emit_call_length_arg(func, &param.name, abi_index, arg, CallLengthKind::Schema) {
+                return false;
+            }
+            if needs_type_hash {
+                self.emit(format!(
+                    "# cellscript abi: call {} schema param {} type_hash pointer={} length={} size=32",
+                    func,
+                    param.name,
+                    abi_arg_label(*abi_index),
+                    abi_arg_label(*abi_index + 1)
+                ));
+                if !self.emit_call_type_hash_pointer_arg(func, &param.name, abi_index, arg) {
+                    return false;
+                }
+                if !self.emit_call_type_hash_length_arg(func, &param.name, abi_index, arg) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        let fixed_pointer_width = fixed_byte_pointer_param_width(&param.ty).or_else(|| fixed_aggregate_pointer_param_width(&param.ty));
+        if let Some(width) = fixed_pointer_width {
+            self.emit(format!(
+                "# cellscript abi: call {} fixed-byte param {} pointer={} length={} size={}",
+                func,
+                param.name,
+                abi_arg_label(*abi_index),
+                abi_arg_label(*abi_index + 1),
+                width
+            ));
+            if !self.emit_call_pointer_arg(func, &param.name, abi_index, arg, Some(width)) {
+                return false;
+            }
+            if !self.emit_call_length_arg(func, &param.name, abi_index, arg, CallLengthKind::FixedBytes) {
+                return false;
+            }
+            return true;
+        }
+
+        self.emit_call_scalar_arg(func, &param.name, abi_index, arg)
+    }
+
+    fn emit_call_scalar_arg(&mut self, func: &str, label: &str, abi_index: &mut usize, arg: &IrOperand) -> bool {
+        let Some(register) = self.call_abi_register(func, label, *abi_index) else {
+            return false;
+        };
+        self.emit(format!("# cellscript abi: call {} scalar {} -> {}", func, label, register));
+        self.emit_operand_to_register(&register, arg);
+        *abi_index += 1;
+        true
+    }
+
+    fn emit_call_pointer_arg(
+        &mut self,
+        func: &str,
+        label: &str,
+        abi_index: &mut usize,
+        arg: &IrOperand,
+        const_width: Option<usize>,
+    ) -> bool {
+        let Some(register) = self.call_abi_register(func, label, *abi_index) else {
+            return false;
+        };
+        if const_width.is_some() && matches!(arg, IrOperand::Const(_)) {
+            self.emit(format!(
+                "# cellscript abi: call {} pointer param {} uses a constant unsupported by the call ABI; pass null pointer",
+                func, label
+            ));
+            self.emit(format!("li {}, 0", register));
+        } else {
+            self.emit_operand_to_register(&register, arg);
+        }
+        *abi_index += 1;
+        true
+    }
+
+    fn emit_call_length_arg(&mut self, func: &str, label: &str, abi_index: &mut usize, arg: &IrOperand, kind: CallLengthKind) -> bool {
+        let Some(register) = self.call_abi_register(func, label, *abi_index) else {
+            return false;
+        };
+        let size_offset = match (arg, kind) {
+            (IrOperand::Var(var), CallLengthKind::Schema) => self.schema_pointer_size_offsets.get(&var.id).copied(),
+            (IrOperand::Var(var), CallLengthKind::FixedBytes) => self.fixed_byte_param_size_offsets.get(&var.id).copied(),
+            _ => None,
+        };
+        if let Some(size_offset) = size_offset {
+            self.emit_stack_ld(&register, size_offset);
+        } else if let CallLengthKind::FixedBytes = kind {
+            if matches!(arg, IrOperand::Const(_)) {
+                self.emit(format!(
+                    "# cellscript abi: call {} fixed-byte const param {} has no materialized pointer; pass zero length to fail closed",
+                    func, label
+                ));
+                self.emit(format!("li {}, 0", register));
+            } else {
+                self.emit(format!(
+                    "# cellscript abi: call {} fixed-byte param {} has no tracked ABI length; pass zero length to fail closed",
+                    func, label
+                ));
+                self.emit(format!("li {}, 0", register));
+            }
+        } else {
+            self.emit(format!(
+                "# cellscript abi: call {} schema param {} has no tracked ABI length; pass zero length to fail closed",
+                func, label
+            ));
+            self.emit(format!("li {}, 0", register));
+        }
+        *abi_index += 1;
+        true
+    }
+
+    fn emit_call_type_hash_pointer_arg(&mut self, func: &str, label: &str, abi_index: &mut usize, arg: &IrOperand) -> bool {
+        let Some(register) = self.call_abi_register(func, label, *abi_index) else {
+            return false;
+        };
+        if let IrOperand::Var(var) = arg {
+            if let Some(pointer_offset) = self.param_type_hash_pointer_offsets.get(&var.id).copied() {
+                self.emit_stack_ld(&register, pointer_offset);
+            } else {
+                self.emit(format!(
+                    "# cellscript abi: call {} schema param {} has no tracked TypeHash pointer; pass null pointer",
+                    func, label
+                ));
+                self.emit(format!("li {}, 0", register));
+            }
+        } else {
+            self.emit(format!(
+                "# cellscript abi: call {} schema param {} TypeHash source is not a variable; pass null pointer",
+                func, label
+            ));
+            self.emit(format!("li {}, 0", register));
+        }
+        *abi_index += 1;
+        true
+    }
+
+    fn emit_call_type_hash_length_arg(&mut self, func: &str, label: &str, abi_index: &mut usize, arg: &IrOperand) -> bool {
+        let Some(register) = self.call_abi_register(func, label, *abi_index) else {
+            return false;
+        };
+        if let IrOperand::Var(var) = arg {
+            if let Some(size_offset) = self.param_type_hash_size_offsets.get(&var.id).copied() {
+                self.emit_stack_ld(&register, size_offset);
+            } else {
+                self.emit(format!(
+                    "# cellscript abi: call {} schema param {} has no tracked TypeHash length; pass zero length to fail closed",
+                    func, label
+                ));
+                self.emit(format!("li {}, 0", register));
+            }
+        } else {
+            self.emit(format!(
+                "# cellscript abi: call {} schema param {} TypeHash length source is not a variable; pass zero length",
+                func, label
+            ));
+            self.emit(format!("li {}, 0", register));
+        }
+        *abi_index += 1;
+        true
+    }
+
+    fn call_abi_register(&mut self, func: &str, label: &str, abi_index: usize) -> Option<String> {
+        if abi_index < 8 {
+            return Some(format!("a{}", abi_index));
+        }
+        self.emit(format!(
+            "# cellscript abi: call {} param {} requires ABI arg{} beyond register call lowering",
+            func, label, abi_index
+        ));
+        self.emit("li a0, 25");
+        self.emit_epilogue();
+        None
+    }
+
     fn emit_read_ref(&mut self, dest: &IrVar, ty: &str) -> Result<()> {
         if self.cell_buffer_offsets.contains_key(&dest.id) {
             self.emit(format!("# read_ref {} (preloaded from CellDep)", ty));
             return Ok(());
         }
 
-        // Runtime fallback: emit LOAD_CELL syscall to load the cell dep data
+        // Runtime fallback: emit LOAD_CELL_DATA syscall to load the cell dep data
         // into the scratch buffer and store the pointer.
         let dep_index = self.read_ref_indices.get(&dest.id).copied().unwrap_or(self.next_virtual_output);
         let size_offset = self.runtime_scratch_size_offset();
@@ -3778,7 +4184,7 @@ impl CodeGenerator {
 
         self.emit(format!("# read_ref {}", ty));
         self.emit(format!("# cellscript abi: runtime read_ref CellDep index={}", dep_index));
-        self.emit_load_cell_syscall_to_offsets(
+        self.emit_load_cell_data_syscall_to_offsets(
             "read_ref",
             CKB_SOURCE_CELL_DEP,
             dep_index,
@@ -4111,6 +4517,63 @@ pub fn generate(ir: &IrModule, options: &CodegenOptions, format: ArtifactFormat)
     generator.generate(ir, format)
 }
 
+fn first_entrypoint(ir: &IrModule) -> Option<(&str, &[IrParam])> {
+    for item in &ir.items {
+        if let IrItem::Action(action) = item {
+            return Some((&action.name, &action.params));
+        }
+    }
+    for item in &ir.items {
+        if let IrItem::Lock(lock) = item {
+            return Some((&lock.name, &lock.params));
+        }
+    }
+    None
+}
+
+fn entry_witness_abi_arg_count(params: &[IrParam], type_hash_param_indices: &BTreeSet<usize>) -> usize {
+    params
+        .iter()
+        .enumerate()
+        .map(|(index, param)| {
+            if named_type_name(&param.ty).is_some() {
+                2 + usize::from(type_hash_param_indices.contains(&index)) * 2
+            } else if fixed_byte_pointer_param_width(&param.ty).is_some() || fixed_aggregate_pointer_param_width(&param.ty).is_some() {
+                2
+            } else {
+                1
+            }
+        })
+        .sum()
+}
+
+fn entry_witness_payload_layout(params: &[IrParam]) -> Vec<EntryWitnessPayloadArg> {
+    params
+        .iter()
+        .map(|param| {
+            if named_type_name(&param.ty).is_some() {
+                EntryWitnessPayloadArg { width: 0, unsupported: false }
+            } else if let Some(width) =
+                fixed_byte_pointer_param_width(&param.ty).or_else(|| fixed_aggregate_pointer_param_width(&param.ty))
+            {
+                EntryWitnessPayloadArg { width, unsupported: false }
+            } else if let Some(width) = entry_witness_register_param_width(&param.ty) {
+                EntryWitnessPayloadArg { width, unsupported: false }
+            } else {
+                EntryWitnessPayloadArg { width: 0, unsupported: true }
+            }
+        })
+        .collect()
+}
+
+fn entry_witness_register_param_width(ty: &IrType) -> Option<usize> {
+    fixed_register_width(ty, type_static_length(ty)).or_else(|| match ty {
+        IrType::Array(_, _) | IrType::Tuple(_) => type_static_length(ty).filter(|width| (1..=8).contains(width)),
+        IrType::Unit => Some(0),
+        _ => None,
+    })
+}
+
 fn named_type_name(ty: &IrType) -> Option<&str> {
     match ty {
         IrType::Named(name) => Some(name.as_str()),
@@ -4223,8 +4686,12 @@ fn assemble_elf_internal(lines: &[String]) -> Result<Vec<u8>> {
     };
 
     let mut text_bytes = Vec::with_capacity(START_TRAMPOLINE_SIZE + text_user_size);
-    let entry_addr = parsed.symbol_address(entry_label, &layout)?;
-    encode_call_sequence(&mut text_bytes, layout.text_base, entry_addr)?;
+    if entry_requires_explicit_parameter_abi(lines, entry_label) {
+        encode_li_sequence(&mut text_bytes, 10, 25)?;
+    } else {
+        let entry_addr = parsed.symbol_address(entry_label, &layout)?;
+        encode_call_sequence(&mut text_bytes, layout.text_base, entry_addr)?;
+    }
     encode_li_sequence(&mut text_bytes, 17, EXIT_SYSCALL_NUMBER)?;
     text_bytes.extend_from_slice(&encode_ecall().to_le_bytes());
     parsed.encode_section(SectionKind::Text, &mut text_bytes, &layout, START_TRAMPOLINE_SIZE)?;
@@ -4343,19 +4810,24 @@ fn try_external_elf_toolchain(lines: &[String]) -> Result<Option<Vec<u8>>> {
 }
 
 fn render_external_assembly(lines: &[String], entry_label: &str) -> String {
-    let mut rendered = vec![
-        ".section .text".to_string(),
-        ".global _start".to_string(),
-        ".type _start, @function".to_string(),
-        "_start:".to_string(),
-        format!("    call {}", entry_label),
-        format!("    li a7, {}", EXIT_SYSCALL_NUMBER),
-        "    ecall".to_string(),
-    ];
+    let mut rendered =
+        vec![".section .text".to_string(), ".global _start".to_string(), ".type _start, @function".to_string(), "_start:".to_string()];
+    if entry_requires_explicit_parameter_abi(lines, entry_label) {
+        rendered.push("    li a0, 25".to_string());
+    } else {
+        rendered.push(format!("    call {}", entry_label));
+    }
+    rendered.push(format!("    li a7, {}", EXIT_SYSCALL_NUMBER));
+    rendered.push("    ecall".to_string());
     rendered.extend(lines.iter().filter(|line| !line.trim_start().starts_with(".option arch,")).cloned());
     let mut rendered = rendered.join("\n");
     rendered.push('\n');
     rendered
+}
+
+fn entry_requires_explicit_parameter_abi(lines: &[String], entry_label: &str) -> bool {
+    let marker = format!("# cellscript entry abi: {} requires-explicit-parameter-abi", entry_label);
+    lines.iter().any(|line| line.trim() == marker)
 }
 
 #[derive(Debug, Clone)]
@@ -4591,7 +5063,10 @@ impl ParsedAssembly {
                 AsmOp::Ascii(bytes) => out.extend_from_slice(bytes),
                 AsmOp::Align(bytes) => pad_to_alignment(out, *bytes),
                 AsmOp::Instruction(inst) => {
-                    let pc = section_base + (out.len() + base_bias) as u64;
+                    let section_offset = out.len().checked_sub(base_bias).ok_or_else(|| {
+                        CompileError::new("assembly output offset is smaller than section base bias", crate::error::Span::default())
+                    })?;
+                    let pc = section_base + section_offset as u64;
                     encode_instruction(out, inst, pc, self, layout)?;
                 }
             }

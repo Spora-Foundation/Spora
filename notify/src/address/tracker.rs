@@ -294,11 +294,8 @@ impl Inner {
         self.addresses.get_index(index as usize).map(|(address, _)| address)
     }
 
-    fn get_index_address(&self, index: Index, prefix: Prefix) -> Option<Address> {
-        self.addresses.get_index(index as usize).map(|(address, _)| {
-            debug_assert_eq!(address.prefix, prefix);
-            address.clone()
-        })
+    fn get_index_address(&self, index: Index, _prefix: Prefix) -> Option<Address> {
+        self.addresses.get_index(index as usize).map(|(address, _)| address.clone())
     }
 
     fn get_or_insert(&mut self, address: Address) -> Result<Index> {

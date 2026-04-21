@@ -8,8 +8,8 @@ use spora_consensus_core::{
     header::Header,
     sign::sign,
     tx::{
-        pay_to_address_lock_script, CellInput, CellOutput, CellTx, MutableTransaction, Script, SignableTransaction, TransactionId,
-        TransactionOutpoint,
+        pay_to_address_lock_script, CellDep, CellInput, CellOutput, CellTx, MutableTransaction, Script, SignableTransaction,
+        TransactionId, TransactionOutpoint,
     },
 };
 use spora_core::info;
@@ -48,6 +48,9 @@ fn cell_meta_from_output(tx: &CellTx, output_index: u32) -> CellMeta {
         data_hash: [0; 32],
         block_daa_score: 0,
         is_cellbase: false,
+        lock_script: Some(output.lock.clone()),
+        type_script: output.type_.clone(),
+        data: Some(output_data.to_vec()),
     }
 }
 
@@ -177,6 +180,45 @@ pub fn generate_tx(
     let outputs_data: Vec<Vec<u8>> = (0..num_outputs).map(|_| vec![]).collect();
     let witnesses: Vec<Vec<u8>> = inputs.iter().map(|_| vec![]).collect();
     let unsigned_tx = CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).expect("valid CellTx");
+    let signed_tx =
+        sign(MutableTransaction::with_entries(unsigned_tx, cells.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
+    signed_tx.tx
+}
+
+pub fn generate_tx_to_outputs(
+    schnorr_key: Keypair,
+    cells: &[(TransactionOutpoint, CellMeta)],
+    outputs: Vec<(Address, u64)>,
+) -> CellTx {
+    assert!(!cells.is_empty());
+    assert!(!outputs.is_empty());
+
+    let inputs: Vec<CellInput> = cells.iter().map(|(op, _)| CellInput::new(*op, 0)).collect_vec();
+    let outputs: Vec<CellOutput> = outputs
+        .into_iter()
+        .map(|(address, capacity)| CellOutput { capacity, lock: pay_to_address_lock_script(&address), type_: None })
+        .collect_vec();
+    let outputs_data: Vec<Vec<u8>> = (0..outputs.len()).map(|_| vec![]).collect();
+    let witnesses: Vec<Vec<u8>> = inputs.iter().map(|_| vec![]).collect();
+    let unsigned_tx = CellTx::new(inputs, vec![], outputs, outputs_data, witnesses).expect("valid CellTx");
+    let signed_tx =
+        sign(MutableTransaction::with_entries(unsigned_tx, cells.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
+    signed_tx.tx
+}
+
+pub fn generate_signed_cell_tx(
+    schnorr_key: Keypair,
+    cells: &[(TransactionOutpoint, CellMeta)],
+    cell_deps: Vec<CellDep>,
+    outputs: Vec<CellOutput>,
+    outputs_data: Vec<Vec<u8>>,
+) -> CellTx {
+    assert!(!cells.is_empty());
+    assert_eq!(outputs.len(), outputs_data.len());
+
+    let inputs: Vec<CellInput> = cells.iter().map(|(op, _)| CellInput::new(*op, 0)).collect_vec();
+    let witnesses: Vec<Vec<u8>> = inputs.iter().map(|_| vec![]).collect();
+    let unsigned_tx = CellTx::new(inputs, cell_deps, outputs, outputs_data, witnesses).expect("valid CellTx");
     let signed_tx =
         sign(MutableTransaction::with_entries(unsigned_tx, cells.iter().map(|(_, entry)| entry.clone()).collect_vec()), schnorr_key);
     signed_tx.tx

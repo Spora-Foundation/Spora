@@ -167,7 +167,11 @@ pub fn unlock_cell_outputs_as_batch_transaction_pssb(
 }
 
 fn direct_cell_meta_from_script(amount: u64, lock_script: Script, block_daa_score: u64, is_coinbase: bool) -> CellMeta {
-    CellMeta::from_cell_metadata(amount, 0, lock_script.hash(), None, [0; 32], block_daa_score, is_coinbase)
+    CellMeta::from_cell_metadata(amount, 0, lock_script.hash(), None, [0; 32], block_daa_score, is_coinbase).with_resolved_metadata(
+        Some(lock_script),
+        None,
+        Some(Vec::new()),
+    )
 }
 
 #[cfg(test)]

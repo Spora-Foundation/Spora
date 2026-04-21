@@ -206,6 +206,58 @@ fn assert_pool_runtime_input_requirement(
     );
 }
 
+fn action<'a>(metadata: &'a cellscript::CompileMetadata, name: &str) -> &'a cellscript::ActionMetadata {
+    metadata.actions.iter().find(|action| action.name == name).unwrap_or_else(|| panic!("missing {name} action metadata"))
+}
+
+fn assert_create(action: &cellscript::ActionMetadata, ty: &str, context: &str) {
+    assert!(
+        action.create_set.iter().any(|pattern| pattern.ty == ty && pattern.operation == "create"),
+        "{} should expose a create output for {}: {:?}",
+        context,
+        ty,
+        action.create_set
+    );
+}
+
+fn assert_destroy(action: &cellscript::ActionMetadata, binding: &str, context: &str) {
+    assert!(
+        action.consume_set.iter().any(|pattern| pattern.binding == binding && pattern.operation == "destroy"),
+        "{} should expose destroy input '{}': {:?}",
+        context,
+        binding,
+        action.consume_set
+    );
+}
+
+fn assert_mutate_field(action: &cellscript::ActionMetadata, ty: &str, binding: &str, field: &str, context: &str) {
+    assert!(
+        action.mutate_set.iter().any(|mutation| mutation.ty == ty
+            && mutation.binding == binding
+            && mutation.fields.iter().any(|candidate| candidate == field)),
+        "{} should expose {}.{} mutation for '{}': {:?}",
+        context,
+        ty,
+        field,
+        binding,
+        action.mutate_set
+    );
+}
+
+fn assert_runtime_requirement(action: &cellscript::ActionMetadata, feature: &str, status: &str, component: &str, context: &str) {
+    assert!(
+        action.transaction_runtime_input_requirements.iter().any(|requirement| {
+            requirement.feature == feature && requirement.status == status && requirement.component == component
+        }),
+        "{} should expose {} {} runtime requirement for {}: {:?}",
+        context,
+        status,
+        component,
+        feature,
+        action.transaction_runtime_input_requirements
+    );
+}
+
 #[test]
 fn bundled_examples_compile_to_non_empty_assembly() {
     for example in BUNDLED_EXAMPLES {
@@ -223,7 +275,7 @@ fn bundled_examples_compile_to_non_empty_assembly() {
                 action.scheduler_witness_abi == "molecule"
                     && !action.scheduler_witness_hex.is_empty()
                     && !action.scheduler_witness_hex.starts_with("11ce")
-                    && action.scheduler_witness_molecule_hex.is_empty()
+                    && action.scheduler_witness_bytes().is_ok()
             }),
             "missing launch Molecule scheduler witness for {}",
             example
@@ -486,8 +538,8 @@ fn token_mint_authority_mutation_is_explicit() {
         asm
     );
     assert!(
-        asm.contains("# cellscript abi: LOAD_CELL reason=mutate_input_data source=Input index=0")
-            && asm.contains("# cellscript abi: LOAD_CELL reason=mutate_output_data source=Output index=1")
+        asm.contains("# cellscript abi: LOAD_CELL_DATA reason=mutate_input_data source=Input index=0")
+            && asm.contains("# cellscript abi: LOAD_CELL_DATA reason=mutate_output_data source=Output index=1")
             && asm.contains(
                 "# cellscript abi: verify mutate preserved field MintAuthority.max_supply Input#0 == Output#1 offset=8 size=8"
             )
@@ -498,8 +550,8 @@ fn token_mint_authority_mutation_is_explicit() {
         asm
     );
     assert!(
-        asm.contains("# cellscript abi: LOAD_CELL reason=mutate_input_transition source=Input index=0")
-            && asm.contains("# cellscript abi: LOAD_CELL reason=mutate_output_transition source=Output index=1")
+        asm.contains("# cellscript abi: LOAD_CELL_DATA reason=mutate_input_transition source=Input index=0")
+            && asm.contains("# cellscript abi: LOAD_CELL_DATA reason=mutate_output_transition source=Output index=1")
             && asm.contains(
                 "# cellscript abi: verify mutate transition field MintAuthority.minted Add Input#0 -> Output#1 offset=16 size=8"
             ),
@@ -510,6 +562,178 @@ fn token_mint_authority_mutation_is_explicit() {
         mint.fail_closed_runtime_features.is_empty(),
         "mint authority mutation should be a verifier obligation, not a fail-closed lowering path: {:?}",
         mint.fail_closed_runtime_features
+    );
+}
+
+#[test]
+fn nft_core_actions_expose_action_specific_builder_metadata() {
+    let result = compile_file(example_path("nft.cell"), CompileOptions::default()).expect("nft example should compile");
+
+    let mint = action(&result.metadata, "mint");
+    assert_eq!(mint.effect_class, "Creating");
+    assert!(mint.parallelizable);
+    assert!(mint.fail_closed_runtime_features.is_empty(), "nft mint should not carry fail-closed debt");
+    assert_create(mint, "NFT", "nft mint");
+    assert_mutate_field(mint, "Collection", "collection", "total_supply", "nft mint");
+    assert_runtime_requirement(mint, "create-output:NFT:create_NFT", "checked-runtime", "create-output-fields", "nft mint");
+    assert_runtime_requirement(mint, "mutable-cell:Collection", "runtime-required", "mutate-field-transition", "nft mint");
+
+    let transfer = action(&result.metadata, "transfer");
+    assert_eq!(transfer.effect_class, "Mutating");
+    assert!(transfer.fail_closed_runtime_features.is_empty(), "nft transfer should not carry fail-closed debt");
+    assert_mutate_field(transfer, "NFT", "nft", "owner", "nft transfer");
+    assert_runtime_requirement(transfer, "mutable-cell:NFT", "runtime-required", "mutate-field-transition", "nft transfer");
+
+    let burn = action(&result.metadata, "burn");
+    assert_eq!(burn.effect_class, "Destroying");
+    assert!(burn.fail_closed_runtime_features.is_empty(), "nft burn should not carry fail-closed debt");
+    assert_destroy(burn, "nft", "nft burn");
+    assert_runtime_requirement(burn, "destroy-input:NFT:nft", "checked-runtime", "destroy-input-data", "nft burn");
+    assert_runtime_requirement(burn, "destroy-output-scan:NFT", "checked-runtime", "destroy-output-absence", "nft burn");
+}
+
+#[test]
+fn timelock_core_actions_expose_time_and_release_metadata() {
+    let result = compile_file(example_path("timelock.cell"), CompileOptions::default()).expect("timelock example should compile");
+
+    let create_absolute_lock = action(&result.metadata, "create_absolute_lock");
+    assert_eq!(create_absolute_lock.effect_class, "Creating");
+    assert_create(create_absolute_lock, "TimeLock", "timelock create_absolute_lock");
+    assert_runtime_requirement(
+        create_absolute_lock,
+        "create-output:TimeLock:create_TimeLock",
+        "runtime-required",
+        "create-output-fields",
+        "timelock create_absolute_lock",
+    );
+
+    let execute_release = action(&result.metadata, "execute_release");
+    assert_eq!(execute_release.effect_class, "Mutating");
+    assert_destroy(execute_release, "time_lock", "timelock execute_release");
+    assert_destroy(execute_release, "locked_asset", "timelock execute_release");
+    assert_destroy(execute_release, "request", "timelock execute_release");
+    assert_create(execute_release, "ReleaseRecord", "timelock execute_release");
+    assert_runtime_requirement(
+        execute_release,
+        "destroy-input:TimeLock:time_lock",
+        "checked-runtime",
+        "destroy-input-data",
+        "timelock execute_release",
+    );
+    assert_runtime_requirement(
+        execute_release,
+        "destroy-input:LockedAsset:locked_asset",
+        "checked-runtime",
+        "destroy-input-data",
+        "timelock execute_release",
+    );
+    assert_runtime_requirement(
+        execute_release,
+        "destroy-input:ReleaseRequest:request",
+        "checked-runtime",
+        "destroy-input-data",
+        "timelock execute_release",
+    );
+    assert_runtime_requirement(
+        execute_release,
+        "create-output:ReleaseRecord:create_ReleaseRecord",
+        "checked-runtime",
+        "create-output-fields",
+        "timelock execute_release",
+    );
+
+    let extend_lock = action(&result.metadata, "extend_lock");
+    assert!(extend_lock.fail_closed_runtime_features.is_empty(), "extend_lock should not carry fail-closed debt");
+    assert_mutate_field(extend_lock, "TimeLock", "time_lock", "unlock_height", "timelock extend_lock");
+    assert_runtime_requirement(
+        extend_lock,
+        "mutable-cell:TimeLock",
+        "runtime-required",
+        "mutate-field-transition",
+        "timelock extend_lock",
+    );
+}
+
+#[test]
+fn multisig_core_actions_expose_threshold_lifecycle_metadata() {
+    let result = compile_file(example_path("multisig.cell"), CompileOptions::default()).expect("multisig example should compile");
+
+    let create_wallet = action(&result.metadata, "create_wallet");
+    assert_eq!(create_wallet.effect_class, "Creating");
+    assert_create(create_wallet, "MultisigWallet", "multisig create_wallet");
+    assert_runtime_requirement(
+        create_wallet,
+        "create-output:MultisigWallet:create_MultisigWallet",
+        "runtime-required",
+        "create-output-fields",
+        "multisig create_wallet",
+    );
+
+    let propose_transfer = action(&result.metadata, "propose_transfer");
+    assert_eq!(propose_transfer.effect_class, "Creating");
+    assert_create(propose_transfer, "Proposal", "multisig propose_transfer");
+    assert_mutate_field(propose_transfer, "MultisigWallet", "wallet", "nonce", "multisig propose_transfer");
+    assert_runtime_requirement(
+        propose_transfer,
+        "create-output:Proposal:create_Proposal",
+        "runtime-required",
+        "create-output-fields",
+        "multisig propose_transfer",
+    );
+    assert_runtime_requirement(
+        propose_transfer,
+        "mutable-cell:MultisigWallet",
+        "runtime-required",
+        "mutate-field-transition",
+        "multisig propose_transfer",
+    );
+
+    let add_signature = action(&result.metadata, "add_signature");
+    assert_eq!(add_signature.effect_class, "Mutating");
+    assert_create(add_signature, "SignatureConfirmation", "multisig add_signature");
+    assert_runtime_requirement(
+        add_signature,
+        "create-output:SignatureConfirmation:create_SignatureConfirmation",
+        "checked-runtime",
+        "create-output-fields",
+        "multisig add_signature",
+    );
+    assert_runtime_requirement(
+        add_signature,
+        "mutable-cell:Proposal",
+        "runtime-required",
+        "mutate-field-equality",
+        "multisig add_signature",
+    );
+
+    let execute_proposal = action(&result.metadata, "execute_proposal");
+    assert_eq!(execute_proposal.effect_class, "Mutating");
+    assert_destroy(execute_proposal, "proposal", "multisig execute_proposal");
+    assert_create(execute_proposal, "ExecutionRecord", "multisig execute_proposal");
+    assert_runtime_requirement(
+        execute_proposal,
+        "destroy-input:Proposal:proposal",
+        "checked-runtime",
+        "destroy-input-data",
+        "multisig execute_proposal",
+    );
+    assert_runtime_requirement(
+        execute_proposal,
+        "create-output:ExecutionRecord:create_ExecutionRecord",
+        "checked-runtime",
+        "create-output-fields",
+        "multisig execute_proposal",
+    );
+
+    let cancel_proposal = action(&result.metadata, "cancel_proposal");
+    assert_eq!(cancel_proposal.effect_class, "Destroying");
+    assert_destroy(cancel_proposal, "proposal", "multisig cancel_proposal");
+    assert_runtime_requirement(
+        cancel_proposal,
+        "destroy-output-scan:Proposal",
+        "checked-runtime",
+        "destroy-output-absence",
+        "multisig cancel_proposal",
     );
 }
 
@@ -792,27 +1016,28 @@ fn amm_pool_mutable_shared_params_are_scheduler_visible() {
             asm
         );
         assert!(
-            asm.contains(&format!("# cellscript abi: LOAD_CELL reason=mutate_input_data source=Input index={}", expected_input_index))
-                && asm.contains(&format!(
-                    "# cellscript abi: LOAD_CELL reason=mutate_output_data source=Output index={}",
-                    expected_output_index
+            asm.contains(&format!(
+                "# cellscript abi: LOAD_CELL_DATA reason=mutate_input_data source=Input index={}",
+                expected_input_index
+            )) && asm.contains(&format!(
+                "# cellscript abi: LOAD_CELL_DATA reason=mutate_output_data source=Output index={}",
+                expected_output_index
+            )) && expected_preserved.iter().all(|field| {
+                asm.contains(&format!(
+                    "# cellscript abi: verify mutate preserved field Pool.{} Input#{} == Output#{}",
+                    field, expected_input_index, expected_output_index
                 ))
-                && expected_preserved.iter().all(|field| {
-                    asm.contains(&format!(
-                        "# cellscript abi: verify mutate preserved field Pool.{} Input#{} == Output#{}",
-                        field, expected_input_index, expected_output_index
-                    ))
-                }),
+            }),
             "{} should emit executable preserved-field equality checks for the replacement Pool cell:\n{}",
             action_name,
             asm
         );
         assert!(
             asm.contains(&format!(
-                "# cellscript abi: LOAD_CELL reason=mutate_input_transition source=Input index={}",
+                "# cellscript abi: LOAD_CELL_DATA reason=mutate_input_transition source=Input index={}",
                 expected_input_index
             )) && asm.contains(&format!(
-                "# cellscript abi: LOAD_CELL reason=mutate_output_transition source=Output index={}",
+                "# cellscript abi: LOAD_CELL_DATA reason=mutate_output_transition source=Output index={}",
                 expected_output_index
             )) && expected_checked_transitions
                 .iter()
@@ -1373,6 +1598,28 @@ fn launch_seed_pool_composition_is_scheduler_visible() {
     assert!(
         !launch_token.fail_closed_runtime_features.contains(&"output-lock-verification-incomplete".to_string()),
         "recipient locks loaded from fixed tuple-array distribution should be verifier-coverable"
+    );
+    assert!(
+        asm.contains("# cellscript abi: call seed_pool schema param token_a pointer=a0 length=a1"),
+        "launch_token -> seed_pool must use pointer+length ABI for Token arguments:\n{}",
+        asm
+    );
+    assert!(
+        asm.contains(
+            "# cellscript abi: call seed_pool schema param token_a has no tracked ABI length; pass zero length to fail closed"
+        ),
+        "launch_token must fail fast when its locally-created pool token cannot be represented as runtime schema bytes:\n{}",
+        asm
+    );
+    assert!(
+        asm.contains("# cellscript abi: call seed_pool schema param token_b pointer=a2 length=a3"),
+        "launch_token -> seed_pool must preserve the second Token pointer+length ABI:\n{}",
+        asm
+    );
+    assert!(
+        asm.contains("# cellscript abi: call seed_pool fixed-byte param provider pointer=a5 length=a6 size=32"),
+        "launch_token -> seed_pool must preserve Address pointer+length ABI:\n{}",
+        asm
     );
     assert!(
         launch_token.fail_closed_runtime_features.is_empty(),

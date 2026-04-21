@@ -258,6 +258,9 @@ mod tests {
             data_hash: [0x55; 32],
             block_daa_score: 99,
             is_cellbase: false,
+            lock_script: None,
+            type_script: None,
+            data: None,
         }
     }
 

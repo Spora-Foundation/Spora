@@ -193,6 +193,9 @@ mod tests {
             data_hash: [byte.wrapping_add(2); 32],
             block_daa_score: 10_000 + index as u64,
             is_cellbase: index == 0,
+            lock_script: None,
+            type_script: None,
+            data: None,
         }
     }
 

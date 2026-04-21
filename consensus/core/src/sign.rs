@@ -440,6 +440,9 @@ mod tests {
             data_hash: [0; 32],
             block_daa_score,
             is_cellbase,
+            lock_script: Some(lock_script.clone()),
+            type_script: None,
+            data: Some(Vec::new()),
         }
     }
 

@@ -25,6 +25,12 @@ V1 tag gate:
 ./scripts/cellscript_phase4_release_gate.sh v1
 ```
 
+The GitHub Actions workflow `.github/workflows/cellscript-v1.yml` runs `./scripts/cellscript_phase4_release_gate.sh v1`
+on relevant pull requests, pushes to the release branches, and manual dispatch.
+The workflow is intentionally wired to the `v1` mode rather than the weaker
+`quick` or `full` modes so the scope/document/profile-boundary checks remain CI
+enforced.
+
 All gate commands accept `CARGO_TARGET_DIR`, `CARGO_INCREMENTAL`, and `CARGO_BUILD_JOBS` from the environment. The default target directory is `/tmp/spora-cellscript-release-gate-target` so the gate does not contend with an interactive development build.
 
 ## Required Evidence Before Phase 4 Close
@@ -105,8 +111,11 @@ The wallet generator attaches compiled scheduler witnesses only after transactio
 Latest package/tooling/SDK surface evidence, 2026-04-18:
 
 - `CARGO_TARGET_DIR=/tmp/spora-phase4-full-gate-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 ./scripts/cellscript_phase4_release_gate.sh full`
+- `CARGO_TARGET_DIR=/tmp/spora-v1-release-gate-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 cargo test -p cellscript package_manager -- --nocapture --test-threads=1`
+- `CARGO_TARGET_DIR=/tmp/spora-v1-release-gate-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 cargo test -p cellscript lockfile_ -- --nocapture --test-threads=1`
+- `CARGO_TARGET_DIR=/tmp/spora-v1-release-gate-target CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 cargo test -p cellscript --test cli cellc_install_path_updates_lockfile_and_remove_prunes_it -- --nocapture`
 
-The full gate covers package dependency fail-closed tests for registry/Git dependencies and local path dependency resolution, docgen HTML escaping for source-controlled metadata, LSP cross-file rename grouping, invalid-name rejection, Unicode identifier-boundary handling, and comment/string-literal skip behavior, SDK adaptor non-canonical scalar rejection, unit roundtrip coverage, and the executable `adaptor_roundtrip` and `adaptor_reject_noncanonical` examples.
+The full gate covers package dependency fail-closed tests for registry/Git dependencies and local path dependency resolution, local path install writes `Cell.lock`, normal dependency removal prunes stale lock entries, lockfile diagnostics report stale or source/version-mismatched dependencies, docgen HTML escaping for source-controlled metadata, LSP cross-file rename grouping, invalid-name rejection, Unicode identifier-boundary handling, and comment/string-literal skip behavior, SDK adaptor non-canonical scalar rejection, unit roundtrip coverage, and the executable `adaptor_roundtrip` and `adaptor_reject_noncanonical` examples.
 
 Latest artifact and metadata schema security evidence, 2026-04-18:
 

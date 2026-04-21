@@ -233,6 +233,8 @@ fn prefilter_conflicting_template_transactions(
 }
 
 fn synthetic_metadata_from_tree_entry(outpoint: TransactionOutpoint, entry: &CellEntry) -> CellMetadata {
+    let lock_script = entry.lock_script.clone();
+    let type_script = entry.type_script.clone();
     CellMetadata {
         out_point: outpoint,
         capacity: entry.capacity,
@@ -243,11 +245,11 @@ fn synthetic_metadata_from_tree_entry(outpoint: TransactionOutpoint, entry: &Cel
         block_daa_score: entry.block_daa_score,
         is_cellbase: entry.is_cellbase,
         block_hash: ZERO_HASH,
-        lock_code_hash: None,
-        type_code_hash: None,
-        lock_script: None,
-        type_script: None,
-        data: None,
+        lock_code_hash: lock_script.as_ref().map(|script| script.code_hash),
+        type_code_hash: type_script.as_ref().map(|script| script.code_hash),
+        lock_script,
+        type_script,
+        data: entry.data.clone(),
     }
 }
 
@@ -262,11 +264,11 @@ fn synthetic_metadata_from_cell_entry(outpoint: TransactionOutpoint, cell_entry:
         block_daa_score: cell_entry.block_daa_score,
         is_cellbase: cell_entry.is_cellbase,
         block_hash: ZERO_HASH,
-        lock_code_hash: None,
-        type_code_hash: None,
-        lock_script: None,
-        type_script: None,
-        data: None,
+        lock_code_hash: cell_entry.lock_script.as_ref().map(|script| script.code_hash),
+        type_code_hash: cell_entry.type_script.as_ref().map(|script| script.code_hash),
+        lock_script: cell_entry.lock_script.clone(),
+        type_script: cell_entry.type_script.clone(),
+        data: cell_entry.data.clone(),
     }
 }
 
@@ -1394,6 +1396,7 @@ impl VirtualStateProcessor {
         )
     }
 
+    #[allow(dead_code)]
     fn calculate_and_commit_virtual_state(
         &self,
         virtual_read: RwLockUpgradableReadGuard<'_, VirtualStores>,
@@ -2543,7 +2546,8 @@ impl VirtualStateProcessor {
                 Hash::from_bytes(meta.data_hash),
                 meta.block_daa_score,
                 meta.is_cellbase,
-            );
+            )
+            .with_resolved_metadata(meta.lock_script.clone(), meta.type_script.clone(), meta.data.clone());
 
             current_tree.insert_with_outpoint(outpoint_hash, exec_outpoint(outpoint), entry);
         }
@@ -2593,8 +2597,23 @@ impl VirtualStateProcessor {
 
         // Cell model: Transactions are validated during block processing
         // For pruning point import, we trust the validated cell_root
-        let validated_transactions = &new_pruning_point_transactions[1..]; // Skip coinbase
+        let validated_transactions = if new_pruning_point_transactions.first().is_some_and(|tx| tx.is_coinbase()) {
+            &new_pruning_point_transactions[1..]
+        } else {
+            &new_pruning_point_transactions[..]
+        };
         info!("Accepted {} transactions for pruning point", validated_transactions.len());
+
+        let imported_cell_diff = CellDiff {
+            add: imported_cell_tree
+                .iter_by_outpoint()
+                .map(|(outpoint, _, entry)| {
+                    let tx_outpoint = TransactionOutpoint::new(outpoint.tx_hash, outpoint.index);
+                    (tx_outpoint, synthetic_metadata_from_tree_entry(tx_outpoint, entry).to_cell_meta())
+                })
+                .collect(),
+            remove: Default::default(),
+        };
 
         {
             // Store the imported cell_root
@@ -2602,6 +2621,9 @@ impl VirtualStateProcessor {
             self.cell_roots_store
                 .insert_batch(&mut batch, new_pruning_point, imported_cell_root)
                 .expect("cell root insertion must succeed");
+            self.cell_diffs_store
+                .insert_batch(&mut batch, new_pruning_point, Arc::new(imported_cell_diff.clone()))
+                .expect("cell diff insertion must succeed");
 
             let statuses_write =
                 self.statuses_store.set_batch(&mut batch, new_pruning_point, StatusCellValid).expect("status write must succeed");
@@ -2609,18 +2631,24 @@ impl VirtualStateProcessor {
             drop(statuses_write);
         }
 
-        // Calculate the virtual state, treating the pruning point as the only virtual parent
+        // Set the virtual state directly from the imported pruning-point tree.
+        // Recomputing it from the previous virtual state would lose preallocated/imported cells.
         let virtual_parents = vec![new_pruning_point];
         let virtual_ghostdag_data = self.ghostdag_manager.ghostdag(&virtual_parents);
-
-        self.calculate_and_commit_virtual_state(
-            virtual_read,
+        let imported_virtual_state = Arc::new(VirtualState::new(
             virtual_parents,
+            new_pruning_point_header.daa_score,
+            new_pruning_point_header.bits,
+            new_pruning_point_header.timestamp,
+            imported_cell_tree,
+            CellDiff::new(),
+            Vec::new(),
+            validated_transactions.iter().map(|tx| tx.id().into()).collect(),
+            Default::default(),
+            BlockHashSet::from_iter(std::iter::once(new_pruning_point)),
             virtual_ghostdag_data,
-            ZERO_HASH,
-            &mut CellDiff::default(),
-            &ChainPath::default(),
-        )?;
+        ));
+        self.commit_virtual_state(virtual_read, imported_virtual_state, &CellDiff::default(), &ChainPath::default());
 
         Ok(())
     }

@@ -102,6 +102,9 @@ mod tests {
             data_hash: [2u8; 32],
             block_daa_score: 11,
             is_cellbase: true,
+            lock_script: None,
+            type_script: None,
+            data: None,
         };
         let mut diff_c = CellDiff::default();
         diff_c.add_cell(cell_c_outpoint, cell_c_meta.clone());
@@ -117,6 +120,9 @@ mod tests {
             data_hash: [4u8; 32],
             block_daa_score: 11,
             is_cellbase: true,
+            lock_script: None,
+            type_script: None,
+            data: None,
         };
         let mut diff_b = CellDiff::default();
         diff_b.add_cell(cell_b_outpoint, cell_b_meta.clone());
@@ -167,6 +173,9 @@ mod tests {
             data_hash: [2u8; 32],
             block_daa_score: 1,
             is_cellbase: true,
+            lock_script: None,
+            type_script: None,
+            data: None,
         };
         diff.remove_cell(cell1_outpoint, meta.clone());
         // Trying to remove the same outpoint again in diff composition must error
@@ -229,6 +238,9 @@ mod tests {
             data_hash: [2u8; 32],
             block_daa_score: 50,
             is_cellbase: true,
+            lock_script: None,
+            type_script: None,
+            data: None,
         };
 
         // Chain 1: Block B spends Cell_A, creates Cell_B
@@ -242,6 +254,9 @@ mod tests {
             data_hash: [4u8; 32],
             block_daa_score: 100,
             is_cellbase: false,
+            lock_script: None,
+            type_script: None,
+            data: None,
         };
 
         let mut chain1_diff = CellDiff::default();
@@ -354,6 +369,9 @@ mod tests {
             data_hash: [0x20; 32],
             block_daa_score: 10,
             is_cellbase: true,
+            lock_script: None,
+            type_script: None,
+            data: None,
         };
 
         let mut diff_x = CellDiff::default();
@@ -370,6 +388,9 @@ mod tests {
             data_hash: [0x40; 32],
             block_daa_score: 11,
             is_cellbase: false,
+            lock_script: None,
+            type_script: None,
+            data: None,
         };
 
         let mut diff_y = CellDiff::default();
@@ -460,6 +481,9 @@ mod tests {
             data_hash: [2u8; 32],
             block_daa_score: 50,
             is_cellbase: true,
+            lock_script: None,
+            type_script: None,
+            data: None,
         };
 
         // Block A diff: creates Cell_A

@@ -69,6 +69,13 @@ message RpcTransaction {
   string payload = 8;
   RpcTransactionVerboseData verboseData = 9;
   uint64 mass = 10;
+  repeated RpcCellDep cellDeps = 11;
+  repeated string headerDeps = 12;
+}
+
+message RpcCellDep {
+  RpcOutpoint outPoint = 1;
+  uint32 depType = 2;
 }
 
 message RpcTransactionInput {

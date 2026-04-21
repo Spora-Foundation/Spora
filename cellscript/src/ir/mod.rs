@@ -13,6 +13,14 @@ pub struct IrModule {
     pub name: String,
     pub items: Vec<IrItem>,
     pub external_type_defs: Vec<IrTypeDef>,
+    pub external_callable_abis: Vec<IrCallableAbi>,
+}
+
+#[derive(Debug, Clone)]
+pub struct IrCallableAbi {
+    pub name: String,
+    pub params: Vec<IrParam>,
+    pub type_hash_param_indices: BTreeSet<usize>,
 }
 
 /// IR 模块项
@@ -369,7 +377,12 @@ impl IrGenerator {
     /// 创建新的 IR 生成器
     pub fn new(module_name: String) -> Self {
         Self {
-            module: IrModule { name: module_name, items: Vec::new(), external_type_defs: Vec::new() },
+            module: IrModule {
+                name: module_name,
+                items: Vec::new(),
+                external_type_defs: Vec::new(),
+                external_callable_abis: Vec::new(),
+            },
             var_counter: 0,
             block_counter: 0,
             aggregate_fields: HashMap::new(),
@@ -3159,6 +3172,8 @@ pub fn generate_with_resolver(ast: &Module, resolver: &ModuleResolver, module_na
     let mut receipt_claim_outputs = HashMap::new();
     let mut external_type_defs = Vec::new();
     let mut external_type_names = HashSet::new();
+    let mut external_callable_abis = Vec::new();
+    let mut external_callable_names = HashSet::new();
     let mut external_function_effects = HashMap::new();
     let mut external_function_return_types = HashMap::new();
 
@@ -3187,14 +3202,16 @@ pub fn generate_with_resolver(ast: &Module, resolver: &ModuleResolver, module_na
             }
             if let Some(function) = resolver.resolve_function(module_name, &local_name) {
                 external_function_effects.insert(local_name.clone(), function_def_effect_class(&function));
-                external_function_return_types.insert(local_name, function_def_return_type(&function));
+                external_function_return_types.insert(local_name.clone(), function_def_return_type(&function));
+                push_external_callable_abi(&mut external_callable_abis, &mut external_callable_names, local_name, &function);
             }
         }
     }
     for call_name in collect_call_names(ast) {
         if let Some(function) = resolver.resolve_function(module_name, &call_name) {
             external_function_effects.insert(call_name.clone(), function_def_effect_class(&function));
-            external_function_return_types.insert(call_name, function_def_return_type(&function));
+            external_function_return_types.insert(call_name.clone(), function_def_return_type(&function));
+            push_external_callable_abi(&mut external_callable_abis, &mut external_callable_names, call_name, &function);
         }
     }
 
@@ -3208,7 +3225,47 @@ pub fn generate_with_resolver(ast: &Module, resolver: &ModuleResolver, module_na
     );
     let mut ir = generator.generate(ast)?;
     ir.external_type_defs = external_type_defs;
+    ir.external_callable_abis = external_callable_abis;
     Ok(ir)
+}
+
+fn push_external_callable_abi(
+    external_callable_abis: &mut Vec<IrCallableAbi>,
+    external_callable_names: &mut HashSet<String>,
+    name: String,
+    function: &FunctionDef,
+) {
+    if !external_callable_names.insert(name.clone()) {
+        return;
+    }
+    external_callable_abis.push(IrCallableAbi {
+        name,
+        params: function_def_params(function),
+        type_hash_param_indices: BTreeSet::new(),
+    });
+}
+
+fn function_def_params(function: &FunctionDef) -> Vec<IrParam> {
+    let params = match function {
+        FunctionDef::Action(action) => &action.params,
+        FunctionDef::Function(function) => &function.params,
+        FunctionDef::Lock(lock) => &lock.params,
+    };
+    params
+        .iter()
+        .enumerate()
+        .map(|(index, param)| {
+            let ty = ast_type_to_ir(&param.ty);
+            IrParam {
+                name: param.name.clone(),
+                ty: ty.clone(),
+                is_mut: param.is_mut,
+                is_ref: param.is_ref,
+                is_read_ref: param.is_read_ref,
+                binding: IrVar { id: index, name: param.name.clone(), ty },
+            }
+        })
+        .collect()
 }
 
 fn collect_call_names(ast: &Module) -> HashSet<String> {

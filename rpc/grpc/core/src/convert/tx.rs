@@ -15,7 +15,13 @@ from!(item: &spora_rpc_core::RpcTransaction, protowire::RpcTransaction, {
         payload: item.payload.to_rpc_hex(),
         mass: item.mass,
         verbose_data: item.verbose_data.as_ref().map(|x| x.into()),
+        cell_deps: item.cell_deps.iter().map(protowire::RpcCellDep::from).collect(),
+        header_deps: item.header_deps.iter().map(ToString::to_string).collect(),
     }
+});
+
+from!(item: &spora_rpc_core::RpcCellDep, protowire::RpcCellDep, {
+    Self { out_point: Some((&item.out_point).into()), dep_type: item.dep_type as u32 }
 });
 
 from!(item: &spora_rpc_core::RpcTransactionInput, protowire::RpcTransactionInput, {
@@ -114,6 +120,12 @@ try_from!(item: &protowire::RpcTransaction, spora_rpc_core::RpcTransaction, {
             .iter()
             .map(spora_rpc_core::RpcTransactionInput::try_from)
             .collect::<RpcResult<Vec<spora_rpc_core::RpcTransactionInput>>>()?,
+        cell_deps: item
+            .cell_deps
+            .iter()
+            .map(spora_rpc_core::RpcCellDep::try_from)
+            .collect::<RpcResult<Vec<spora_rpc_core::RpcCellDep>>>()?,
+        header_deps: item.header_deps.iter().map(|hash| RpcHash::from_str(hash)).collect::<Result<Vec<_>, _>>()?,
         outputs: item
             .outputs
             .iter()
@@ -122,6 +134,22 @@ try_from!(item: &protowire::RpcTransaction, spora_rpc_core::RpcTransaction, {
         payload: Vec::from_rpc_hex(&item.payload)?,
         mass: item.mass,
         verbose_data: item.verbose_data.as_ref().map(spora_rpc_core::RpcTransactionVerboseData::try_from).transpose()?,
+    }
+});
+
+try_from!(item: &protowire::RpcCellDep, spora_rpc_core::RpcCellDep, {
+    let dep_type = match item.dep_type {
+        0 => spora_rpc_core::RpcDepType::Code,
+        1 => spora_rpc_core::RpcDepType::DepGroup,
+        value => return Err(RpcError::General(format!("invalid RpcCellDep.depType: {value}"))),
+    };
+    Self {
+        out_point: item
+            .out_point
+            .as_ref()
+            .ok_or_else(|| RpcError::MissingRpcFieldError("RpcCellDep".to_string(), "outPoint".to_string()))?
+            .try_into()?,
+        dep_type,
     }
 });
 
@@ -237,3 +265,80 @@ try_from!(item: &protowire::RpcCellsByAddressesEntry, spora_rpc_core::RpcCellsBy
             .try_into()?,
     }
 });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spora_consensus_core::tx::{CellDep, CellInput, CellOutput, CellTx, DepType, OutPoint, Script};
+
+    #[test]
+    fn rpc_transaction_protowire_roundtrip_preserves_cell_and_header_deps() {
+        let mut tx = CellTx::new(
+            vec![CellInput::new(OutPoint::new([0x11; 32], 2), 42)],
+            vec![
+                CellDep { out_point: OutPoint::new([0x33; 32], 4), dep_type: DepType::Code },
+                CellDep { out_point: OutPoint::new([0x44; 32], 5), dep_type: DepType::DepGroup },
+            ],
+            vec![CellOutput {
+                lock: Script::new([0x22; 32], 1, vec![0xaa, 0xbb]),
+                type_: Some(Script::new([0x23; 32], 2, vec![0xcc])),
+                capacity: 1_337,
+            }],
+            vec![vec![1, 2, 3, 4]],
+            vec![vec![0xde, 0xad]],
+        )
+        .expect("fixture CellTx is valid");
+        tx.header_deps = vec![[0x55; 32], [0x66; 32]];
+
+        let rpc_tx = spora_rpc_core::RpcTransaction::from(&tx);
+        let wire = protowire::RpcTransaction::from(&rpc_tx);
+
+        assert_eq!(wire.cell_deps.len(), 2);
+        assert_eq!(wire.cell_deps[0].dep_type, 0);
+        assert_eq!(wire.cell_deps[1].dep_type, 1);
+        assert_eq!(
+            wire.cell_deps[0].out_point.as_ref().expect("cell dep has out point").transaction_id,
+            RpcHash::from_bytes([0x33; 32]).to_string()
+        );
+        assert_eq!(wire.header_deps, vec![RpcHash::from_bytes([0x55; 32]).to_string(), RpcHash::from_bytes([0x66; 32]).to_string()]);
+
+        let restored_rpc =
+            spora_rpc_core::RpcTransaction::try_from(&wire).expect("protowire transaction converts back into RPC model");
+        assert_eq!(restored_rpc.cell_deps, rpc_tx.cell_deps);
+        assert_eq!(restored_rpc.header_deps, rpc_tx.header_deps);
+        assert_eq!(restored_rpc.inputs[0].witness, vec![0xde, 0xad]);
+        assert_eq!(restored_rpc.outputs[0].output_data, Some(vec![1, 2, 3, 4]));
+        assert_eq!(restored_rpc.outputs[0].type_script, rpc_tx.outputs[0].type_script);
+
+        let restored_tx = CellTx::try_from(restored_rpc).expect("RPC transaction converts back into CellTx");
+        assert_eq!(restored_tx.inputs, tx.inputs);
+        assert_eq!(restored_tx.cell_deps, tx.cell_deps);
+        assert_eq!(restored_tx.header_deps, tx.header_deps);
+        assert_eq!(restored_tx.outputs, tx.outputs);
+        assert_eq!(restored_tx.outputs_data, tx.outputs_data);
+        assert_eq!(restored_tx.witnesses, tx.witnesses);
+    }
+
+    #[test]
+    fn rpc_cell_dep_rejects_invalid_dep_type() {
+        let wire = protowire::RpcCellDep {
+            out_point: Some(protowire::RpcOutpoint { transaction_id: RpcHash::from_bytes([0x77; 32]).to_string(), index: 0 }),
+            dep_type: 7,
+        };
+
+        let error = spora_rpc_core::RpcCellDep::try_from(&wire).expect_err("invalid dep type must be rejected");
+
+        assert!(error.to_string().contains("invalid RpcCellDep.depType: 7"));
+    }
+
+    #[test]
+    fn rpc_cell_dep_requires_out_point() {
+        let wire = protowire::RpcCellDep { out_point: None, dep_type: 0 };
+
+        let error = spora_rpc_core::RpcCellDep::try_from(&wire).expect_err("missing out point must be rejected");
+        let message = error.to_string();
+
+        assert!(message.contains("RpcCellDep"));
+        assert!(message.contains("outPoint"));
+    }
+}

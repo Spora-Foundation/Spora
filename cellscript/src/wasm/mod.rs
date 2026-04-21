@@ -557,7 +557,12 @@ mod tests {
 
     #[test]
     fn wasm_audit_reports_metadata_only_for_type_only_module() {
-        let ir = IrModule { name: "types_only".to_string(), items: Vec::new(), external_type_defs: Vec::new() };
+        let ir = IrModule {
+            name: "types_only".to_string(),
+            items: Vec::new(),
+            external_type_defs: Vec::new(),
+            external_callable_abis: Vec::new(),
+        };
         let report = audit_module(&ir);
         assert_eq!(report.status, WasmSupportStatus::MetadataOnly);
         assert!(report.blockers.is_empty());
@@ -568,6 +573,7 @@ mod tests {
         let ir = IrModule {
             name: "demo".to_string(),
             external_type_defs: Vec::new(),
+            external_callable_abis: Vec::new(),
             items: vec![IrItem::Action(IrAction {
                 name: "main".to_string(),
                 params: Vec::new(),

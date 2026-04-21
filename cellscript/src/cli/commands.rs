@@ -8,7 +8,8 @@ use crate::fmt::format_default;
 use crate::package::{Dependency, DetailedDependency, Lockfile, PackageManager, PolicyConfig};
 use crate::{
     compile_path, default_metadata_path_for_artifact, default_output_path_for_input, load_modules_for_input, resolve_input_path,
-    validate_artifact_metadata, validate_source_units_on_disk, ArtifactFormat, CompileMetadata, CompileOptions, TargetProfile,
+    validate_artifact_metadata, validate_source_units_on_disk, ArtifactFormat, CompileMetadata, CompileOptions, EntryWitnessArg,
+    ParamMetadata, TargetProfile, ENTRY_WITNESS_ABI,
 };
 use camino::Utf8Path;
 #[cfg(feature = "vm-runner")]
@@ -45,6 +46,8 @@ pub enum Command {
     Check(CheckArgs),
     /// 输出 lowering/runtime 元数据
     Metadata(MetadataArgs),
+    /// Encode generated entry wrapper witness bytes
+    EntryWitness(EntryWitnessArgs),
     /// 验证已生成 artifact 和 metadata 是否一致
     VerifyArtifact(VerifyArtifactArgs),
     /// 运行程序
@@ -175,6 +178,19 @@ pub struct MetadataArgs {
     pub target_profile: Option<String>,
 }
 
+/// Entry witness encoding arguments
+#[derive(Debug, Default)]
+pub struct EntryWitnessArgs {
+    pub input: Option<PathBuf>,
+    pub action: Option<String>,
+    pub lock: Option<String>,
+    pub args: Vec<String>,
+    pub output: Option<PathBuf>,
+    pub target: Option<String>,
+    pub target_profile: Option<String>,
+    pub json: bool,
+}
+
 /// 产物验证参数
 #[derive(Debug, Default)]
 pub struct VerifyArtifactArgs {
@@ -246,6 +262,7 @@ impl CommandExecutor {
             Command::Repl => Self::repl(),
             Command::Check(args) => Self::check(args),
             Command::Metadata(args) => Self::metadata(args),
+            Command::EntryWitness(args) => Self::entry_witness(args),
             Command::VerifyArtifact(args) => Self::verify_artifact(args),
             Command::Run(args) => Self::run(args),
             Command::Publish(args) => Self::publish(args),
@@ -714,6 +731,9 @@ impl CommandExecutor {
         }
 
         pm.write_manifest(&manifest)?;
+        if !args.dev && !args.build {
+            prune_locked_dependencies(&removed)?;
+        }
 
         if args.json {
             let summary = serde_json::json!({
@@ -897,6 +917,95 @@ impl CommandExecutor {
             println!("  Output: {}", output_path.display());
         } else {
             println!("{}", json);
+        }
+        Ok(())
+    }
+
+    /// Encode witness bytes for the generated `_cellscript_entry` wrapper.
+    fn entry_witness(args: EntryWitnessArgs) -> Result<()> {
+        if args.action.is_some() && args.lock.is_some() {
+            return Err(crate::error::CompileError::without_span("entry-witness accepts either --action or --lock, not both"));
+        }
+
+        let input_path = args.input.clone().unwrap_or_else(|| PathBuf::from("."));
+        let input = Utf8Path::from_path(&input_path)
+            .ok_or_else(|| crate::error::CompileError::without_span(format!("path '{}' is not valid UTF-8", input_path.display())))?;
+        let result = compile_path(
+            input,
+            CompileOptions { opt_level: 0, output: None, debug: false, target: args.target, target_profile: args.target_profile },
+        )?;
+
+        let selected = select_entry_witness_metadata(&result.metadata, args.action.as_deref(), args.lock.as_deref())?;
+        if selected.params.is_empty() {
+            return Err(crate::error::CompileError::without_span(format!(
+                "{} '{}' has no parameters; `_cellscript_entry` witness ABI is only emitted for parameterized entries",
+                selected.kind, selected.name
+            )));
+        }
+
+        let payload_params =
+            selected.params.iter().filter(|param| !(param.schema_pointer_abi || param.schema_length_abi)).collect::<Vec<_>>();
+        if args.args.len() != payload_params.len() {
+            return Err(crate::error::CompileError::without_span(format!(
+                "{} '{}' expects {} witness payload arg(s), got {}; schema-backed parameters are omitted",
+                selected.kind,
+                selected.name,
+                payload_params.len(),
+                args.args.len()
+            )));
+        }
+
+        let witness_args = payload_params
+            .iter()
+            .zip(args.args.iter())
+            .map(|(param, value)| parse_entry_witness_arg(param, value))
+            .collect::<Result<Vec<_>>>()?;
+        let witness = crate::encode_entry_witness_args_for_params(selected.params, &witness_args)
+            .map_err(|error| crate::error::CompileError::without_span(format!("failed to encode entry witness: {}", error)))?;
+        let witness_hex = crate::hex_encode(&witness);
+
+        if let Some(output_path) = &args.output {
+            if let Some(parent) = output_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(output_path, &witness)?;
+        }
+
+        if args.json {
+            let schema_backed_params = selected
+                .params
+                .iter()
+                .filter(|param| param.schema_pointer_abi || param.schema_length_abi)
+                .map(|param| param.name.as_str())
+                .collect::<Vec<_>>();
+            let payload_param_names = payload_params.iter().map(|param| param.name.as_str()).collect::<Vec<_>>();
+            let summary = serde_json::json!({
+                "status": "ok",
+                "abi": ENTRY_WITNESS_ABI,
+                "entry_kind": selected.kind,
+                "entry": selected.name,
+                "witness_hex": witness_hex,
+                "witness_size_bytes": witness.len(),
+                "payload_args": witness_args.len(),
+                "payload_params": payload_param_names,
+                "schema_backed_params_omitted": schema_backed_params,
+                "output": args.output.as_ref().map(|path| path.display().to_string()),
+            });
+            let json = serde_json::to_string_pretty(&summary).map_err(|error| {
+                crate::error::CompileError::without_span(format!("failed to serialize entry witness summary: {}", error))
+            })?;
+            println!("{}", json);
+            return Ok(());
+        }
+
+        if let Some(output_path) = &args.output {
+            println!("{}", "Entry witness encoded".green());
+            println!("  ABI: {}", ENTRY_WITNESS_ABI);
+            println!("  Entry: {} {}", selected.kind, selected.name);
+            println!("  Output: {}", output_path.display());
+            println!("  Hex: {}", witness_hex);
+        } else {
+            println!("{}", witness_hex);
         }
         Ok(())
     }
@@ -1297,12 +1406,19 @@ impl CommandExecutor {
             };
 
             // 验证路径依赖
-            pm.resolve_from_path(&crate_name, &path.to_string_lossy())?;
+            let resolved = pm.resolve_from_path(&crate_name, &path.to_string_lossy())?;
 
             // 写入 Cell.toml
             let mut manifest = pm.read_manifest()?;
             manifest.dependencies.insert(crate_name.clone(), Dependency::Detailed(dep));
             pm.write_manifest(&manifest)?;
+
+            // 更新锁文件
+            let mut lockfile = Lockfile::read_from_root(std::path::Path::new(".")).unwrap_or_default();
+            let mut resolved_map = HashMap::new();
+            resolved_map.insert(crate_name.clone(), resolved);
+            lockfile.update_from_resolved(&resolved_map);
+            lockfile.write_to_root(std::path::Path::new("."))?;
 
             println!("{}", format!("Installed {} from path {}", crate_name, path.display()).green());
             Ok(())
@@ -1322,7 +1438,7 @@ impl CommandExecutor {
 
             // 更新锁文件
             let mut lockfile = Lockfile::read_from_root(std::path::Path::new(".")).unwrap_or_default();
-            lockfile.update_from_resolved(pm.get_resolved());
+            lockfile.replace_with_resolved(pm.get_resolved());
             lockfile.write_to_root(std::path::Path::new("."))?;
 
             println!("{}", "Dependencies resolved and lockfile updated".green());
@@ -1342,7 +1458,7 @@ impl CommandExecutor {
         let mut lockfile = Lockfile::read_from_root(std::path::Path::new(".")).unwrap_or_default();
 
         // 更新锁文件
-        lockfile.update_from_resolved(pm.get_resolved());
+        lockfile.replace_with_resolved(pm.get_resolved());
         lockfile.write_to_root(std::path::Path::new("."))?;
 
         // 显示已解析的依赖
@@ -1362,8 +1478,12 @@ impl CommandExecutor {
         }
 
         // 检查一致性
-        if !lockfile.is_consistent(&manifest) {
+        let lockfile_issues = lockfile.consistency_issues(&manifest);
+        if !lockfile_issues.is_empty() {
             println!("{}", "Warning: lockfile is not consistent with Cell.toml".yellow());
+            for issue in lockfile_issues {
+                println!("  - {}", issue);
+            }
         }
 
         Ok(())
@@ -1586,6 +1706,24 @@ fn dependency_from_add_args(args: &AddArgs) -> Dependency {
         }),
         _ => Dependency::Simple("*".to_string()),
     }
+}
+
+fn prune_locked_dependencies(removed: &[String]) -> Result<()> {
+    if removed.is_empty() {
+        return Ok(());
+    }
+    let root = Path::new(".");
+    let Some(mut lockfile) = Lockfile::read_from_root(root) else {
+        return Ok(());
+    };
+    let mut changed = false;
+    for name in removed {
+        changed |= lockfile.dependencies.remove(name).is_some();
+    }
+    if changed {
+        lockfile.write_to_root(root)?;
+    }
+    Ok(())
 }
 
 fn effective_build_check_args(args: &BuildArgs) -> Result<CheckArgs> {
@@ -2581,6 +2719,172 @@ fn run_elf_in_ckb_vm(program: &[u8], args: &[Vec<u8>]) -> Result<u64> {
     Ok(machine.machine.cycles())
 }
 
+struct SelectedEntryWitnessMetadata<'a> {
+    kind: &'static str,
+    name: &'a str,
+    params: &'a [ParamMetadata],
+}
+
+fn select_entry_witness_metadata<'a>(
+    metadata: &'a CompileMetadata,
+    action: Option<&str>,
+    lock: Option<&str>,
+) -> Result<SelectedEntryWitnessMetadata<'a>> {
+    if let Some(name) = action {
+        let action = metadata
+            .actions
+            .iter()
+            .find(|candidate| candidate.name == name)
+            .ok_or_else(|| crate::error::CompileError::without_span(format!("action '{}' was not found in metadata", name)))?;
+        return Ok(SelectedEntryWitnessMetadata { kind: "action", name: action.name.as_str(), params: &action.params });
+    }
+    if let Some(name) = lock {
+        let lock = metadata
+            .locks
+            .iter()
+            .find(|candidate| candidate.name == name)
+            .ok_or_else(|| crate::error::CompileError::without_span(format!("lock '{}' was not found in metadata", name)))?;
+        return Ok(SelectedEntryWitnessMetadata { kind: "lock", name: lock.name.as_str(), params: &lock.params });
+    }
+
+    let mut entries = metadata
+        .actions
+        .iter()
+        .filter(|action| !action.params.is_empty())
+        .map(|action| SelectedEntryWitnessMetadata { kind: "action", name: action.name.as_str(), params: action.params.as_slice() })
+        .chain(metadata.locks.iter().filter(|lock| !lock.params.is_empty()).map(|lock| SelectedEntryWitnessMetadata {
+            kind: "lock",
+            name: lock.name.as_str(),
+            params: lock.params.as_slice(),
+        }))
+        .collect::<Vec<_>>();
+
+    match entries.len() {
+        1 => Ok(entries.remove(0)),
+        0 => Err(crate::error::CompileError::without_span(
+            "no parameterized action or lock found; specify --action or --lock for explicit selection",
+        )),
+        _ => Err(crate::error::CompileError::without_span(
+            "multiple parameterized actions/locks found; specify --action NAME or --lock NAME",
+        )),
+    }
+}
+
+fn parse_entry_witness_arg(param: &ParamMetadata, value: &str) -> Result<EntryWitnessArg> {
+    if param.schema_pointer_abi || param.schema_length_abi {
+        return Err(crate::error::CompileError::without_span(format!(
+            "parameter '{}' is schema-backed and must be omitted from entry witness args",
+            param.name
+        )));
+    }
+
+    if let Some(width) = param.fixed_byte_len {
+        return parse_entry_witness_fixed_arg(param, value, width);
+    }
+
+    match param.ty.as_str() {
+        "bool" => parse_bool_arg(&param.name, value).map(EntryWitnessArg::Bool),
+        "u8" => parse_integer_arg(&param.name, value, u8::MAX as u128).map(|value| EntryWitnessArg::U8(value as u8)),
+        "u16" => parse_integer_arg(&param.name, value, u16::MAX as u128).map(|value| EntryWitnessArg::U16(value as u16)),
+        "u32" => parse_integer_arg(&param.name, value, u32::MAX as u128).map(|value| EntryWitnessArg::U32(value as u32)),
+        "u64" => parse_integer_arg(&param.name, value, u64::MAX as u128).map(|value| EntryWitnessArg::U64(value as u64)),
+        "()" => Ok(EntryWitnessArg::Unit),
+        other => {
+            let Some(width) = crate::entry_witness_static_type_len(other).filter(|width| (1..=8).contains(width)) else {
+                return Err(crate::error::CompileError::without_span(format!(
+                    "parameter '{}' has unsupported entry witness CLI type '{}'",
+                    param.name, param.ty
+                )));
+            };
+            decode_hex_arg(&param.name, value, Some(width)).map(EntryWitnessArg::Bytes)
+        }
+    }
+}
+
+fn parse_entry_witness_fixed_arg(param: &ParamMetadata, value: &str, width: usize) -> Result<EntryWitnessArg> {
+    match param.ty.as_str() {
+        "u128" if width == 16 => parse_integer_arg(&param.name, value, u128::MAX).map(EntryWitnessArg::U128),
+        "Address" if width == 32 => {
+            let bytes = decode_hex_arg(&param.name, value, Some(32))?;
+            let bytes: [u8; 32] = bytes.try_into().map_err(|_| {
+                crate::error::CompileError::without_span(format!("parameter '{}' expects exactly 32 hex bytes", param.name))
+            })?;
+            Ok(EntryWitnessArg::Address(bytes))
+        }
+        "Hash" if width == 32 => {
+            let bytes = decode_hex_arg(&param.name, value, Some(32))?;
+            let bytes: [u8; 32] = bytes.try_into().map_err(|_| {
+                crate::error::CompileError::without_span(format!("parameter '{}' expects exactly 32 hex bytes", param.name))
+            })?;
+            Ok(EntryWitnessArg::Hash(bytes))
+        }
+        _ => decode_hex_arg(&param.name, value, Some(width)).map(EntryWitnessArg::Bytes),
+    }
+}
+
+fn parse_bool_arg(name: &str, value: &str) -> Result<bool> {
+    match value.trim() {
+        "true" | "1" => Ok(true),
+        "false" | "0" => Ok(false),
+        other => Err(crate::error::CompileError::without_span(format!(
+            "parameter '{}' expects bool value true/false/1/0, got '{}'",
+            name, other
+        ))),
+    }
+}
+
+fn parse_integer_arg(name: &str, value: &str, max: u128) -> Result<u128> {
+    let trimmed = value.trim();
+    let parsed = if let Some(hex) = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X")) {
+        u128::from_str_radix(hex, 16)
+    } else {
+        trimmed.parse::<u128>()
+    }
+    .map_err(|error| crate::error::CompileError::without_span(format!("parameter '{}' expects integer: {}", name, error)))?;
+    if parsed > max {
+        return Err(crate::error::CompileError::without_span(format!(
+            "parameter '{}' integer value {} is out of range",
+            name, parsed
+        )));
+    }
+    Ok(parsed)
+}
+
+fn decode_hex_arg(name: &str, value: &str, expected_len: Option<usize>) -> Result<Vec<u8>> {
+    let trimmed = value.trim();
+    let hex = trimmed
+        .strip_prefix("hex:")
+        .or_else(|| trimmed.strip_prefix("HEX:"))
+        .or_else(|| trimmed.strip_prefix("0x"))
+        .or_else(|| trimmed.strip_prefix("0X"))
+        .unwrap_or(trimmed);
+    if hex.len() % 2 != 0 {
+        return Err(crate::error::CompileError::without_span(format!("parameter '{}' hex value must contain full bytes", name)));
+    }
+    let bytes = (0..hex.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&hex[index..index + 2], 16).map_err(|error| {
+                crate::error::CompileError::without_span(format!(
+                    "parameter '{}' has invalid hex byte at offset {}: {}",
+                    name, index, error
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if let Some(expected_len) = expected_len {
+        if bytes.len() != expected_len {
+            return Err(crate::error::CompileError::without_span(format!(
+                "parameter '{}' expects {} byte(s), got {}",
+                name,
+                expected_len,
+                bytes.len()
+            )));
+        }
+    }
+    Ok(bytes)
+}
+
 /// 命令行解析
 pub struct CliParser;
 
@@ -2763,6 +3067,30 @@ impl CliParser {
                             .value_name("PROFILE")
                             .help("Target profile: spora, ckb, or portable-cell"),
                     ),
+            )
+            .subcommand(
+                ClapCommand::new("entry-witness")
+                    .about("Encode witness bytes for the generated _cellscript_entry wrapper")
+                    .arg(Arg::new("input").value_name("INPUT").help("Input .cell file, package directory, or Cell.toml"))
+                    .arg(Arg::new("action").long("action").value_name("NAME").help("Encode witness bytes for this action"))
+                    .arg(Arg::new("lock").long("lock").value_name("NAME").help("Encode witness bytes for this lock"))
+                    .arg(
+                        Arg::new("arg")
+                            .long("arg")
+                            .value_name("VALUE")
+                            .num_args(1)
+                            .action(ArgAction::Append)
+                            .help("Witness payload argument; schema-backed params are omitted, byte params use hex"),
+                    )
+                    .arg(Arg::new("output").long("output").short('o').value_name("FILE").help("Write raw witness bytes to a file"))
+                    .arg(Arg::new("target").long("target").short('t').value_name("TARGET").help("Target architecture"))
+                    .arg(
+                        Arg::new("target-profile")
+                            .long("target-profile")
+                            .value_name("PROFILE")
+                            .help("Target profile: spora, ckb, or portable-cell"),
+                    )
+                    .arg(Arg::new("json").long("json").action(ArgAction::SetTrue).help("Emit a machine-readable JSON summary")),
             )
             .subcommand(
                 ClapCommand::new("verify-artifact")
@@ -2959,6 +3287,16 @@ impl CliParser {
                 output: m.get_one::<String>("output").map(PathBuf::from),
                 target: m.get_one::<String>("target").cloned(),
                 target_profile: m.get_one::<String>("target-profile").cloned(),
+            }),
+            Some(("entry-witness", m)) => Command::EntryWitness(EntryWitnessArgs {
+                input: m.get_one::<String>("input").map(PathBuf::from),
+                action: m.get_one::<String>("action").cloned(),
+                lock: m.get_one::<String>("lock").cloned(),
+                args: m.get_many::<String>("arg").map(|values| values.cloned().collect()).unwrap_or_default(),
+                output: m.get_one::<String>("output").map(PathBuf::from),
+                target: m.get_one::<String>("target").cloned(),
+                target_profile: m.get_one::<String>("target-profile").cloned(),
+                json: m.get_flag("json"),
             }),
             Some(("verify-artifact", m)) => Command::VerifyArtifact(VerifyArtifactArgs {
                 artifact: m.get_one::<String>("artifact").map(PathBuf::from).expect("required artifact"),
