@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
 # Set test data directory
 TEST_DATA_DIR="testing/integration/testdata/dags_for_json_tests"
@@ -9,7 +10,7 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 
 # Generate goref_custom_pruning_depth test data
 echo "Generating goref_custom_pruning_depth test data..."
-cargo run --bin simpa -- \
+cargo run --locked --bin simpa -- \
     --bps 1.0 \
     --delay 2.0 \
     --miners 1 \
@@ -20,7 +21,7 @@ cargo run --bin simpa -- \
 
 # Generate goref-notx-5000-blocks test data
 echo "Generating goref-notx-5000-blocks test data..."
-cargo run --bin simpa -- \
+cargo run --locked --bin simpa -- \
     --bps 1.0 \
     --delay 2.0 \
     --miners 1 \
@@ -30,7 +31,7 @@ cargo run --bin simpa -- \
 
 # Generate goref-905-tx-265-blocks test data
 echo "Generating goref-905-tx-265-blocks test data..."
-cargo run --bin simpa -- \
+cargo run --locked --bin simpa -- \
     --bps 1.0 \
     --delay 2.0 \
     --miners 1 \
@@ -44,18 +45,18 @@ for dir in "$TEMP_DIR"/*; do
         dirname=$(basename "$dir")
         echo "Exporting blocks from $dirname..."
         # Start sporad in the background
-        cargo run --bin sporad -- --appdir "$dir" &
+        cargo run --locked --bin sporad -- --appdir "$dir" &
         SPORAD_PID=$!
-        
+
         # Wait for sporad to start
         sleep 2
-        
+
         # Use RPC to get blocks
-        cargo run --bin sporad -- --rpc get-blocks --include-blocks true --include-transactions true > "$TEST_DATA_DIR/$dirname/blocks.json"
-        
+        cargo run --locked --bin sporad -- --rpc get-blocks --include-blocks true --include-transactions true > "$TEST_DATA_DIR/$dirname/blocks.json"
+
         # Kill sporad
-        kill $SPORAD_PID
+        kill "$SPORAD_PID"
     fi
 done
 
-echo "Test data regeneration complete!" 
+echo "Test data regeneration complete!"

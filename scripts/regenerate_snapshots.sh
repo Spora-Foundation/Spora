@@ -1,5 +1,5 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
 # 1. Define snapshot directory
 SNAPSHOT_ROOT="testing/integration/testdata/dags_for_json_tests"
@@ -28,7 +28,7 @@ rm -rf target/debug/build/simpa-*
 echo "Starting to generate new snapshots..."
 
 # goref_custom_pruning_depth - increase block count and transaction count, add delay
-cargo run --bin simpa -- \
+cargo run --locked --bin simpa -- \
     --bps 1.0 \
     --delay 8.0 \
     --miners 1 \
@@ -38,7 +38,7 @@ cargo run --bin simpa -- \
     --output-dir "$SNAPSHOT_ROOT/goref_custom_pruning_depth"
 
 # goref-notx-5000-blocks
-cargo run --bin simpa -- \
+cargo run --locked --bin simpa -- \
     --bps 1.0 \
     --delay 8.0 \
     --miners 1 \
@@ -47,7 +47,7 @@ cargo run --bin simpa -- \
     --output-dir "$SNAPSHOT_ROOT/goref-notx-5000-blocks"
 
 # goref-905-tx-265-blocks
-cargo run --bin simpa -- \
+cargo run --locked --bin simpa -- \
     --bps 1.0 \
     --delay 8.0 \
     --miners 1 \
@@ -55,4 +55,4 @@ cargo run --bin simpa -- \
     --target-blocks 500 \
     --output-dir "$SNAPSHOT_ROOT/goref-905-tx-265-blocks"
 
-echo "All snapshots have been regenerated!" 
+echo "All snapshots have been regenerated!"
