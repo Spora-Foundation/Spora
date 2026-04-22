@@ -1,13 +1,12 @@
 # CellScript: Spora 区块链的领域特定语言
 
-**状态**: 实现中 (Phase 1 编译器 MVP 已收尾，Phase 2 资产生命周期/共享状态 operational exit gate 已关闭，Phase 3 节点/调度器集成 operational exit gate 已关闭，Phase 4 生产强化 operational gate 已关闭；v1 仍是有边界 release promise)
+**状态**: 设计提案；当前执行状态以双链生产计划为准
 **日期**: 2026-04-13  
 **作者**: Spora 核心团队  
 **类别**: 语言设计 / 协议工程  
 **依赖**: ckbvm (RISC-V), CellTx 信封, GhostDAG 共识  
 
-**实现快照文档**: [CELLSCRIPT_IMPLEMENTATION_STATUS.md](/Users/arthur/RustroverProjects/Spora/docs/CELLSCRIPT_IMPLEMENTATION_STATUS.md)
-**执行阶段表**: [CELLSCRIPT_EXECUTION_PHASES.md](/Users/arthur/RustroverProjects/Spora/docs/CELLSCRIPT_EXECUTION_PHASES.md)
+**当前生产计划**: [CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md](./CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md)
 
 ---
 
@@ -15,7 +14,7 @@
 
 > ⚠️ **重要提示**: 本文档是设计提案，描述的是**设计意图**而非**实现真相**。
 > 
-> 若需要了解当前代码的实际状态，请优先查看 **[CELLSCRIPT_IMPLEMENTATION_STATUS.md](/Users/arthur/RustroverProjects/Spora/docs/CELLSCRIPT_IMPLEMENTATION_STATUS.md)**。
+> 若需要了解当前代码的实际状态和下一步推进，请优先查看 **[CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md](./CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md)**。
 > 
 > 以下表格已按当前代码状态收紧，但可能仍有滞后。
 
@@ -1891,7 +1890,7 @@ let tokens = claim vesting_receipt
 
 本节用更具观点性的执行计划取代通用编译器路线图。
 
-实际执行时，阶段状态以 [`CELLSCRIPT_EXECUTION_PHASES.md`](./CELLSCRIPT_EXECUTION_PHASES.md) 为准。该文件维护当前 active 阶段、退出门槛、剩余收尾项和 `go on` 推进规则。
+实际执行时，阶段状态以 [`CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md`](./CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md) 为准。该文件维护当前双链生产级目标、退出门槛、剩余收尾项和下一步推进顺序。
 
 关键决策是：
 

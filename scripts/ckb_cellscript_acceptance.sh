@@ -6,6 +6,7 @@ CKB_REPO="${CKB_REPO:-$(cd "$REPO_ROOT/.." && pwd)/ckb}"
 CKB_BIN="${CKB_BIN:-}"
 RUN_ONCHAIN=1
 KEEP_NODE_LOGS=1
+ACCEPTANCE_MODE="production"
 RUN_ID="$(date +%Y%m%d-%H%M%S)-$$"
 RUN_DIR="$REPO_ROOT/target/ckb-cellscript-acceptance/$RUN_ID"
 CKB_DIR="$RUN_DIR/ckb-node"
@@ -15,10 +16,12 @@ CKB_PID=""
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/ckb_cellscript_acceptance.sh [--ckb-repo <path>] [--ckb-bin <path>] [--compile-only]
+Usage: scripts/ckb_cellscript_acceptance.sh [--ckb-repo <path>] [--ckb-bin <path>] [--compile-only] [--production|--bounded]
 
-Runs the bounded CellScript CKB compatibility acceptance against a local CKB
-integration devnet from the parent CKB repository.
+Runs CellScript CKB compatibility acceptance against a local CKB integration
+devnet from the parent CKB repository. The default mode is the production gate:
+it fails closed if any CKB coverage still depends on smoke bypasses, standalone
+portable harnesses, expected fail-closed entries, or non-original artifacts.
 
 Options:
   --ckb-repo <path>   Parent CKB checkout. Defaults to ../ckb.
@@ -27,6 +30,10 @@ Options:
   --compile-only      Compile and verify the CKB-profile CellScript artifacts,
                       but skip local CKB node deployment/spend checks. This
                       mode does not require a CKB checkout or executable.
+  --production        Enforce the production gate. This is the default.
+  --bounded           Run the bounded development coverage matrix. This keeps
+                      legacy smoke/bounded harnesses visible, but it is not a
+                      production-readiness claim.
   -h, --help          Show this help.
 USAGE
 }
@@ -51,6 +58,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --compile-only)
       RUN_ONCHAIN=0
+      shift
+      ;;
+    --production)
+      ACCEPTANCE_MODE="production"
+      shift
+      ;;
+    --bounded)
+      ACCEPTANCE_MODE="bounded"
       shift
       ;;
     -h|--help)
@@ -219,10 +234,11 @@ if [[ -z "$CELLC_BIN" || ! -x "$CELLC_BIN" ]]; then
   exit 1
 fi
 
-python3 - "$CELLC_BIN" "$REPO_ROOT" "$RUN_DIR" "$REPORT_JSON" <<'PY'
+python3 - "$CELLC_BIN" "$REPO_ROOT" "$RUN_DIR" "$REPORT_JSON" "$ACCEPTANCE_MODE" <<'PY'
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -231,6 +247,7 @@ cellc = pathlib.Path(sys.argv[1])
 repo_root = pathlib.Path(sys.argv[2])
 run_dir = pathlib.Path(sys.argv[3])
 report_path = pathlib.Path(sys.argv[4])
+acceptance_mode = sys.argv[5]
 
 EXAMPLES = [
     "amm_pool.cell",
@@ -255,6 +272,8 @@ baseline_source_root = source_root / "baseline"
 token_action_source_root = source_root / "token-actions"
 nft_action_source_root = source_root / "nft-actions"
 timelock_action_source_root = source_root / "timelock-actions"
+amm_action_source_root = source_root / "amm-actions"
+multisig_action_source_root = source_root / "multisig-actions"
 artifact_root = run_dir / "artifacts"
 strict_root = run_dir / "strict-original-ckb"
 for path in (
@@ -263,6 +282,8 @@ for path in (
     token_action_source_root,
     nft_action_source_root,
     timelock_action_source_root,
+    amm_action_source_root,
+    multisig_action_source_root,
     artifact_root,
     strict_root,
 ):
@@ -361,13 +382,131 @@ NFT_TYPES_SOURCE = """resource NFT has store, destroy {
     royalty_recipient: Address
     royalty_bps: u16
 }
+
+resource Collection has store {
+    creator: Address
+    total_supply: u64
+    max_supply: u64
+}
+
+receipt Listing has destroy {
+    token_id: u64
+    seller: Address
+    price: u64
+    created_at: u64
+}
+
+receipt Offer has destroy {
+    token_id: u64
+    buyer: Address
+    price: u64
+    expires_at: u64
+}
+
+receipt RoyaltyPayment {
+    token_id: u64
+    recipient: Address
+    amount: u64
+}
 """
 
 NFT_ACTION_SOURCES = {
+    "mint": """
+action mint(collection: &mut Collection, to: Address, metadata_hash: Hash) -> NFT {
+    assert_invariant(collection.total_supply < collection.max_supply, "max supply reached")
+    let token_id = collection.total_supply + 1
+    collection.total_supply = token_id
+    create NFT {
+        token_id: token_id,
+        owner: to,
+        metadata_hash: metadata_hash,
+        royalty_recipient: collection.creator,
+        royalty_bps: 250
+    }
+}
+""",
     "transfer": """
 action transfer(nft: &mut NFT, to: Address) {
     assert_invariant(nft.owner != to, "cannot transfer to self")
     nft.owner = to
+}
+""",
+    "create_listing": """
+action create_listing(nft: &NFT, price: u64, current_time: u64) -> Listing {
+    assert_invariant(price > 0, "price must be positive")
+    create Listing {
+        token_id: nft.token_id,
+        seller: nft.owner,
+        price: price,
+        created_at: current_time
+    }
+}
+""",
+    "cancel_listing": """
+action cancel_listing(listing: Listing) {
+    destroy listing
+}
+""",
+    "buy_from_listing": """
+action buy_from_listing(nft: &mut NFT, listing: Listing, buyer: Address, seller: Address, payment: u64) -> (RoyaltyPayment, RoyaltyPayment) {
+    assert_invariant(payment >= listing.price, "insufficient payment")
+
+    let royalty_amount = payment * nft.royalty_bps / 10000
+    let seller_amount = payment - royalty_amount
+
+    nft.owner = buyer
+    destroy listing
+
+    let royalty_payment = create RoyaltyPayment {
+        token_id: nft.token_id,
+        recipient: nft.royalty_recipient,
+        amount: royalty_amount
+    }
+
+    let seller_payment = create RoyaltyPayment {
+        token_id: nft.token_id,
+        recipient: seller,
+        amount: seller_amount
+    }
+
+    (royalty_payment, seller_payment)
+}
+""",
+    "create_offer": """
+action create_offer(token_id: u64, buyer: Address, price: u64, expires_at: u64) -> Offer {
+    assert_invariant(price > 0, "price must be positive")
+    assert_invariant(expires_at > 0, "expiration must be in the future")
+    create Offer {
+        token_id: token_id,
+        buyer: buyer,
+        price: price,
+        expires_at: expires_at
+    }
+}
+""",
+    "accept_offer": """
+action accept_offer(nft: &mut NFT, offer: Offer, buyer: Address, seller: Address, price: u64, current_time: u64) -> (RoyaltyPayment, RoyaltyPayment) {
+    assert_invariant(current_time < offer.expires_at, "offer expired")
+
+    let royalty_amount = price * nft.royalty_bps / 10000
+    let seller_amount = price - royalty_amount
+
+    nft.owner = buyer
+    destroy offer
+
+    let royalty_payment = create RoyaltyPayment {
+        token_id: nft.token_id,
+        recipient: nft.royalty_recipient,
+        amount: royalty_amount
+    }
+
+    let seller_payment = create RoyaltyPayment {
+        token_id: nft.token_id,
+        recipient: seller,
+        amount: seller_amount
+    }
+
+    (royalty_payment, seller_payment)
 }
 """,
     "burn": """
@@ -389,9 +528,94 @@ TIMELOCK_TYPES_SOURCE = """resource TimeLock has store, destroy {
     unlock_height: u64
     created_at: u64
 }
+
+resource LockedAsset has store, destroy {
+    amount: u64
+    lock_hash: Hash
+}
+
+receipt ReleaseRequest has destroy {
+    lock_hash: Hash
+    requester: Address
+    requested_at: u64
+}
+
+receipt EmergencyRelease has destroy {
+    lock_hash: Hash
+    requester: Address
+    requested_at: u64
+    approvals: u8
+}
+
+receipt ReleaseRecord {
+    lock_hash: Hash
+    released_at: u64
+    released_by: Address
+}
 """
 
 TIMELOCK_ACTION_SOURCES = {
+    "create_absolute_lock": """
+action create_absolute_lock(owner: Address, unlock_height: u64, current_height: u64) -> TimeLock {
+    assert_invariant(unlock_height > current_height + 10, "too close")
+    assert_invariant(unlock_height <= current_height + 2628000, "too far")
+    create TimeLock {
+        owner: owner,
+        lock_type: 0,
+        unlock_height: unlock_height,
+        created_at: current_height
+    }
+}
+""",
+    "create_relative_lock": """
+action create_relative_lock(owner: Address, lock_period: u64, current_height: u64) -> TimeLock {
+    assert_invariant(lock_period >= 10, "too short")
+    assert_invariant(lock_period <= 2628000, "too long")
+    create TimeLock {
+        owner: owner,
+        lock_type: 1,
+        unlock_height: current_height + lock_period,
+        created_at: current_height
+    }
+}
+""",
+    "lock_asset": """
+action lock_asset(time_lock: &TimeLock, lock_hash: Hash, amount: u64) -> LockedAsset {
+    assert_invariant(amount > 0, "amount must be positive")
+    create LockedAsset {
+        amount: amount,
+        lock_hash: lock_hash
+    }
+}
+""",
+    "request_release": """
+action request_release(time_lock: &TimeLock, lock_hash: Hash, requester: Address, current_height: u64) -> ReleaseRequest {
+    assert_invariant(current_height >= time_lock.unlock_height, "cannot unlock yet")
+    create ReleaseRequest {
+        lock_hash: lock_hash,
+        requester: requester,
+        requested_at: current_height
+    }
+}
+""",
+    "request_emergency_release": """
+action request_emergency_release(time_lock: &TimeLock, lock_hash: Hash, requester: Address, current_height: u64) -> EmergencyRelease {
+    assert_invariant(time_lock.owner == requester, "not owner")
+    assert_invariant(current_height < time_lock.unlock_height, "already unlockable")
+    create EmergencyRelease {
+        lock_hash: lock_hash,
+        requester: requester,
+        requested_at: current_height,
+        approvals: 0
+    }
+}
+""",
+    "approve_emergency_release": """
+action approve_emergency_release(emergency: &mut EmergencyRelease, approver: Address, required_approvals: u8) {
+    assert_invariant(emergency.approvals < required_approvals, "already approved")
+    emergency.approvals = emergency.approvals + 1
+}
+""",
     "extend_lock": """
 action extend_lock(time_lock: &mut TimeLock, additional_period: u64, owner: Address, current_height: u64) {
     assert_invariant(time_lock.owner == owner, "not owner")
@@ -403,6 +627,54 @@ action extend_lock(time_lock: &mut TimeLock, additional_period: u64, owner: Addr
     time_lock.unlock_height = new_unlock_height
 }
 """,
+    "execute_release": """
+action execute_release(
+    time_lock: TimeLock,
+    locked_asset: LockedAsset,
+    request: ReleaseRequest,
+    executor: Address
+) -> ReleaseRecord {
+    assert_invariant(time_lock.owner == executor, "not owner")
+    assert_invariant(locked_asset.lock_hash == request.lock_hash, "asset/request mismatch")
+
+    let record = create ReleaseRecord {
+        lock_hash: request.lock_hash,
+        released_at: 125,
+        released_by: executor
+    }
+
+    destroy time_lock
+    destroy locked_asset
+    destroy request
+
+    record
+}
+""",
+    "execute_emergency_release": """
+action execute_emergency_release(
+    time_lock: TimeLock,
+    locked_asset: LockedAsset,
+    emergency: EmergencyRelease,
+    executor: Address,
+    required_approvals: u8
+) -> ReleaseRecord {
+    assert_invariant(time_lock.owner == executor, "not owner")
+    assert_invariant(emergency.approvals >= required_approvals, "not enough approvals")
+    assert_invariant(locked_asset.lock_hash == emergency.lock_hash, "asset/emergency mismatch")
+
+    let record = create ReleaseRecord {
+        lock_hash: emergency.lock_hash,
+        released_at: 125,
+        released_by: executor
+    }
+
+    destroy time_lock
+    destroy locked_asset
+    destroy emergency
+
+    record
+}
+""",
 }
 
 for action, source in TIMELOCK_ACTION_SOURCES.items():
@@ -410,6 +682,340 @@ for action, source in TIMELOCK_ACTION_SOURCES.items():
         f"module acceptance::timelock_{action}\n\n" + TIMELOCK_TYPES_SOURCE + "\n" + source,
         encoding="utf-8",
     )
+
+AMM_ACTION_SOURCES = {
+    "isqrt": """
+action isqrt(n: u64) -> u64 {
+    if n == 0 {
+        return 0
+    }
+
+    let mut x = n
+    let mut y = (x + 1) / 2
+
+    while y < x {
+        x = y
+        y = (x + n / x) / 2
+    }
+
+    x
+}
+""",
+    "min": """
+action min(a: u64, b: u64) -> u64 {
+    if a < b { a } else { b }
+}
+""",
+}
+
+for action, source in AMM_ACTION_SOURCES.items():
+    (amm_action_source_root / f"amm_{action}.cell").write_text(
+        f"module acceptance::amm_{action}\n\n" + source,
+        encoding="utf-8",
+    )
+
+MULTISIG_TYPES_SOURCE = """resource MultisigWallet has store {
+    signer_a: Address
+    signer_b: Address
+    threshold: u8
+    nonce: u64
+    created_at: u64
+}
+
+receipt Proposal has destroy {
+    wallet_hash: Hash
+    proposal_id: u64
+    proposer: Address
+    operation: u8
+    target: Address
+    amount: u64
+    required_signatures: u8
+    signature_count: u8
+    created_at: u64
+    expires_at: u64
+}
+
+receipt SignatureConfirmation {
+    proposal_id: u64
+    signer: Address
+    timestamp: u64
+}
+
+receipt ExecutionRecord {
+    proposal_id: u64
+    executor: Address
+    executed_at: u64
+    success: u8
+}
+"""
+
+MULTISIG_ACTION_SOURCES = {
+    "create_wallet": """
+action create_wallet(signer_a: Address, signer_b: Address, threshold: u8, current_time: u64) -> MultisigWallet {
+    assert_invariant(signer_a != signer_b, "duplicate signer")
+    assert_invariant(threshold >= 2, "threshold too low")
+    assert_invariant(threshold <= 2, "threshold too high")
+
+    create MultisigWallet {
+        signer_a: signer_a,
+        signer_b: signer_b,
+        threshold: threshold,
+        nonce: 0,
+        created_at: current_time
+    }
+}
+""",
+    "propose_transfer": """
+action propose_transfer(wallet: &mut MultisigWallet, proposer: Address, target: Address, amount: u64, current_time: u64) -> Proposal {
+    assert_invariant(proposer == wallet.signer_a, "not signer")
+    assert_invariant(amount > 0, "amount must be positive")
+
+    let proposal_id = wallet.nonce + 1
+    wallet.nonce = proposal_id
+
+    create Proposal {
+        wallet_hash: Hash::zero(),
+        proposal_id: proposal_id,
+        proposer: proposer,
+        operation: 0,
+        target: target,
+        amount: amount,
+        required_signatures: wallet.threshold,
+        signature_count: 0,
+        created_at: current_time,
+        expires_at: current_time + 1440
+    }
+}
+""",
+    "add_signature": """
+action add_signature(proposal: &mut Proposal, signer: Address, current_time: u64) -> SignatureConfirmation {
+    assert_invariant(current_time < proposal.expires_at, "proposal expired")
+    assert_invariant(proposal.signature_count < proposal.required_signatures, "already enough signatures")
+
+    proposal.signature_count = proposal.signature_count + 1
+
+    create SignatureConfirmation {
+        proposal_id: proposal.proposal_id,
+        signer: signer,
+        timestamp: current_time
+    }
+}
+""",
+    "propose_add_signer": """
+action propose_add_signer(wallet: &mut MultisigWallet, proposer: Address, new_signer: Address, current_time: u64) -> Proposal {
+    assert_invariant(proposer == wallet.signer_a, "not signer")
+    assert_invariant(new_signer != wallet.signer_a, "already signer")
+    assert_invariant(new_signer != wallet.signer_b, "already signer")
+
+    let proposal_id = wallet.nonce + 1
+    wallet.nonce = proposal_id
+
+    create Proposal {
+        wallet_hash: Hash::zero(),
+        proposal_id: proposal_id,
+        proposer: proposer,
+        operation: 1,
+        target: new_signer,
+        amount: 0,
+        required_signatures: wallet.threshold,
+        signature_count: 0,
+        created_at: current_time,
+        expires_at: current_time + 1440
+    }
+}
+""",
+    "propose_remove_signer": """
+action propose_remove_signer(wallet: &mut MultisigWallet, proposer: Address, signer_to_remove: Address, current_time: u64) -> Proposal {
+    assert_invariant(proposer == wallet.signer_a, "not signer")
+    assert_invariant(signer_to_remove == wallet.signer_b, "not removable signer")
+    assert_invariant(wallet.threshold <= 1, "would fall below threshold")
+
+    let proposal_id = wallet.nonce + 1
+    wallet.nonce = proposal_id
+
+    create Proposal {
+        wallet_hash: Hash::zero(),
+        proposal_id: proposal_id,
+        proposer: proposer,
+        operation: 2,
+        target: signer_to_remove,
+        amount: 0,
+        required_signatures: wallet.threshold,
+        signature_count: 0,
+        created_at: current_time,
+        expires_at: current_time + 1440
+    }
+}
+""",
+    "propose_change_threshold": """
+action propose_change_threshold(wallet: &mut MultisigWallet, proposer: Address, new_threshold: u8, current_time: u64) -> Proposal {
+    assert_invariant(proposer == wallet.signer_a, "not signer")
+    assert_invariant(new_threshold >= 1, "threshold too low")
+    assert_invariant(new_threshold <= 2, "threshold too high")
+
+    let proposal_id = wallet.nonce + 1
+    wallet.nonce = proposal_id
+
+    create Proposal {
+        wallet_hash: Hash::zero(),
+        proposal_id: proposal_id,
+        proposer: proposer,
+        operation: 3,
+        target: Address::zero(),
+        amount: new_threshold,
+        required_signatures: wallet.threshold,
+        signature_count: 0,
+        created_at: current_time,
+        expires_at: current_time + 1440
+    }
+}
+""",
+    "execute_proposal": """
+action execute_proposal(proposal: Proposal, executor: Address, current_time: u64) -> ExecutionRecord {
+    assert_invariant(current_time < proposal.expires_at, "proposal expired")
+    assert_invariant(proposal.signature_count >= proposal.required_signatures, "not enough signatures")
+
+    let record = create ExecutionRecord {
+        proposal_id: proposal.proposal_id,
+        executor: executor,
+        executed_at: current_time,
+        success: 1
+    }
+
+    destroy proposal
+
+    record
+}
+""",
+    "cancel_proposal": """
+action cancel_proposal(proposal: Proposal, canceller: Address) {
+    assert_invariant(proposal.proposer == canceller, "only proposer can cancel")
+    destroy proposal
+}
+""",
+}
+
+for action, source in MULTISIG_ACTION_SOURCES.items():
+    (multisig_action_source_root / f"multisig_{action}.cell").write_text(
+        f"module acceptance::multisig_{action}\n\n" + MULTISIG_TYPES_SOURCE + "\n" + source,
+        encoding="utf-8",
+    )
+
+ORIGINAL_SCOPED_ACTIONS = {
+    "token.cell": ["mint", "transfer_token", "burn", "merge"],
+    "nft.cell": [
+        "mint",
+        "transfer",
+        "create_listing",
+        "cancel_listing",
+        "buy_from_listing",
+        "create_offer",
+        "accept_offer",
+        "burn",
+    ],
+    "timelock.cell": [
+        "create_absolute_lock",
+        "create_relative_lock",
+        "lock_asset",
+        "request_release",
+        "request_emergency_release",
+        "approve_emergency_release",
+        "execute_release",
+        "execute_emergency_release",
+        "extend_lock",
+    ],
+    "multisig.cell": [
+        "create_wallet",
+        "propose_transfer",
+        "add_signature",
+        "propose_add_signer",
+        "propose_remove_signer",
+        "propose_change_threshold",
+        "execute_proposal",
+        "cancel_proposal",
+    ],
+    "vesting.cell": ["create_vesting_config", "grant_vesting"],
+    "amm_pool.cell": ["isqrt", "min"],
+    "launch.cell": ["simple_launch"],
+}
+
+ORIGINAL_SCOPED_LOCKS = {
+    "nft.cell": ["nft_ownership", "listing_seller", "offer_buyer", "valid_royalty", "collection_creator"],
+    "timelock.cell": ["can_unlock_lock", "is_owner", "asset_matches", "not_expired", "emergency_approved"],
+    "multisig.cell": ["is_signer_lock", "can_execute", "can_cancel", "has_enough_signatures", "not_expired"],
+}
+
+ORIGINAL_SCOPED_ACTION_FAIL_CLOSED = {
+    "nft.cell": ["batch_mint"],
+    "timelock.cell": [
+        "batch_create_locks",
+    ],
+    "vesting.cell": ["claim_vested", "revoke_grant"],
+    "amm_pool.cell": ["seed_pool", "swap_a_for_b", "add_liquidity", "remove_liquidity"],
+    "launch.cell": ["launch_token"],
+}
+
+ORIGINAL_SCOPED_LOCK_FAIL_CLOSED = {}
+
+EXPECTED_SOURCE_ACTIONS = {
+    "token.cell": ["mint", "transfer_token", "burn", "merge"],
+    "nft.cell": [
+        "mint",
+        "transfer",
+        "create_listing",
+        "cancel_listing",
+        "buy_from_listing",
+        "create_offer",
+        "accept_offer",
+        "burn",
+        "batch_mint",
+    ],
+    "timelock.cell": [
+        "create_absolute_lock",
+        "create_relative_lock",
+        "lock_asset",
+        "request_release",
+        "execute_release",
+        "request_emergency_release",
+        "approve_emergency_release",
+        "execute_emergency_release",
+        "extend_lock",
+        "batch_create_locks",
+    ],
+    "multisig.cell": [
+        "create_wallet",
+        "propose_transfer",
+        "add_signature",
+        "execute_proposal",
+        "cancel_proposal",
+        "propose_add_signer",
+        "propose_remove_signer",
+        "propose_change_threshold",
+    ],
+    "vesting.cell": ["create_vesting_config", "grant_vesting", "claim_vested", "revoke_grant"],
+    "amm_pool.cell": ["seed_pool", "swap_a_for_b", "add_liquidity", "remove_liquidity", "isqrt", "min"],
+    "launch.cell": ["launch_token", "simple_launch"],
+}
+
+EXPECTED_SOURCE_LOCKS = {
+    "token.cell": [],
+    "nft.cell": ["nft_ownership", "listing_seller", "offer_buyer", "valid_royalty", "collection_creator"],
+    "timelock.cell": ["can_unlock_lock", "is_owner", "asset_matches", "emergency_approved", "not_expired"],
+    "multisig.cell": ["is_signer_lock", "can_execute", "can_cancel", "has_enough_signatures", "not_expired"],
+    "vesting.cell": [],
+    "amm_pool.cell": [],
+    "launch.cell": [],
+}
+
+CKB_ONCHAIN_ACTION_HARNESSES = {
+    "token.cell": list(TOKEN_ACTION_SOURCES.keys()),
+    "nft.cell": list(NFT_ACTION_SOURCES.keys()),
+    "timelock.cell": list(TIMELOCK_ACTION_SOURCES.keys()),
+    "multisig.cell": list(MULTISIG_ACTION_SOURCES.keys()),
+    "vesting.cell": ["create_vesting_config"],
+    "amm_pool.cell": list(AMM_ACTION_SOURCES.keys()),
+    "launch.cell": ["simple_launch"],
+}
 
 def clipped(text):
     if len(text) <= TRUNCATE:
@@ -428,6 +1034,108 @@ def run(args, *, env=None, timeout=180):
 def load_json(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
+def source_entries(name, keyword):
+    text = (examples_dir / name).read_text(encoding="utf-8")
+    pattern = re.compile(rf"^\s*{keyword}\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", re.MULTILINE)
+    return pattern.findall(text)
+
+def validate_source_coverage_matrix():
+    action_mismatches = {}
+    lock_mismatches = {}
+    for name in EXAMPLES:
+        actual_actions = source_entries(name, "action")
+        expected_actions = EXPECTED_SOURCE_ACTIONS.get(name, [])
+        if actual_actions != expected_actions:
+            action_mismatches[name] = {
+                "expected": expected_actions,
+                "actual": actual_actions,
+            }
+        actual_locks = source_entries(name, "lock")
+        expected_locks = EXPECTED_SOURCE_LOCKS.get(name, [])
+        if actual_locks != expected_locks:
+            lock_mismatches[name] = {
+                "expected": expected_locks,
+                "actual": actual_locks,
+            }
+    if action_mismatches or lock_mismatches:
+        raise RuntimeError(
+            "source coverage matrix is stale: "
+            + json.dumps(
+                {
+                    "action_mismatches": action_mismatches,
+                    "lock_mismatches": lock_mismatches,
+                },
+                sort_keys=True,
+            )
+        )
+
+def build_ckb_business_coverage(onchain_actions=None):
+    onchain_actions = onchain_actions or {}
+    rows = []
+    for example in EXAMPLES:
+        source_actions = EXPECTED_SOURCE_ACTIONS.get(example, [])
+        source_locks = EXPECTED_SOURCE_LOCKS.get(example, [])
+        strict_actions = ORIGINAL_SCOPED_ACTIONS.get(example, [])
+        strict_locks = ORIGINAL_SCOPED_LOCKS.get(example, [])
+        fail_closed_actions = ORIGINAL_SCOPED_ACTION_FAIL_CLOSED.get(example, [])
+        fail_closed_locks = ORIGINAL_SCOPED_LOCK_FAIL_CLOSED.get(example, [])
+        ckb_onchain_actions = onchain_actions.get(example, [])
+
+        missing_strict_actions = sorted(set(source_actions) - set(strict_actions) - set(fail_closed_actions))
+        missing_strict_locks = sorted(set(source_locks) - set(strict_locks) - set(fail_closed_locks))
+        missing_onchain_actions = sorted(set(strict_actions) - set(ckb_onchain_actions))
+
+        rows.append({
+            "example": example,
+            "source_actions": source_actions,
+            "source_locks": source_locks,
+            "strict_ckb_actions": strict_actions,
+            "strict_ckb_locks": strict_locks,
+            "expected_fail_closed_actions": fail_closed_actions,
+            "expected_fail_closed_locks": fail_closed_locks,
+            "ckb_onchain_actions": ckb_onchain_actions,
+            "missing_strict_ckb_actions": missing_strict_actions,
+            "missing_strict_ckb_locks": missing_strict_locks,
+            "missing_ckb_onchain_actions": missing_onchain_actions,
+            "strict_action_coverage_complete": not missing_strict_actions,
+            "strict_lock_coverage_complete": not missing_strict_locks,
+            "ckb_onchain_action_coverage_complete": not missing_onchain_actions,
+        })
+
+    strict_complete = all(
+        row["strict_action_coverage_complete"] and row["strict_lock_coverage_complete"]
+        for row in rows
+    )
+    onchain_complete = all(row["ckb_onchain_action_coverage_complete"] for row in rows)
+    return {
+        "status": "complete" if strict_complete and onchain_complete else "incomplete",
+        "strict_compile_coverage_complete": strict_complete,
+        "onchain_action_coverage_complete": onchain_complete,
+        "source_action_count": sum(len(row["source_actions"]) for row in rows),
+        "source_lock_count": sum(len(row["source_locks"]) for row in rows),
+        "strict_ckb_action_count": sum(len(row["strict_ckb_actions"]) for row in rows),
+        "strict_ckb_lock_count": sum(len(row["strict_ckb_locks"]) for row in rows),
+        "expected_fail_closed_action_count": sum(len(row["expected_fail_closed_actions"]) for row in rows),
+        "expected_fail_closed_lock_count": sum(len(row["expected_fail_closed_locks"]) for row in rows),
+        "ckb_onchain_action_count": sum(len(row["ckb_onchain_actions"]) for row in rows),
+        "missing_strict_ckb_actions": {
+            row["example"]: row["missing_strict_ckb_actions"]
+            for row in rows
+            if row["missing_strict_ckb_actions"]
+        },
+        "missing_strict_ckb_locks": {
+            row["example"]: row["missing_strict_ckb_locks"]
+            for row in rows
+            if row["missing_strict_ckb_locks"]
+        },
+        "missing_ckb_onchain_actions": {
+            row["example"]: row["missing_ckb_onchain_actions"]
+            for row in rows
+            if row["missing_ckb_onchain_actions"]
+        },
+        "rows": rows,
+    }
+
 def verify_artifact(artifact):
     completed = subprocess.run(
         [cellc, "verify-artifact", artifact, "--expect-target-profile", "ckb", "--json"],
@@ -442,11 +1150,12 @@ def verify_artifact(artifact):
     except json.JSONDecodeError as error:
         raise RuntimeError(f"verify-artifact did not return JSON for {artifact}: {clipped(completed.stdout)}") from error
 
-def compile_artifact(name, kind, source, artifact, *, bypass_policy):
+def compile_artifact(name, kind, source, artifact, *, bypass_policy, entry_args=None):
+    entry_args = entry_args or []
     env = os.environ.copy()
     if bypass_policy:
         env[BYPASS_ENV] = "1"
-    result = run([cellc, source, "--target-profile", "ckb", "--target", "riscv64-elf", "-o", artifact], env=env)
+    result = run([cellc, source, "--target-profile", "ckb", "--target", "riscv64-elf", *entry_args, "-o", artifact], env=env)
     if result["returncode"] != 0:
         raise RuntimeError(f"CKB smoke compile failed for {name}: {result['stderr']}")
     if not artifact.exists():
@@ -480,9 +1189,12 @@ def compile_artifact(name, kind, source, artifact, *, bypass_policy):
         "target_profile": "ckb",
         "artifact_packaging": metadata.get("target_profile", {}).get("artifact_packaging"),
         "acceptance_smoke_policy_bypass": bypass_policy,
+        "entry_args": [str(arg) for arg in entry_args],
         "compile": result,
         "verify": verify,
     }
+
+validate_source_coverage_matrix()
 
 def strict_original_compile(name):
     source = examples_dir / name
@@ -496,6 +1208,28 @@ def strict_original_compile(name):
     return {
         "source": str(source),
         "artifact": str(artifact),
+        "status": "passed" if result["returncode"] == 0 else "failed",
+        "policy_fail_closed": policy_fail_closed,
+        "unexpected_failure": unexpected_failure,
+        "verify": verify,
+        "returncode": result["returncode"],
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+    }
+
+def strict_scoped_compile(name, source, entry_flag, entry_name):
+    artifact = strict_root / f"{name}.{entry_name}.strict-scoped.elf"
+    result = run([cellc, source, "--target-profile", "ckb", "--target", "riscv64-elf", entry_flag, entry_name, "-o", artifact])
+    policy_fail_closed = result["returncode"] != 0 and "target profile policy failed for 'ckb'" in result["stderr"]
+    unexpected_failure = result["returncode"] != 0 and not policy_fail_closed
+    verify = None
+    if result["returncode"] == 0:
+        verify = verify_artifact(artifact)
+    return {
+        "source": str(source),
+        "artifact": str(artifact),
+        "entry_flag": entry_flag,
+        "entry": entry_name,
         "status": "passed" if result["returncode"] == 0 else "failed",
         "policy_fail_closed": policy_fail_closed,
         "unexpected_failure": unexpected_failure,
@@ -576,6 +1310,237 @@ for action in TIMELOCK_ACTION_SOURCES:
     record["original_source"] = str(examples_dir / "timelock.cell")
     timelock_action_artifacts.append(record)
 
+amm_action_artifacts = []
+for action in AMM_ACTION_SOURCES:
+    source = amm_action_source_root / f"amm_{action}.cell"
+    record = compile_artifact(
+        f"amm.{action}.cell",
+        "amm-action-strict",
+        source,
+        artifact_root / f"amm_{action}.elf",
+        bypass_policy=False,
+    )
+    record["action"] = action
+    record["original_source"] = str(examples_dir / "amm_pool.cell")
+    amm_action_artifacts.append(record)
+
+multisig_action_artifacts = []
+for action in MULTISIG_ACTION_SOURCES:
+    source = multisig_action_source_root / f"multisig_{action}.cell"
+    record = compile_artifact(
+        f"multisig.{action}.cell",
+        "multisig-action-strict",
+        source,
+        artifact_root / f"multisig_{action}.elf",
+        bypass_policy=False,
+    )
+    record["action"] = action
+    record["original_source"] = str(examples_dir / "multisig.cell")
+    multisig_action_artifacts.append(record)
+
+original_scoped_action_artifacts = []
+for example_name, actions in ORIGINAL_SCOPED_ACTIONS.items():
+    for action in actions:
+        record = compile_artifact(
+            f"{example_name}:{action}",
+            "original-scoped-action-strict",
+            examples_dir / example_name,
+            artifact_root / f"original_{example_name.removesuffix('.cell')}_{action}.elf",
+            bypass_policy=False,
+            entry_args=["--entry-action", action],
+        )
+        record["example"] = example_name
+        record["action"] = action
+        record["original_source"] = str(examples_dir / example_name)
+        original_scoped_action_artifacts.append(record)
+
+launch_action_artifacts = [
+    record
+    for record in original_scoped_action_artifacts
+    if record["example"] == "launch.cell" and record["action"] == "simple_launch"
+]
+
+token_action_artifacts = [
+    next(
+        original
+        for original in original_scoped_action_artifacts
+        if original["example"] == "token.cell" and original["action"] == record["action"]
+    )
+    for record in token_action_artifacts
+]
+
+nft_action_artifacts = [
+    next(
+        original
+        for original in original_scoped_action_artifacts
+        if original["example"] == "nft.cell" and original["action"] == record["action"]
+    )
+    for record in nft_action_artifacts
+]
+
+timelock_action_artifacts = [
+    next(
+        (
+            original
+            for original in original_scoped_action_artifacts
+            if original["example"] == "timelock.cell" and original["action"] == record["action"]
+        ),
+        record,
+    )
+    if record["action"] in (
+        "create_absolute_lock",
+        "create_relative_lock",
+        "lock_asset",
+        "request_release",
+        "request_emergency_release",
+        "approve_emergency_release",
+        "execute_release",
+        "execute_emergency_release",
+        "extend_lock",
+    ) else record
+    for record in timelock_action_artifacts
+]
+
+amm_action_artifacts = [
+    next(
+        original
+        for original in original_scoped_action_artifacts
+        if original["example"] == "amm_pool.cell" and original["action"] == record["action"]
+    )
+    for record in amm_action_artifacts
+]
+
+multisig_action_artifacts = [
+    next(
+        (
+            original
+            for original in original_scoped_action_artifacts
+            if original["example"] == "multisig.cell" and original["action"] == record["action"]
+        ),
+        record,
+    )
+    if record["action"] in (
+        "create_wallet",
+        "propose_transfer",
+        "add_signature",
+        "propose_add_signer",
+        "propose_remove_signer",
+        "propose_change_threshold",
+        "execute_proposal",
+        "cancel_proposal",
+    ) else record
+    for record in multisig_action_artifacts
+]
+
+original_scoped_lock_artifacts = []
+for example_name, locks in ORIGINAL_SCOPED_LOCKS.items():
+    for lock in locks:
+        record = compile_artifact(
+            f"{example_name}:{lock}",
+            "original-scoped-lock-strict",
+            examples_dir / example_name,
+            artifact_root / f"original_{example_name.removesuffix('.cell')}_{lock}.elf",
+            bypass_policy=False,
+            entry_args=["--entry-lock", lock],
+        )
+        record["example"] = example_name
+        record["lock"] = lock
+        record["original_source"] = str(examples_dir / example_name)
+        original_scoped_lock_artifacts.append(record)
+
+original_scoped_action_fail_closed = []
+for example_name, actions in ORIGINAL_SCOPED_ACTION_FAIL_CLOSED.items():
+    for action in actions:
+        record = strict_scoped_compile(
+            f"{example_name}:{action}",
+            examples_dir / example_name,
+            "--entry-action",
+            action,
+        )
+        record["example"] = example_name
+        record["action"] = action
+        record["original_source"] = str(examples_dir / example_name)
+        original_scoped_action_fail_closed.append(record)
+
+original_scoped_lock_fail_closed = []
+for example_name, locks in ORIGINAL_SCOPED_LOCK_FAIL_CLOSED.items():
+    for lock in locks:
+        record = strict_scoped_compile(
+            f"{example_name}:{lock}",
+            examples_dir / example_name,
+            "--entry-lock",
+            lock,
+        )
+        record["example"] = example_name
+        record["lock"] = lock
+        record["original_source"] = str(examples_dir / example_name)
+        original_scoped_lock_fail_closed.append(record)
+
+expected_original_scoped_action_count = sum(len(actions) for actions in ORIGINAL_SCOPED_ACTIONS.values())
+expected_original_scoped_lock_count = sum(len(locks) for locks in ORIGINAL_SCOPED_LOCKS.values())
+expected_original_scoped_action_fail_closed_count = sum(
+    len(actions) for actions in ORIGINAL_SCOPED_ACTION_FAIL_CLOSED.values()
+)
+expected_original_scoped_lock_fail_closed_count = sum(
+    len(locks) for locks in ORIGINAL_SCOPED_LOCK_FAIL_CLOSED.values()
+)
+if len(original_scoped_action_artifacts) != expected_original_scoped_action_count:
+    raise RuntimeError(
+        f"original scoped action coverage mismatch: expected {expected_original_scoped_action_count}, "
+        f"compiled {len(original_scoped_action_artifacts)}"
+    )
+if len(original_scoped_lock_artifacts) != expected_original_scoped_lock_count:
+    raise RuntimeError(
+        f"original scoped lock coverage mismatch: expected {expected_original_scoped_lock_count}, "
+        f"compiled {len(original_scoped_lock_artifacts)}"
+    )
+if len(original_scoped_action_fail_closed) != expected_original_scoped_action_fail_closed_count:
+    raise RuntimeError(
+        "original scoped action fail-closed coverage mismatch: "
+        f"expected {expected_original_scoped_action_fail_closed_count}, "
+        f"checked {len(original_scoped_action_fail_closed)}"
+    )
+if len(original_scoped_lock_fail_closed) != expected_original_scoped_lock_fail_closed_count:
+    raise RuntimeError(
+        "original scoped lock fail-closed coverage mismatch: "
+        f"expected {expected_original_scoped_lock_fail_closed_count}, "
+        f"checked {len(original_scoped_lock_fail_closed)}"
+    )
+
+unexpected_scoped_admissions = [
+    f"{record['example']}:{record.get('action') or record.get('lock')}"
+    for record in [*original_scoped_action_fail_closed, *original_scoped_lock_fail_closed]
+    if record["status"] == "passed"
+]
+if unexpected_scoped_admissions:
+    raise RuntimeError(
+        "expected fail-closed original scoped entries were admitted; "
+        "move them into the strict scoped pass matrix only after reviewing coverage: "
+        + ", ".join(unexpected_scoped_admissions)
+    )
+
+unexpected_scoped_failures = [
+    f"{record['example']}:{record.get('action') or record.get('lock')}"
+    for record in [*original_scoped_action_fail_closed, *original_scoped_lock_fail_closed]
+    if record["unexpected_failure"]
+]
+if unexpected_scoped_failures:
+    raise RuntimeError(
+        "expected fail-closed original scoped entries failed for non-policy reasons: "
+        + ", ".join(unexpected_scoped_failures)
+    )
+
+non_policy_fail_closed = [
+    f"{record['example']}:{record.get('action') or record.get('lock')}"
+    for record in [*original_scoped_action_fail_closed, *original_scoped_lock_fail_closed]
+    if not record["policy_fail_closed"]
+]
+if non_policy_fail_closed:
+    raise RuntimeError(
+        "expected fail-closed original scoped entries were not rejected by CKB target-profile policy: "
+        + ", ".join(non_policy_fail_closed)
+    )
+
 strict_original_policy_fail_closed = [
     record["name"]
     for record in bundled_examples
@@ -589,11 +1554,10 @@ strict_original_unexpected_failures = [
 
 report = {
     "status": "artifact-verified",
+    "acceptance_mode": acceptance_mode,
     "ckb_acceptance_scope": (
-        "Full-mode CKB devnet acceptance deploys and spends every emitted code cell. "
-        "Bundled examples always deploy an appended no-argument main smoke entry for the generic CKB locked-cell spend, "
-        "because strict business-action artifacts require action-specific witnesses, inputs, and outputs. "
-        "Strict original business-action portability is compiled and verified separately when admitted."
+        "Production mode is a hard gate and must not depend on smoke bypasses, standalone portable harnesses, "
+        "expected fail-closed entries, or non-original artifacts. Bounded mode is a development coverage matrix only."
     ),
     "cellc": str(cellc),
     "bundled_examples_exact_order": EXAMPLES,
@@ -612,8 +1576,98 @@ report = {
     "token_action_artifacts": token_action_artifacts,
     "nft_action_artifacts": nft_action_artifacts,
     "timelock_action_artifacts": timelock_action_artifacts,
+    "amm_action_artifacts": amm_action_artifacts,
+    "multisig_action_artifacts": multisig_action_artifacts,
+    "launch_action_artifacts": launch_action_artifacts,
+    "original_scoped_actions_expected": ORIGINAL_SCOPED_ACTIONS,
+    "original_scoped_locks_expected": ORIGINAL_SCOPED_LOCKS,
+    "original_scoped_action_fail_closed_expected": ORIGINAL_SCOPED_ACTION_FAIL_CLOSED,
+    "original_scoped_lock_fail_closed_expected": ORIGINAL_SCOPED_LOCK_FAIL_CLOSED,
+    "original_scoped_action_count": len(original_scoped_action_artifacts),
+    "original_scoped_lock_count": len(original_scoped_lock_artifacts),
+    "original_scoped_action_fail_closed_count": len(original_scoped_action_fail_closed),
+    "original_scoped_lock_fail_closed_count": len(original_scoped_lock_fail_closed),
+    "original_scoped_action_artifacts": original_scoped_action_artifacts,
+    "original_scoped_lock_artifacts": original_scoped_lock_artifacts,
+    "original_scoped_action_fail_closed": original_scoped_action_fail_closed,
+    "original_scoped_lock_fail_closed": original_scoped_lock_fail_closed,
+    "ckb_business_coverage": build_ckb_business_coverage(),
+    "production_ready": False,
     "artifacts": artifacts,
 }
+
+def production_gate_failures(report):
+    failures = []
+    if report.get("bundled_examples_smoke_bypass"):
+        failures.append(
+            "bundled example smoke bypass artifacts are present: "
+            + ", ".join(report["bundled_examples_smoke_bypass"])
+        )
+    if report.get("strict_original_ckb_compile_policy_fail_closed"):
+        failures.append(
+            "strict original bundled examples still fail CKB policy: "
+            + ", ".join(report["strict_original_ckb_compile_policy_fail_closed"])
+        )
+    if report.get("strict_original_ckb_compile_unexpected_failures"):
+        failures.append(
+            "strict original bundled examples have unexpected compile failures: "
+            + ", ".join(report["strict_original_ckb_compile_unexpected_failures"])
+        )
+    fail_closed_actions = [
+        f"{record['example']}:{record.get('action')}"
+        for record in report.get("original_scoped_action_fail_closed", [])
+    ]
+    fail_closed_locks = [
+        f"{record['example']}:{record.get('lock')}"
+        for record in report.get("original_scoped_lock_fail_closed", [])
+    ]
+    if fail_closed_actions or fail_closed_locks:
+        failures.append(
+            "original scoped entries still intentionally fail closed: "
+            + ", ".join([*fail_closed_actions, *fail_closed_locks])
+        )
+    non_original_harnesses = [
+        record["name"]
+        for key in (
+            "token_action_artifacts",
+            "nft_action_artifacts",
+            "timelock_action_artifacts",
+            "amm_action_artifacts",
+            "multisig_action_artifacts",
+        )
+        for record in report.get(key, [])
+        if record.get("kind") != "original-scoped-action-strict"
+    ]
+    if non_original_harnesses:
+        failures.append(
+            "on-chain action harnesses still use standalone or portable sources: "
+            + ", ".join(non_original_harnesses)
+        )
+    coverage = report.get("ckb_business_coverage") or {}
+    if coverage.get("expected_fail_closed_action_count", 0) or coverage.get("expected_fail_closed_lock_count", 0):
+        failures.append(
+            "source coverage matrix still includes expected fail-closed entries"
+        )
+    return failures
+
+production_failures = production_gate_failures(report)
+report["production_gate"] = {
+    "status": "passed" if not production_failures else "failed",
+    "failures": production_failures,
+    "requires_no_smoke_bypass": True,
+    "requires_no_standalone_or_portable_harnesses": True,
+    "requires_no_expected_fail_closed_entries": True,
+    "requires_all_bundled_examples_strict_original_ckb": True,
+}
+if acceptance_mode == "production" and production_failures:
+    report["status"] = "failed-production-gate"
+    report["production_ready"] = False
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    raise SystemExit(
+        "CKB production gate failed; rerun with --bounded only for development coverage. "
+        + "Failures: "
+        + " | ".join(production_failures)
+    )
 report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
 
@@ -634,7 +1688,7 @@ report.update({
 })
 report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
-  echo "CKB CellScript compile-only acceptance passed: $REPORT_JSON"
+  echo "CKB CellScript $ACCEPTANCE_MODE compile-only acceptance passed: $REPORT_JSON"
   exit 0
 fi
 
@@ -696,6 +1750,14 @@ if not artifacts:
 token_action_artifacts = report.get("token_action_artifacts", [])
 nft_action_artifacts = report.get("nft_action_artifacts", [])
 timelock_action_artifacts = report.get("timelock_action_artifacts", [])
+amm_action_artifacts = report.get("amm_action_artifacts", [])
+multisig_action_artifacts = report.get("multisig_action_artifacts", [])
+vesting_action_artifacts = [
+    record
+    for record in report.get("original_scoped_action_artifacts", [])
+    if record.get("example") == "vesting.cell" and record.get("action") in {"create_vesting_config", "grant_vesting"}
+]
+launch_action_artifacts = report.get("launch_action_artifacts", [])
 
 report.update({
     "status": "running-onchain",
@@ -711,11 +1773,50 @@ report.update({
         "token_action_runs": [],
         "nft_action_runs": [],
         "timelock_action_runs": [],
+        "multisig_action_runs": [],
+        "vesting_action_runs": [],
+        "amm_action_runs": [],
+        "launch_action_runs": [],
     },
 })
 
 def write_report():
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+def update_ckb_business_coverage(onchain_actions):
+    coverage = report.get("ckb_business_coverage") or {}
+    rows = coverage.get("rows") or []
+    for row in rows:
+        example = row["example"]
+        strict_actions = row.get("strict_ckb_actions") or []
+        ckb_onchain_actions = onchain_actions.get(example, [])
+        row["ckb_onchain_actions"] = ckb_onchain_actions
+        row["missing_ckb_onchain_actions"] = sorted(set(strict_actions) - set(ckb_onchain_actions))
+        row["ckb_onchain_action_coverage_complete"] = not row["missing_ckb_onchain_actions"]
+
+    strict_complete = all(
+        row.get("strict_action_coverage_complete") and row.get("strict_lock_coverage_complete")
+        for row in rows
+    )
+    onchain_complete = all(row.get("ckb_onchain_action_coverage_complete") for row in rows)
+    coverage.update({
+        "status": "complete" if strict_complete and onchain_complete else "incomplete",
+        "strict_compile_coverage_complete": strict_complete,
+        "onchain_action_coverage_complete": onchain_complete,
+        "ckb_onchain_action_count": sum(len(row.get("ckb_onchain_actions") or []) for row in rows),
+        "missing_ckb_onchain_actions": {
+            row["example"]: row["missing_ckb_onchain_actions"]
+            for row in rows
+            if row.get("missing_ckb_onchain_actions")
+        },
+        "rows": rows,
+    })
+    report["ckb_business_coverage"] = coverage
+    report["production_ready"] = (
+        report.get("acceptance_mode") == "production"
+        and coverage["status"] == "complete"
+        and (report.get("production_gate") or {}).get("status") == "passed"
+    )
 
 def rpc(method, params=None):
     body = json.dumps({"id": 42, "jsonrpc": "2.0", "method": method, "params": params or []}).encode("utf-8")
@@ -737,8 +1838,8 @@ def hex_u64(value):
 def out_point(tx_hash, index):
     return {"tx_hash": tx_hash, "index": hex_u64(index)}
 
-def always_success_lock():
-    return {"code_hash": ALWAYS_SUCCESS_CODE_HASH, "hash_type": "data", "args": "0x"}
+def always_success_lock(args="0x"):
+    return {"code_hash": ALWAYS_SUCCESS_CODE_HASH, "hash_type": "data", "args": args}
 
 def data_hash(data):
     return "0x" + hashlib.blake2b(data, digest_size=32, person=b"ckb-default-hash").hexdigest()
@@ -751,6 +1852,12 @@ def molecule_u32(value):
 
 def molecule_bytes(data):
     return molecule_u32(len(data)) + data
+
+def molecule_fixvec(items):
+    out = bytearray(molecule_u32(len(items)))
+    for item in items:
+        out.extend(item)
+    return bytes(out)
 
 def molecule_table(fields):
     header_size = 4 + 4 * len(fields)
@@ -801,6 +1908,17 @@ def mint_authority_data(token_symbol=b"TOKEN001", max_supply=1000, minted=0):
         raise RuntimeError(f"mint authority symbol must be exactly 8 bytes, got {len(token_symbol)}")
     return token_symbol + max_supply.to_bytes(8, "little") + minted.to_bytes(8, "little")
 
+def fixed_recipient_tuple_array(recipients):
+    if len(recipients) != 8:
+        raise RuntimeError(f"launch recipients must contain exactly 8 entries, got {len(recipients)}")
+    out = bytearray()
+    for address, amount in recipients:
+        if len(address) != 32:
+            raise RuntimeError(f"launch recipient address must be exactly 32 bytes, got {len(address)}")
+        out.extend(address)
+        out.extend(int(amount).to_bytes(8, "little"))
+    return bytes(out)
+
 def nft_data(token_id, owner, metadata_hash, royalty_recipient, royalty_bps):
     if len(owner) != 32:
         raise RuntimeError(f"NFT owner must be exactly 32 bytes, got {len(owner)}")
@@ -816,12 +1934,222 @@ def nft_data(token_id, owner, metadata_hash, royalty_recipient, royalty_bps):
         + royalty_bps.to_bytes(2, "little")
     )
 
+def collection_data(creator, total_supply, max_supply):
+    if len(creator) != 32:
+        raise RuntimeError(f"Collection creator must be exactly 32 bytes, got {len(creator)}")
+    return creator + total_supply.to_bytes(8, "little") + max_supply.to_bytes(8, "little")
+
+def collection_molecule_data(creator, total_supply, max_supply, name=b"Acceptance Collection", symbol=b"ACPT", base_uri=b"ckb://cellscript/nft/"):
+    if len(creator) != 32:
+        raise RuntimeError(f"Collection creator must be exactly 32 bytes, got {len(creator)}")
+    return molecule_table([
+        molecule_bytes(name),
+        molecule_bytes(symbol),
+        creator,
+        total_supply.to_bytes(8, "little"),
+        max_supply.to_bytes(8, "little"),
+        molecule_bytes(base_uri),
+    ])
+
+def listing_data(token_id, seller, price, created_at):
+    if len(seller) != 32:
+        raise RuntimeError(f"Listing seller must be exactly 32 bytes, got {len(seller)}")
+    return token_id.to_bytes(8, "little") + seller + price.to_bytes(8, "little") + created_at.to_bytes(8, "little")
+
+def offer_data(token_id, buyer, price, expires_at):
+    if len(buyer) != 32:
+        raise RuntimeError(f"Offer buyer must be exactly 32 bytes, got {len(buyer)}")
+    return token_id.to_bytes(8, "little") + buyer + price.to_bytes(8, "little") + expires_at.to_bytes(8, "little")
+
+def royalty_payment_data(token_id, recipient, amount):
+    if len(recipient) != 32:
+        raise RuntimeError(f"RoyaltyPayment recipient must be exactly 32 bytes, got {len(recipient)}")
+    return token_id.to_bytes(8, "little") + recipient + amount.to_bytes(8, "little")
+
 def timelock_data(owner, lock_type, unlock_height, created_at):
     if len(owner) != 32:
         raise RuntimeError(f"TimeLock owner must be exactly 32 bytes, got {len(owner)}")
     if not 0 <= lock_type <= 255:
         raise RuntimeError(f"TimeLock lock_type must fit in u8, got {lock_type}")
     return owner + bytes([lock_type]) + unlock_height.to_bytes(8, "little") + created_at.to_bytes(8, "little")
+
+def locked_asset_data(amount, lock_hash):
+    if len(lock_hash) != 32:
+        raise RuntimeError(f"LockedAsset lock_hash must be exactly 32 bytes, got {len(lock_hash)}")
+    return amount.to_bytes(8, "little") + lock_hash
+
+def locked_asset_molecule_data(asset_type, amount, lock_hash):
+    if len(lock_hash) != 32:
+        raise RuntimeError(f"LockedAsset lock_hash must be exactly 32 bytes, got {len(lock_hash)}")
+    return molecule_table([
+        asset_type,
+        amount.to_bytes(8, "little"),
+        lock_hash,
+    ])
+
+def release_request_data(lock_hash, requester, requested_at):
+    if len(lock_hash) != 32:
+        raise RuntimeError(f"ReleaseRequest lock_hash must be exactly 32 bytes, got {len(lock_hash)}")
+    if len(requester) != 32:
+        raise RuntimeError(f"ReleaseRequest requester must be exactly 32 bytes, got {len(requester)}")
+    return lock_hash + requester + requested_at.to_bytes(8, "little")
+
+def emergency_release_data(lock_hash, requester, requested_at, approvals):
+    if len(lock_hash) != 32:
+        raise RuntimeError(f"EmergencyRelease lock_hash must be exactly 32 bytes, got {len(lock_hash)}")
+    if len(requester) != 32:
+        raise RuntimeError(f"EmergencyRelease requester must be exactly 32 bytes, got {len(requester)}")
+    if not 0 <= approvals <= 255:
+        raise RuntimeError(f"EmergencyRelease approvals must fit in u8, got {approvals}")
+    return lock_hash + requester + requested_at.to_bytes(8, "little") + bytes([approvals])
+
+def emergency_release_molecule_data(lock_hash, requester, reason, requested_at, approvers):
+    if len(lock_hash) != 32:
+        raise RuntimeError(f"EmergencyRelease lock_hash must be exactly 32 bytes, got {len(lock_hash)}")
+    if len(requester) != 32:
+        raise RuntimeError(f"EmergencyRelease requester must be exactly 32 bytes, got {len(requester)}")
+    for approver in approvers:
+        if len(approver) != 32:
+            raise RuntimeError(f"EmergencyRelease approver must be exactly 32 bytes, got {len(approver)}")
+    return molecule_table([
+        lock_hash,
+        requester,
+        reason,
+        requested_at.to_bytes(8, "little"),
+        molecule_fixvec(approvers),
+    ])
+
+def release_record_data(lock_hash, released_at, released_by):
+    if len(lock_hash) != 32:
+        raise RuntimeError(f"ReleaseRecord lock_hash must be exactly 32 bytes, got {len(lock_hash)}")
+    if len(released_by) != 32:
+        raise RuntimeError(f"ReleaseRecord released_by must be exactly 32 bytes, got {len(released_by)}")
+    return lock_hash + released_at.to_bytes(8, "little") + released_by
+
+def multisig_wallet_data(signer_a, signer_b, threshold, nonce, created_at):
+    if len(signer_a) != 32:
+        raise RuntimeError(f"MultisigWallet signer_a must be exactly 32 bytes, got {len(signer_a)}")
+    if len(signer_b) != 32:
+        raise RuntimeError(f"MultisigWallet signer_b must be exactly 32 bytes, got {len(signer_b)}")
+    if not 0 <= threshold <= 255:
+        raise RuntimeError(f"MultisigWallet threshold must fit in u8, got {threshold}")
+    return signer_a + signer_b + bytes([threshold]) + nonce.to_bytes(8, "little") + created_at.to_bytes(8, "little")
+
+def multisig_wallet_molecule_data(signers, threshold, nonce, created_at):
+    if len(signers) < 2:
+        raise RuntimeError(f"MultisigWallet signers must contain at least 2 entries, got {len(signers)}")
+    for signer in signers:
+        if len(signer) != 32:
+            raise RuntimeError(f"MultisigWallet signer must be exactly 32 bytes, got {len(signer)}")
+    if not 0 <= threshold <= 255:
+        raise RuntimeError(f"MultisigWallet threshold must fit in u8, got {threshold}")
+    return molecule_table([
+        molecule_fixvec(signers),
+        bytes([threshold]),
+        nonce.to_bytes(8, "little"),
+        created_at.to_bytes(8, "little"),
+    ])
+
+def multisig_proposal_molecule_data(wallet_hash, proposal_id, proposer, operation, target, amount, data, signatures, required_signatures, created_at, expires_at):
+    if len(wallet_hash) != 32:
+        raise RuntimeError(f"Proposal wallet_hash must be exactly 32 bytes, got {len(wallet_hash)}")
+    if len(proposer) != 32:
+        raise RuntimeError(f"Proposal proposer must be exactly 32 bytes, got {len(proposer)}")
+    if len(target) != 32:
+        raise RuntimeError(f"Proposal target must be exactly 32 bytes, got {len(target)}")
+    if not 0 <= operation <= 255:
+        raise RuntimeError(f"Proposal operation must fit in u8, got {operation}")
+    if not 0 <= required_signatures <= 255:
+        raise RuntimeError(f"Proposal required_signatures must fit in u8, got {required_signatures}")
+    encoded_signatures = []
+    for signer, signature in signatures:
+        if len(signer) != 32:
+            raise RuntimeError(f"Proposal signature signer must be exactly 32 bytes, got {len(signer)}")
+        if len(signature) != 64:
+            raise RuntimeError(f"Proposal signature bytes must be exactly 64 bytes, got {len(signature)}")
+        encoded_signatures.append(signer + signature)
+    return molecule_table([
+        wallet_hash,
+        proposal_id.to_bytes(8, "little"),
+        proposer,
+        bytes([operation]),
+        target,
+        amount.to_bytes(8, "little"),
+        molecule_fixvec([bytes([byte]) for byte in data]),
+        bytes([required_signatures]),
+        molecule_fixvec(encoded_signatures),
+        created_at.to_bytes(8, "little"),
+        expires_at.to_bytes(8, "little"),
+    ])
+
+def multisig_proposal_data(wallet_hash, proposal_id, proposer, operation, target, amount, required_signatures, signature_count, created_at, expires_at):
+    if len(wallet_hash) != 32:
+        raise RuntimeError(f"Proposal wallet_hash must be exactly 32 bytes, got {len(wallet_hash)}")
+    if len(proposer) != 32:
+        raise RuntimeError(f"Proposal proposer must be exactly 32 bytes, got {len(proposer)}")
+    if len(target) != 32:
+        raise RuntimeError(f"Proposal target must be exactly 32 bytes, got {len(target)}")
+    if not 0 <= operation <= 255:
+        raise RuntimeError(f"Proposal operation must fit in u8, got {operation}")
+    if not 0 <= required_signatures <= 255:
+        raise RuntimeError(f"Proposal required_signatures must fit in u8, got {required_signatures}")
+    if not 0 <= signature_count <= 255:
+        raise RuntimeError(f"Proposal signature_count must fit in u8, got {signature_count}")
+    return (
+        wallet_hash
+        + proposal_id.to_bytes(8, "little")
+        + proposer
+        + bytes([operation])
+        + target
+        + amount.to_bytes(8, "little")
+        + bytes([required_signatures])
+        + bytes([signature_count])
+        + created_at.to_bytes(8, "little")
+        + expires_at.to_bytes(8, "little")
+    )
+
+def signature_confirmation_data(proposal_id, signer, timestamp):
+    if len(signer) != 32:
+        raise RuntimeError(f"SignatureConfirmation signer must be exactly 32 bytes, got {len(signer)}")
+    return proposal_id.to_bytes(8, "little") + signer + timestamp.to_bytes(8, "little")
+
+def execution_record_data(proposal_id, executor, executed_at, success):
+    if len(executor) != 32:
+        raise RuntimeError(f"ExecutionRecord executor must be exactly 32 bytes, got {len(executor)}")
+    if not 0 <= success <= 255:
+        raise RuntimeError(f"ExecutionRecord success must fit in u8, got {success}")
+    return proposal_id.to_bytes(8, "little") + executor + executed_at.to_bytes(8, "little") + bytes([success])
+
+def vesting_config_data(admin, symbol, cliff_period, total_period, revocable):
+    if len(admin) != 32:
+        raise RuntimeError(f"VestingConfig admin must be exactly 32 bytes, got {len(admin)}")
+    if len(symbol) != 8:
+        raise RuntimeError(f"VestingConfig token_symbol must be exactly 8 bytes, got {len(symbol)}")
+    if revocable not in (0, 1, False, True):
+        raise RuntimeError(f"VestingConfig revocable must be boolean-like, got {revocable!r}")
+    return (
+        admin
+        + symbol
+        + cliff_period.to_bytes(8, "little")
+        + total_period.to_bytes(8, "little")
+        + bytes([1 if revocable else 0])
+    )
+
+def vesting_grant_data(state, beneficiary, total_amount, claimed_amount, grant_timepoint, cliff_timepoint, end_timepoint, symbol):
+    if len(beneficiary) != 32:
+        raise RuntimeError(f"VestingGrant beneficiary must be exactly 32 bytes, got {len(beneficiary)}")
+    if len(symbol) != 8:
+        raise RuntimeError(f"VestingGrant token_symbol must be exactly 8 bytes, got {len(symbol)}")
+    return (
+        bytes([state])
+        + beneficiary
+        + total_amount.to_bytes(8, "little")
+        + claimed_amount.to_bytes(8, "little")
+        + grant_timepoint.to_bytes(8, "little")
+        + cliff_timepoint.to_bytes(8, "little")
+        + end_timepoint.to_bytes(8, "little")
+        + symbol
+    )
 
 def entry_witness(*args):
     out = bytearray(b"CSARGv1\0")
@@ -887,7 +2215,7 @@ def collect_spendable_cellbases(min_capacity, max_cells=256):
         "generated_blocks": generated_blocks,
     }
 
-def transaction(input_cells, outputs, outputs_data, cell_deps, witnesses=None):
+def transaction(input_cells, outputs, outputs_data, cell_deps, witnesses=None, header_deps=None):
     if isinstance(input_cells, dict) and "cells" in input_cells:
         input_cells = input_cells["cells"]
     elif isinstance(input_cells, dict):
@@ -895,7 +2223,7 @@ def transaction(input_cells, outputs, outputs_data, cell_deps, witnesses=None):
     return {
         "version": "0x0",
         "cell_deps": cell_deps,
-        "header_deps": [],
+        "header_deps": header_deps or [],
         "inputs": [
             {
                 "previous_output": out_point(input_cell["tx_hash"], input_cell["index"]),
@@ -1311,6 +2639,10 @@ def run_nft_action(action_record, always_success_dep):
     destination_owner = decode_hex(script_hash(destination_lock), 32)
     metadata_hash = bytes(range(32))
     royalty_recipient = bytes(reversed(range(32)))
+    nft_type = always_success_lock("0x21")
+    listing_type = always_success_lock("0x22")
+    offer_type = always_success_lock("0x23")
+    royalty_payment_type = always_success_lock("0x24")
     cell_deps = [always_success_dep, code["code_cell_dep"]]
 
     result = {
@@ -1321,8 +2653,58 @@ def run_nft_action(action_record, always_success_dep):
         "cellscript_lock_hash": script_hash(cellscript_lock),
         "destination_owner": "0x" + destination_owner.hex(),
     }
-
-    if action == "transfer":
+    if action == "mint":
+        original_scoped = action_record.get("kind") == "original-scoped-action-strict"
+        input_collection_payload = (
+            collection_molecule_data(current_owner, 10, 1000)
+            if original_scoped
+            else collection_data(current_owner, 10, 1000)
+        )
+        output_collection_payload = (
+            collection_molecule_data(current_owner, 11, 1000)
+            if original_scoped
+            else collection_data(current_owner, 11, 1000)
+        )
+        initial = create_script_locked_cells(
+            "nft.mint",
+            [
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": cellscript_type,
+                    "data": input_collection_payload,
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [
+                {"capacity": hex_u64(300 * 100_000_000), "lock": destination_lock, "type": cellscript_type},
+                {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type},
+            ],
+            [
+                "0x" + nft_data(11, destination_owner, metadata_hash, current_owner, 250).hex(),
+                "0x" + output_collection_payload.hex(),
+            ],
+            cell_deps,
+            [entry_witness(destination_owner, metadata_hash)],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [
+                {"capacity": hex_u64(300 * 100_000_000), "lock": destination_lock, "type": cellscript_type},
+                {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type},
+            ],
+            [
+                "0x" + nft_data(12, destination_owner, metadata_hash, current_owner, 250).hex(),
+                "0x" + output_collection_payload.hex(),
+            ],
+            cell_deps,
+            [entry_witness(destination_owner, metadata_hash)],
+        )
+    elif action == "transfer":
         initial = create_script_locked_cells(
             "nft.transfer",
             [
@@ -1349,6 +2731,224 @@ def run_nft_action(action_record, always_success_dep):
             ["0x" + nft_data(1, current_owner, metadata_hash, royalty_recipient, 250).hex()],
             cell_deps,
             [entry_witness(destination_owner)],
+        )
+    elif action == "create_listing":
+        price = 100
+        current_time = 55
+        token_id = 3
+        nft_payload = nft_data(token_id, current_owner, metadata_hash, royalty_recipient, 250)
+        initial = create_script_locked_cells(
+            "nft.create_listing",
+            [
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": nft_type,
+                    "data": nft_payload,
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [
+                {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": listing_type},
+                {"capacity": hex_u64(700 * 100_000_000), "lock": cellscript_lock, "type": nft_type},
+            ],
+            [
+                "0x" + listing_data(token_id, current_owner, price, current_time).hex(),
+                "0x" + nft_payload.hex(),
+            ],
+            cell_deps,
+            [entry_witness(price, current_time)],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [
+                {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": listing_type},
+                {"capacity": hex_u64(700 * 100_000_000), "lock": cellscript_lock, "type": nft_type},
+            ],
+            [
+                "0x" + listing_data(token_id, current_owner, price + 1, current_time).hex(),
+                "0x" + nft_payload.hex(),
+            ],
+            cell_deps,
+            [entry_witness(price, current_time)],
+        )
+    elif action == "cancel_listing":
+        token_id = 4
+        price = 120
+        created_at = 60
+        initial = create_script_locked_cells(
+            "nft.cancel_listing",
+            [
+                {
+                    "capacity": 300 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": listing_type,
+                    "data": listing_data(token_id, current_owner, price, created_at),
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": None}],
+            ["0x"],
+            cell_deps,
+            [entry_witness()],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": listing_type}],
+            ["0x" + listing_data(token_id, current_owner, price, created_at).hex()],
+            cell_deps,
+            [entry_witness()],
+        )
+    elif action == "buy_from_listing":
+        token_id = 6
+        price = 10_000
+        payment = 10_000
+        royalty_amount = 250
+        seller_amount = payment - royalty_amount
+        created_at = 70
+        nft_payload = nft_data(token_id, current_owner, metadata_hash, royalty_recipient, 250)
+        initial = create_script_locked_cells(
+            "nft.buy_from_listing",
+            [
+                {
+                    "capacity": 500 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": listing_type,
+                    "data": listing_data(token_id, current_owner, price, created_at),
+                },
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": nft_type,
+                    "data": nft_payload,
+                },
+            ],
+            cell_deps,
+        )
+        valid_tx = transaction(
+            initial["cells"],
+            [
+                {"capacity": hex_u64(200 * 100_000_000), "lock": cellscript_lock, "type": royalty_payment_type},
+                {"capacity": hex_u64(200 * 100_000_000), "lock": cellscript_lock, "type": royalty_payment_type},
+                {"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": nft_type},
+            ],
+            [
+                "0x" + royalty_payment_data(token_id, royalty_recipient, royalty_amount).hex(),
+                "0x" + royalty_payment_data(token_id, current_owner, seller_amount).hex(),
+                "0x" + nft_data(token_id, destination_owner, metadata_hash, royalty_recipient, 250).hex(),
+            ],
+            cell_deps,
+            [entry_witness(destination_owner, current_owner, payment), "0x"],
+        )
+        malformed_tx = transaction(
+            initial["cells"],
+            [
+                {"capacity": hex_u64(200 * 100_000_000), "lock": cellscript_lock, "type": royalty_payment_type},
+                {"capacity": hex_u64(200 * 100_000_000), "lock": cellscript_lock, "type": royalty_payment_type},
+                {"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": nft_type},
+            ],
+            [
+                "0x" + royalty_payment_data(token_id, royalty_recipient, royalty_amount).hex(),
+                "0x" + royalty_payment_data(token_id, current_owner, seller_amount + 1).hex(),
+                "0x" + nft_data(token_id, destination_owner, metadata_hash, royalty_recipient, 250).hex(),
+            ],
+            cell_deps,
+            [entry_witness(destination_owner, current_owner, payment), "0x"],
+        )
+    elif action == "create_offer":
+        token_id = 5
+        price = 150
+        expires_at = 200
+        initial = create_script_locked_cells(
+            "nft.create_offer",
+            [
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": None,
+                    "data": b"",
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": offer_type}],
+            ["0x" + offer_data(token_id, destination_owner, price, expires_at).hex()],
+            cell_deps,
+            [entry_witness(token_id, destination_owner, price, expires_at)],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": offer_type}],
+            ["0x" + offer_data(token_id, destination_owner, price + 1, expires_at).hex()],
+            cell_deps,
+            [entry_witness(token_id, destination_owner, price, expires_at)],
+        )
+    elif action == "accept_offer":
+        token_id = 7
+        price = 10_000
+        royalty_amount = 250
+        seller_amount = price - royalty_amount
+        expires_at = 200
+        current_time = 100
+        nft_payload = nft_data(token_id, current_owner, metadata_hash, royalty_recipient, 250)
+        initial = create_script_locked_cells(
+            "nft.accept_offer",
+            [
+                {
+                    "capacity": 500 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": offer_type,
+                    "data": offer_data(token_id, destination_owner, price, expires_at),
+                },
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": nft_type,
+                    "data": nft_payload,
+                },
+            ],
+            cell_deps,
+        )
+        valid_tx = transaction(
+            initial["cells"],
+            [
+                {"capacity": hex_u64(200 * 100_000_000), "lock": cellscript_lock, "type": royalty_payment_type},
+                {"capacity": hex_u64(200 * 100_000_000), "lock": cellscript_lock, "type": royalty_payment_type},
+                {"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": nft_type},
+            ],
+            [
+                "0x" + royalty_payment_data(token_id, royalty_recipient, royalty_amount).hex(),
+                "0x" + royalty_payment_data(token_id, current_owner, seller_amount).hex(),
+                "0x" + nft_data(token_id, destination_owner, metadata_hash, royalty_recipient, 250).hex(),
+            ],
+            cell_deps,
+            [entry_witness(destination_owner, current_owner, price, current_time), "0x"],
+        )
+        malformed_tx = transaction(
+            initial["cells"],
+            [
+                {"capacity": hex_u64(200 * 100_000_000), "lock": cellscript_lock, "type": royalty_payment_type},
+                {"capacity": hex_u64(200 * 100_000_000), "lock": cellscript_lock, "type": royalty_payment_type},
+                {"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": nft_type},
+            ],
+            [
+                "0x" + royalty_payment_data(token_id, royalty_recipient, royalty_amount).hex(),
+                "0x" + royalty_payment_data(token_id, current_owner, seller_amount + 1).hex(),
+                "0x" + nft_data(token_id, destination_owner, metadata_hash, royalty_recipient, 250).hex(),
+            ],
+            cell_deps,
+            [entry_witness(destination_owner, current_owner, price, current_time), "0x"],
         )
     elif action == "burn":
         initial = create_script_locked_cells(
@@ -1405,6 +3005,680 @@ def run_nft_action(action_record, always_success_dep):
     })
     return result
 
+def run_amm_action(action_record, always_success_dep):
+    action = action_record["action"]
+    name = action_record["name"]
+    code = deploy_code_cell(name, action_record["artifact"], always_success_dep)
+    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data", "args": "0x"}
+    destination_lock = always_success_lock()
+    cell_deps = [always_success_dep, code["code_cell_dep"]]
+
+    result = {
+        "action": action,
+        "name": name,
+        "artifact": action_record["artifact"],
+        "code": code,
+        "cellscript_lock_hash": script_hash(cellscript_lock),
+    }
+
+    initial = create_script_locked_cells(
+        f"amm.{action}",
+        [
+            {
+                "capacity": 100 * 100_000_000,
+                "lock": cellscript_lock,
+                "type": None,
+                "data": b"",
+            }
+        ],
+        cell_deps,
+    )
+    input_cell = initial["cells"][0]
+    if action == "isqrt":
+        valid_witness = entry_witness(0)
+        malformed_witness = entry_witness(4)
+    elif action == "min":
+        valid_witness = entry_witness(0, 0)
+        malformed_witness = entry_witness(1, 2)
+    else:
+        raise RuntimeError(f"unsupported AMM action harness: {action}")
+
+    valid_tx = transaction(
+        input_cell,
+        [{"capacity": hex_u64(100 * 100_000_000), "lock": destination_lock, "type": None}],
+        ["0x"],
+        cell_deps,
+        [valid_witness],
+    )
+    malformed_tx = transaction(
+        input_cell,
+        [{"capacity": hex_u64(100 * 100_000_000), "lock": destination_lock, "type": None}],
+        ["0x"],
+        cell_deps,
+        [malformed_witness],
+    )
+    malformed_rejection = expect_dry_run_rejected(
+        malformed_tx,
+        f"{name} malformed action transaction",
+        ("Script", "script", "ValidationFailure", "error code", "VM", "Run result", "Invalid"),
+    )
+    assert_live(input_cell["tx_hash"], input_cell["index"], f"{name} input cell after malformed transaction")
+
+    valid_dry_run = rpc("dry_run_transaction", [valid_tx])
+    commit = submit_and_commit(valid_tx, f"{name} valid action transaction")
+    output_live = [
+        assert_live(commit["tx_hash"], index, f"{name} valid output {index}").get("status") == "live"
+        for index in range(len(valid_tx["outputs"]))
+    ]
+    result.update({
+        "initial_cells": initial,
+        "malformed_transaction": malformed_rejection,
+        "valid_dry_run": valid_dry_run,
+        "valid_commit": commit,
+        "valid_outputs_live": output_live,
+        "status": "passed",
+    })
+    return result
+
+def run_multisig_action(action_record, always_success_dep):
+    action = action_record["action"]
+    name = action_record["name"]
+    code = deploy_code_cell(name, action_record["artifact"], always_success_dep)
+    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data", "args": "0x"}
+    cellscript_type = always_success_lock()
+    wallet_type = always_success_lock("0x51")
+    proposal_type = always_success_lock("0x52")
+    confirmation_type = always_success_lock("0x53")
+    execution_type = always_success_lock("0x54")
+    signer_a = decode_hex(script_hash(cellscript_lock), 32)
+    signer_b = decode_hex(script_hash(always_success_lock("0x55")), 32)
+    signer_c = decode_hex(script_hash(always_success_lock("0x56")), 32)
+    target = decode_hex(script_hash(always_success_lock("0x57")), 32)
+    wallet_hash = bytes(32)
+    cell_deps = [always_success_dep, code["code_cell_dep"]]
+
+    result = {
+        "action": action,
+        "name": name,
+        "artifact": action_record["artifact"],
+        "code": code,
+        "cellscript_lock_hash": script_hash(cellscript_lock),
+    }
+
+    if action == "create_wallet":
+        current_time = 10
+        original_scoped = action_record.get("kind") == "original-scoped-action-strict"
+        signers = [signer_a, signer_b]
+        signers_payload = molecule_fixvec(signers)
+        wallet_payload = (
+            multisig_wallet_molecule_data(signers, 2, 0, current_time)
+            if original_scoped
+            else multisig_wallet_data(signer_a, signer_b, 2, 0, current_time)
+        )
+        malformed_wallet_payload = (
+            multisig_wallet_molecule_data(signers, 1, 0, current_time)
+            if original_scoped
+            else multisig_wallet_data(signer_a, signer_b, 1, 0, current_time)
+        )
+        initial_data = signers_payload if original_scoped else b""
+        witness = entry_witness(bytes([2]), current_time) if original_scoped else entry_witness(signer_a, signer_b, bytes([2]), current_time)
+        initial = create_script_locked_cells(
+            "multisig.create_wallet",
+            [{"capacity": 1000 * 100_000_000, "lock": cellscript_lock, "type": None, "data": initial_data}],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": wallet_type}],
+            ["0x" + wallet_payload.hex()],
+            cell_deps,
+            [witness],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": wallet_type}],
+            ["0x" + malformed_wallet_payload.hex()],
+            cell_deps,
+            [witness],
+        )
+    elif action in ("propose_transfer", "propose_add_signer", "propose_remove_signer", "propose_change_threshold"):
+        current_time = 20
+        threshold = 2
+        initial_nonce = 0
+        proposal_id = 1
+        original_scoped = action_record.get("kind") == "original-scoped-action-strict"
+        if action == "propose_remove_signer":
+            threshold = 1
+        signers = [signer_a, signer_b]
+        wallet_payload = (
+            multisig_wallet_molecule_data(signers, threshold, initial_nonce, 10)
+            if original_scoped
+            else multisig_wallet_data(signer_a, signer_b, threshold, initial_nonce, 10)
+        )
+        initial = create_script_locked_cells(
+            f"multisig.{action}",
+            [{"capacity": 1000 * 100_000_000, "lock": cellscript_lock, "type": wallet_type, "data": wallet_payload}],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        if action == "propose_transfer":
+            operation = 0
+            proposal_target = target
+            amount = 500
+            data_payload = b""
+            witness = entry_witness(signer_a, target, amount, current_time)
+            malformed_witness = entry_witness(signer_b, target, 0, current_time)
+        elif action == "propose_add_signer":
+            operation = 1
+            proposal_target = signer_c
+            amount = 0
+            data_payload = signer_c
+            witness = entry_witness(signer_a, signer_c, current_time)
+            malformed_witness = entry_witness(signer_a, signer_a, current_time)
+        elif action == "propose_remove_signer":
+            operation = 2
+            proposal_target = signer_b
+            amount = 0
+            data_payload = b""
+            witness = entry_witness(signer_a, signer_b, current_time)
+            malformed_witness = entry_witness(signer_a, signer_c, current_time)
+        else:
+            operation = 3
+            proposal_target = bytes(32)
+            new_threshold = 2 if original_scoped else 1
+            amount = new_threshold
+            data_payload = bytes([new_threshold])
+            witness = entry_witness(signer_a, bytes([new_threshold]), current_time)
+            malformed_witness = entry_witness(signer_a, bytes([3]), current_time)
+        output_wallet_payload = (
+            multisig_wallet_molecule_data(signers, threshold, proposal_id, 10)
+            if original_scoped
+            else multisig_wallet_data(signer_a, signer_b, threshold, proposal_id, 10)
+        )
+        proposal_payload = (
+            multisig_proposal_molecule_data(
+                wallet_hash,
+                proposal_id,
+                signer_a,
+                operation,
+                proposal_target,
+                amount,
+                data_payload,
+                [],
+                threshold,
+                current_time,
+                current_time + 1440,
+            )
+            if original_scoped
+            else multisig_proposal_data(
+                wallet_hash,
+                proposal_id,
+                signer_a,
+                operation,
+                proposal_target,
+                amount,
+                threshold,
+                0,
+                current_time,
+                current_time + 1440,
+            )
+        )
+        valid_tx = transaction(
+            input_cell,
+            [
+                {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": proposal_type},
+                {"capacity": hex_u64(700 * 100_000_000), "lock": cellscript_lock, "type": wallet_type},
+            ],
+            [
+                "0x" + proposal_payload.hex(),
+                "0x" + output_wallet_payload.hex(),
+            ],
+            cell_deps,
+            [witness],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [
+                {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": proposal_type},
+                {"capacity": hex_u64(700 * 100_000_000), "lock": cellscript_lock, "type": wallet_type},
+            ],
+            [
+                "0x" + proposal_payload.hex(),
+                "0x" + output_wallet_payload.hex(),
+            ],
+            cell_deps,
+            [malformed_witness],
+        )
+    elif action == "add_signature":
+        current_time = 30
+        proposal_id = 7
+        original_scoped = action_record.get("kind") == "original-scoped-action-strict"
+        signature_a = bytes([0xA5]) * 64
+        signature_b = bytes([0xB6]) * 64
+        signers = [signer_a, signer_b]
+        wallet_payload = multisig_wallet_molecule_data(signers, 2, 0, 10)
+        proposal_payload = (
+            multisig_proposal_molecule_data(
+                wallet_hash,
+                proposal_id,
+                signer_a,
+                0,
+                target,
+                500,
+                b"",
+                [(signer_a, signature_a)],
+                2,
+                20,
+                2000,
+            )
+            if original_scoped
+            else multisig_proposal_data(wallet_hash, proposal_id, signer_a, 0, target, 500, 2, 1, 20, 2000)
+        )
+        output_proposal_payload = (
+            multisig_proposal_molecule_data(
+                wallet_hash,
+                proposal_id,
+                signer_a,
+                0,
+                target,
+                500,
+                b"",
+                [(signer_a, signature_a), (signer_b, signature_b)],
+                2,
+                20,
+                2000,
+            )
+            if original_scoped
+            else multisig_proposal_data(wallet_hash, proposal_id, signer_a, 0, target, 500, 2, 2, 20, 2000)
+        )
+        malformed_proposal_payload = proposal_payload
+        input_cells = [
+            {"capacity": 1000 * 100_000_000, "lock": cellscript_lock, "type": proposal_type, "data": proposal_payload}
+        ]
+        if original_scoped:
+            input_cells.append(
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": wallet_type,
+                    "data": wallet_payload,
+                }
+            )
+        initial = create_script_locked_cells(
+            "multisig.add_signature",
+            input_cells,
+            cell_deps,
+        )
+        valid_tx = transaction(
+            initial["cells"] if original_scoped else initial["cells"][0],
+            [
+                {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": confirmation_type},
+                {"capacity": hex_u64(600 * 100_000_000), "lock": cellscript_lock, "type": proposal_type},
+            ],
+            [
+                "0x" + signature_confirmation_data(proposal_id, signer_b, current_time).hex(),
+                "0x" + output_proposal_payload.hex(),
+            ],
+            cell_deps,
+            [entry_witness(signer_b, signature_b, current_time), "0x"] if original_scoped else [entry_witness(signer_b, current_time)],
+        )
+        malformed_tx = transaction(
+            initial["cells"] if original_scoped else initial["cells"][0],
+            [
+                {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": confirmation_type},
+                {"capacity": hex_u64(600 * 100_000_000), "lock": cellscript_lock, "type": proposal_type},
+            ],
+            [
+                "0x" + signature_confirmation_data(proposal_id, signer_b, current_time).hex(),
+                "0x" + malformed_proposal_payload.hex(),
+            ],
+            cell_deps,
+            [entry_witness(signer_b, signature_b, current_time), "0x"] if original_scoped else [entry_witness(signer_b, current_time)],
+        )
+    elif action == "execute_proposal":
+        current_time = 40
+        proposal_id = 8
+        original_scoped = action_record.get("kind") == "original-scoped-action-strict"
+        signature_a = bytes([0xA5]) * 64
+        signature_b = bytes([0xB6]) * 64
+        signers = [signer_a, signer_b]
+        wallet_payload = multisig_wallet_molecule_data(signers, 2, 0, 10)
+        proposal_payload = (
+            multisig_proposal_molecule_data(
+                wallet_hash,
+                proposal_id,
+                signer_a,
+                0,
+                target,
+                500,
+                b"",
+                [(signer_a, signature_a), (signer_b, signature_b)],
+                2,
+                20,
+                2000,
+            )
+            if original_scoped
+            else multisig_proposal_data(wallet_hash, proposal_id, signer_a, 0, target, 500, 2, 2, 20, 2000)
+        )
+        input_cells = [
+            {"capacity": 500 * 100_000_000, "lock": cellscript_lock, "type": proposal_type, "data": proposal_payload}
+        ]
+        if original_scoped:
+            input_cells.append(
+                {
+                    "capacity": 500 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": wallet_type,
+                    "data": wallet_payload,
+                }
+            )
+        initial = create_script_locked_cells(
+            "multisig.execute_proposal",
+            input_cells,
+            cell_deps,
+        )
+        valid_tx = transaction(
+            initial["cells"] if original_scoped else initial["cells"][0],
+            [{"capacity": hex_u64(200 * 100_000_000), "lock": cellscript_lock, "type": execution_type}],
+            ["0x" + execution_record_data(proposal_id, signer_a, current_time, 1).hex()],
+            cell_deps,
+            [entry_witness(signer_a, current_time), "0x"] if original_scoped else [entry_witness(signer_a, current_time)],
+        )
+        malformed_tx = transaction(
+            initial["cells"] if original_scoped else initial["cells"][0],
+            [{"capacity": hex_u64(200 * 100_000_000), "lock": cellscript_lock, "type": execution_type}],
+            ["0x" + execution_record_data(proposal_id, signer_a, current_time + 1, 1).hex()],
+            cell_deps,
+            [entry_witness(signer_a, current_time), "0x"] if original_scoped else [entry_witness(signer_a, current_time)],
+        )
+    elif action == "cancel_proposal":
+        proposal_id = 9
+        original_scoped = action_record.get("kind") == "original-scoped-action-strict"
+        signers = [signer_a, signer_b]
+        wallet_payload = multisig_wallet_molecule_data(signers, 2, 0, 10)
+        proposal_payload = (
+            multisig_proposal_molecule_data(wallet_hash, proposal_id, signer_a, 0, target, 500, b"", [], 2, 20, 2000)
+            if original_scoped
+            else multisig_proposal_data(wallet_hash, proposal_id, signer_a, 0, target, 500, 2, 0, 20, 2000)
+        )
+        input_cells = [
+            {"capacity": 500 * 100_000_000, "lock": cellscript_lock, "type": proposal_type, "data": proposal_payload}
+        ]
+        if original_scoped:
+            input_cells.append(
+                {
+                    "capacity": 500 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": wallet_type,
+                    "data": wallet_payload,
+                }
+            )
+        initial = create_script_locked_cells(
+            "multisig.cancel_proposal",
+            input_cells,
+            cell_deps,
+        )
+        valid_tx = transaction(
+            initial["cells"] if original_scoped else initial["cells"][0],
+            [{"capacity": hex_u64(490 * 100_000_000), "lock": cellscript_lock, "type": None}],
+            ["0x"],
+            cell_deps,
+            [entry_witness(signer_a), "0x"] if original_scoped else [entry_witness(signer_a)],
+        )
+        malformed_tx = transaction(
+            initial["cells"] if original_scoped else initial["cells"][0],
+            [{"capacity": hex_u64(490 * 100_000_000), "lock": cellscript_lock, "type": None}],
+            ["0x"],
+            cell_deps,
+            [entry_witness(signer_b), "0x"] if original_scoped else [entry_witness(signer_b)],
+        )
+    else:
+        raise RuntimeError(f"unsupported multisig action harness: {action}")
+
+    malformed_rejection = expect_dry_run_rejected(
+        malformed_tx,
+        f"{name} malformed action transaction",
+        ("Script", "script", "ValidationFailure", "error code", "VM", "Run result", "Invalid"),
+    )
+    for index, cell in enumerate(initial["cells"]):
+        assert_live(cell["tx_hash"], cell["index"], f"{name} input cell {index} after malformed transaction")
+
+    valid_dry_run = rpc("dry_run_transaction", [valid_tx])
+    commit = submit_and_commit(valid_tx, f"{name} valid action transaction")
+    output_live = [
+        assert_live(commit["tx_hash"], index, f"{name} valid output {index}").get("status") == "live"
+        for index in range(len(valid_tx["outputs"]))
+    ]
+    result.update({
+        "initial_cells": initial,
+        "malformed_transaction": malformed_rejection,
+        "valid_dry_run": valid_dry_run,
+        "valid_commit": commit,
+        "valid_outputs_live": output_live,
+        "status": "passed",
+    })
+    return result
+
+def run_launch_action(action_record, always_success_dep):
+    action = action_record["action"]
+    name = action_record["name"]
+    if action != "simple_launch":
+        raise RuntimeError(f"unsupported launch action harness: {action}")
+    code = deploy_code_cell(name, action_record["artifact"], always_success_dep)
+    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data", "args": "0x"}
+    auth_type = always_success_lock("0x61")
+    token_type = always_success_lock("0x62")
+    symbol = b"LAUNCH01"
+    max_supply = 10_000
+    initial_mint = 1_000
+    creator_lock = always_success_lock("0x60")
+    recipient_locks = [always_success_lock("0x7" + format(index, "x")) for index in range(8)]
+    creator = decode_hex(script_hash(creator_lock), 32)
+    recipients = [
+        (decode_hex(script_hash(lock), 32), amount)
+        for lock, amount in zip(recipient_locks, [10, 20, 30, 40, 50, 60, 70, 80])
+    ]
+    recipient_payload = fixed_recipient_tuple_array(recipients)
+    total_distributed = sum(amount for _, amount in recipients)
+    cell_deps = [always_success_dep, code["code_cell_dep"]]
+
+    result = {
+        "action": action,
+        "name": name,
+        "artifact": action_record["artifact"],
+        "code": code,
+        "cellscript_lock_hash": script_hash(cellscript_lock),
+    }
+
+    initial = create_script_locked_cells(
+        "launch.simple_launch",
+        [{"capacity": 4000 * 100_000_000, "lock": cellscript_lock, "type": None, "data": b""}],
+        cell_deps,
+    )
+    input_cell = initial["cells"][0]
+    outputs = [{"capacity": hex_u64(400 * 100_000_000), "lock": creator_lock, "type": auth_type}]
+    outputs_data = ["0x" + mint_authority_data(symbol, max_supply, initial_mint).hex()]
+    for recipient_lock, (_, amount) in zip(recipient_locks, recipients):
+        outputs.append({"capacity": hex_u64(200 * 100_000_000), "lock": recipient_lock, "type": token_type})
+        outputs_data.append("0x" + token_data(amount, symbol).hex())
+    outputs.append({"capacity": hex_u64(200 * 100_000_000), "lock": creator_lock, "type": token_type})
+    outputs_data.append("0x" + token_data(initial_mint - total_distributed, symbol).hex())
+    witness = entry_witness(symbol, max_supply, initial_mint, creator, recipient_payload)
+    valid_tx = transaction(input_cell, outputs, outputs_data, cell_deps, [witness])
+
+    malformed_outputs_data = list(outputs_data)
+    malformed_outputs_data[-1] = "0x" + token_data(initial_mint - total_distributed - 1, symbol).hex()
+    malformed_tx = transaction(input_cell, outputs, malformed_outputs_data, cell_deps, [witness])
+
+    malformed_rejection = expect_dry_run_rejected(
+        malformed_tx,
+        f"{name} malformed action transaction",
+        ("Script", "script", "ValidationFailure", "error code", "VM", "Run result", "Invalid"),
+    )
+    assert_live(input_cell["tx_hash"], input_cell["index"], f"{name} input cell after malformed transaction")
+
+    valid_dry_run = rpc("dry_run_transaction", [valid_tx])
+    commit = submit_and_commit(valid_tx, f"{name} valid action transaction")
+    output_live = [
+        assert_live(commit["tx_hash"], index, f"{name} valid output {index}").get("status") == "live"
+        for index in range(len(valid_tx["outputs"]))
+    ]
+    result.update({
+        "initial_cells": initial,
+        "malformed_transaction": malformed_rejection,
+        "valid_dry_run": valid_dry_run,
+        "valid_commit": commit,
+        "valid_outputs_live": output_live,
+        "status": "passed",
+    })
+    return result
+
+def run_vesting_action(action_record, always_success_dep):
+    action = action_record["action"]
+    name = action_record["name"]
+    code = deploy_code_cell(name, action_record["artifact"], always_success_dep)
+    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data", "args": "0x"}
+    admin_lock = always_success_lock()
+    config_type = always_success_lock("0x41")
+    admin = decode_hex(script_hash(admin_lock), 32)
+    symbol = b"VEST0001"
+    cliff_period = 10
+    total_period = 100
+    revocable = True
+    cell_deps = [always_success_dep, code["code_cell_dep"]]
+
+    if action not in {"create_vesting_config", "grant_vesting"}:
+        raise RuntimeError(f"unsupported vesting action harness: {action}")
+
+    result = {
+        "action": action,
+        "name": name,
+        "artifact": action_record["artifact"],
+        "code": code,
+        "cellscript_lock_hash": script_hash(cellscript_lock),
+        "admin_lock_hash": "0x" + admin.hex(),
+    }
+
+    if action == "create_vesting_config":
+        initial = create_script_locked_cells(
+            "vesting.create_vesting_config",
+            [
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": None,
+                    "data": b"",
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        input_cells_to_check = [input_cell]
+        valid_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": admin_lock, "type": config_type}],
+            ["0x" + vesting_config_data(admin, symbol, cliff_period, total_period, revocable).hex()],
+            cell_deps,
+            [entry_witness(admin, symbol, cliff_period, total_period, bytes([1]))],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": admin_lock, "type": config_type}],
+            ["0x" + vesting_config_data(admin, symbol, cliff_period, total_period + 1, revocable).hex()],
+            cell_deps,
+            [entry_witness(admin, symbol, cliff_period, total_period, bytes([1]))],
+        )
+    else:
+        beneficiary_lock = always_success_lock("0x42")
+        beneficiary = decode_hex(script_hash(beneficiary_lock), 32)
+        grant_type = always_success_lock("0x43")
+        amount = 77
+        now = 0
+        header_dep = find_spendable_cellbase()["block_hash"]
+        initial = create_script_locked_cells(
+            "vesting.grant_vesting",
+            [
+                {
+                    "capacity": 200 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": always_success_lock("0x44"),
+                    "data": token_data(amount, symbol),
+                },
+                {
+                    "capacity": 200 * 100_000_000,
+                    "lock": admin_lock,
+                    "type": config_type,
+                    "data": vesting_config_data(admin, symbol, cliff_period, total_period, revocable),
+                },
+            ],
+            cell_deps,
+        )
+        input_cells_to_check = initial["cells"]
+        valid_tx = transaction(
+            initial["cells"],
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": beneficiary_lock, "type": grant_type}],
+            [
+                "0x"
+                + vesting_grant_data(
+                    0,
+                    beneficiary,
+                    amount,
+                    0,
+                    now,
+                    now + cliff_period,
+                    now + total_period,
+                    symbol,
+                ).hex()
+            ],
+            cell_deps,
+            [entry_witness(beneficiary)],
+            [header_dep],
+        )
+        malformed_tx = transaction(
+            initial["cells"],
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": beneficiary_lock, "type": grant_type}],
+            [
+                "0x"
+                + vesting_grant_data(
+                    0,
+                    beneficiary,
+                    amount + 1,
+                    0,
+                    now,
+                    now + cliff_period,
+                    now + total_period,
+                    symbol,
+                ).hex()
+            ],
+            cell_deps,
+            [entry_witness(beneficiary)],
+            [header_dep],
+        )
+    malformed_rejection = expect_dry_run_rejected(
+        malformed_tx,
+        f"{name} malformed action transaction",
+        ("Script", "script", "ValidationFailure", "error code", "VM", "Run result", "Invalid"),
+    )
+    for index, input_cell in enumerate(input_cells_to_check):
+        assert_live(input_cell["tx_hash"], input_cell["index"], f"{name} input cell {index} after malformed transaction")
+
+    valid_dry_run = rpc("dry_run_transaction", [valid_tx])
+    commit = submit_and_commit(valid_tx, f"{name} valid action transaction")
+    output_live = [
+        assert_live(commit["tx_hash"], index, f"{name} valid output {index}").get("status") == "live"
+        for index in range(len(valid_tx["outputs"]))
+    ]
+    result.update({
+        "initial_cells": initial,
+        "malformed_transaction": malformed_rejection,
+        "valid_dry_run": valid_dry_run,
+        "valid_commit": commit,
+        "valid_outputs_live": output_live,
+        "status": "passed",
+    })
+    return result
+
 def run_timelock_action(action_record, always_success_dep):
     action = action_record["action"]
     name = action_record["name"]
@@ -1423,7 +3697,297 @@ def run_timelock_action(action_record, always_success_dep):
         "owner": "0x" + owner.hex(),
     }
 
-    if action == "extend_lock":
+    if action == "create_absolute_lock":
+        current_height = 50
+        unlock_height = 100
+        initial = create_script_locked_cells(
+            "timelock.create_absolute_lock",
+            [
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": None,
+                    "data": b"",
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type}],
+            ["0x" + timelock_data(owner, 0, unlock_height, current_height).hex()],
+            cell_deps,
+            [entry_witness(owner, unlock_height, current_height)],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type}],
+            ["0x" + timelock_data(owner, 0, unlock_height + 1, current_height).hex()],
+            cell_deps,
+            [entry_witness(owner, unlock_height, current_height)],
+        )
+    elif action == "create_relative_lock":
+        current_height = 50
+        lock_period = 25
+        initial = create_script_locked_cells(
+            "timelock.create_relative_lock",
+            [
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": None,
+                    "data": b"",
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type}],
+            ["0x" + timelock_data(owner, 1, current_height + lock_period, current_height).hex()],
+            cell_deps,
+            [entry_witness(owner, lock_period, current_height)],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type}],
+            ["0x" + timelock_data(owner, 1, current_height + lock_period + 1, current_height).hex()],
+            cell_deps,
+            [entry_witness(owner, lock_period, current_height)],
+        )
+    elif action == "lock_asset":
+        unlock_height = 500
+        created_at = 1
+        amount = 42
+        original_scoped = action_record.get("kind") == "original-scoped-action-strict"
+        asset_type_payload = bytes([0])
+        lock_hash = bytes(32) if original_scoped else bytes(range(32))
+        locked_asset_payload = (
+            locked_asset_molecule_data(asset_type_payload, amount, lock_hash)
+            if original_scoped
+            else locked_asset_data(amount, lock_hash)
+        )
+        malformed_locked_asset_payload = (
+            locked_asset_molecule_data(asset_type_payload, amount + 1, lock_hash)
+            if original_scoped
+            else locked_asset_data(amount + 1, lock_hash)
+        )
+        locked_asset_type = always_success_lock("0x20")
+        input_cells = [
+            {
+                "capacity": 1000 * 100_000_000,
+                "lock": cellscript_lock,
+                "type": cellscript_type,
+                "data": timelock_data(owner, 0, unlock_height, created_at),
+            }
+        ]
+        if original_scoped:
+            input_cells.append(
+                {
+                    "capacity": 100 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": None,
+                    "data": asset_type_payload,
+                }
+            )
+        initial = create_script_locked_cells(
+            "timelock.lock_asset",
+            input_cells,
+            cell_deps,
+        )
+        valid_tx = transaction(
+            initial["cells"] if original_scoped else initial["cells"][0],
+            [
+                {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": locked_asset_type},
+                {"capacity": hex_u64(700 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type},
+            ],
+            [
+                "0x" + locked_asset_payload.hex(),
+                "0x" + timelock_data(owner, 0, unlock_height, created_at).hex(),
+            ],
+            cell_deps,
+            [entry_witness(amount), "0x"] if original_scoped else [entry_witness(lock_hash, amount)],
+        )
+        malformed_tx = transaction(
+            initial["cells"] if original_scoped else initial["cells"][0],
+            [
+                {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": locked_asset_type},
+                {"capacity": hex_u64(700 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type},
+            ],
+            [
+                "0x" + malformed_locked_asset_payload.hex(),
+                "0x" + timelock_data(owner, 0, unlock_height, created_at).hex(),
+            ],
+            cell_deps,
+            [entry_witness(amount), "0x"] if original_scoped else [entry_witness(lock_hash, amount)],
+        )
+    elif action == "request_release":
+        unlock_height = 100
+        current_height = 125
+        created_at = 1
+        original_scoped = action_record.get("kind") == "original-scoped-action-strict"
+        lock_hash = bytes(32) if original_scoped else bytes(range(32))
+        request_type = always_success_lock("0x21")
+        initial = create_script_locked_cells(
+            "timelock.request_release",
+            [
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": cellscript_type,
+                    "data": timelock_data(owner, 0, unlock_height, created_at),
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [
+                {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": request_type},
+                {"capacity": hex_u64(700 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type},
+            ],
+            [
+                "0x" + release_request_data(lock_hash, owner, current_height).hex(),
+                "0x" + timelock_data(owner, 0, unlock_height, created_at).hex(),
+            ],
+            cell_deps,
+            [entry_witness(owner, current_height) if original_scoped else entry_witness(lock_hash, owner, current_height)],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [
+                {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": request_type},
+                {"capacity": hex_u64(700 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type},
+            ],
+            [
+                "0x" + release_request_data(lock_hash, owner, current_height + 1).hex(),
+                "0x" + timelock_data(owner, 0, unlock_height, created_at).hex(),
+            ],
+            cell_deps,
+            [entry_witness(owner, current_height) if original_scoped else entry_witness(lock_hash, owner, current_height)],
+        )
+    elif action == "request_emergency_release":
+        unlock_height = 500
+        current_height = 125
+        created_at = 1
+        original_scoped = action_record.get("kind") == "original-scoped-action-strict"
+        lock_hash = bytes(32) if original_scoped else bytes(reversed(range(32)))
+        reason_payload = molecule_bytes(b"emergency release")
+        emergency_type = always_success_lock("0x22")
+        input_cells = [
+            {
+                "capacity": 1000 * 100_000_000,
+                "lock": cellscript_lock,
+                "type": cellscript_type,
+                "data": timelock_data(owner, 0, unlock_height, created_at),
+            }
+        ]
+        if original_scoped:
+            input_cells.append(
+                {
+                    "capacity": 100 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": None,
+                    "data": reason_payload,
+                }
+            )
+        initial = create_script_locked_cells(
+            "timelock.request_emergency_release",
+            input_cells,
+            cell_deps,
+        )
+        emergency_payload = (
+            emergency_release_molecule_data(lock_hash, owner, reason_payload, current_height, [])
+            if original_scoped
+            else emergency_release_data(lock_hash, owner, current_height, 0)
+        )
+        malformed_emergency_payload = (
+            emergency_release_molecule_data(lock_hash, owner, reason_payload, current_height + 1, [])
+            if original_scoped
+            else emergency_release_data(lock_hash, owner, current_height, 1)
+        )
+        valid_tx = transaction(
+            initial["cells"] if original_scoped else initial["cells"][0],
+            [
+                {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": emergency_type},
+                {"capacity": hex_u64(700 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type},
+            ],
+            [
+                "0x" + emergency_payload.hex(),
+                "0x" + timelock_data(owner, 0, unlock_height, created_at).hex(),
+            ],
+            cell_deps,
+            [entry_witness(owner, current_height), "0x"] if original_scoped else [entry_witness(lock_hash, owner, current_height)],
+        )
+        malformed_tx = transaction(
+            initial["cells"] if original_scoped else initial["cells"][0],
+            [
+                {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": emergency_type},
+                {"capacity": hex_u64(700 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type},
+            ],
+            [
+                "0x" + malformed_emergency_payload.hex(),
+                "0x" + timelock_data(owner, 0, unlock_height, created_at).hex(),
+            ],
+            cell_deps,
+            [entry_witness(owner, current_height), "0x"] if original_scoped else [entry_witness(lock_hash, owner, current_height)],
+        )
+    elif action == "approve_emergency_release":
+        original_scoped = action_record.get("kind") == "original-scoped-action-strict"
+        lock_hash = bytes(32) if original_scoped else bytes(reversed(range(32)))
+        requester = owner
+        requested_at = 120
+        initial_approvals = 1
+        required_approvals = 3
+        existing_approver = bytes([0x42]) * 32
+        reason_payload = molecule_bytes(b"emergency release")
+        emergency_type = always_success_lock("0x23")
+        input_payload = (
+            emergency_release_molecule_data(lock_hash, requester, reason_payload, requested_at, [existing_approver])
+            if original_scoped
+            else emergency_release_data(lock_hash, requester, requested_at, initial_approvals)
+        )
+        output_payload = (
+            emergency_release_molecule_data(lock_hash, requester, reason_payload, requested_at, [existing_approver, owner])
+            if original_scoped
+            else emergency_release_data(lock_hash, requester, requested_at, initial_approvals + 1)
+        )
+        malformed_output_payload = (
+            emergency_release_molecule_data(lock_hash, requester, reason_payload, requested_at, [existing_approver])
+            if original_scoped
+            else emergency_release_data(lock_hash, requester, requested_at, initial_approvals)
+        )
+        initial = create_script_locked_cells(
+            "timelock.approve_emergency_release",
+            [
+                {
+                    "capacity": 1000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": emergency_type,
+                    "data": input_payload,
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        valid_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": emergency_type}],
+            ["0x" + output_payload.hex()],
+            cell_deps,
+            [entry_witness(owner, bytes([required_approvals]) if original_scoped else required_approvals)],
+        )
+        malformed_tx = transaction(
+            input_cell,
+            [{"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": emergency_type}],
+            ["0x" + malformed_output_payload.hex()],
+            cell_deps,
+            [entry_witness(owner, bytes([required_approvals]) if original_scoped else required_approvals)],
+        )
+    elif action == "extend_lock":
         current_height = 50
         initial_unlock_height = 100
         additional_period = 10
@@ -1454,6 +4018,133 @@ def run_timelock_action(action_record, always_success_dep):
             ["0x" + timelock_data(owner, 0, initial_unlock_height + additional_period + 1, created_at).hex()],
             cell_deps,
             [entry_witness(additional_period, owner, current_height)],
+        )
+    elif action == "execute_release":
+        unlock_height = 100
+        current_height = 125
+        created_at = 1
+        original_scoped = action_record.get("kind") == "original-scoped-action-strict"
+        lock_hash = bytes(32) if original_scoped else bytes(range(32))
+        time_lock_type = always_success_lock("0x01")
+        locked_asset_type = always_success_lock("0x02")
+        release_request_type = always_success_lock("0x03")
+        release_record_type = always_success_lock("0x04")
+        asset_type_payload = bytes([0])
+        locked_asset_payload = (
+            locked_asset_molecule_data(asset_type_payload, 42, lock_hash)
+            if original_scoped
+            else locked_asset_data(42, lock_hash)
+        )
+        initial = create_script_locked_cells(
+            "timelock.execute_release",
+            [
+                {
+                    "capacity": 300 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": time_lock_type,
+                    "data": timelock_data(owner, 0, unlock_height, created_at),
+                },
+                {
+                    "capacity": 300 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": locked_asset_type,
+                    "data": locked_asset_payload,
+                },
+                {
+                    "capacity": 300 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": release_request_type,
+                    "data": release_request_data(lock_hash, owner, 120),
+                },
+            ],
+            cell_deps,
+        )
+        valid_tx = transaction(
+            initial["cells"],
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": release_record_type}],
+            ["0x" + release_record_data(lock_hash, 125, owner).hex()],
+            cell_deps,
+            [entry_witness(owner, current_height) if original_scoped else entry_witness(owner), "0x", "0x"],
+        )
+        malformed_tx = transaction(
+            initial["cells"],
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": release_record_type}],
+            ["0x" + release_record_data(lock_hash, 126, owner).hex()],
+            cell_deps,
+            [entry_witness(owner, current_height) if original_scoped else entry_witness(owner), "0x", "0x"],
+        )
+    elif action == "execute_emergency_release":
+        unlock_height = 500
+        current_height = 125
+        created_at = 1
+        original_scoped = action_record.get("kind") == "original-scoped-action-strict"
+        lock_hash = bytes(32) if original_scoped else bytes(reversed(range(32)))
+        time_lock_type = always_success_lock("0x11")
+        locked_asset_type = always_success_lock("0x12")
+        emergency_type = always_success_lock("0x13")
+        release_record_type = always_success_lock("0x14")
+        required_approvals = 2
+        asset_type_payload = bytes([0])
+        reason_payload = molecule_bytes(b"emergency release")
+        locked_asset_payload = (
+            locked_asset_molecule_data(asset_type_payload, 42, lock_hash)
+            if original_scoped
+            else locked_asset_data(42, lock_hash)
+        )
+        emergency_payload = (
+            emergency_release_molecule_data(lock_hash, owner, reason_payload, 120, [owner, bytes([0x42]) * 32])
+            if original_scoped
+            else emergency_release_data(lock_hash, owner, 120, 3)
+        )
+        initial = create_script_locked_cells(
+            "timelock.execute_emergency_release",
+            [
+                {
+                    "capacity": 300 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": time_lock_type,
+                    "data": timelock_data(owner, 0, unlock_height, created_at),
+                },
+                {
+                    "capacity": 300 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": locked_asset_type,
+                    "data": locked_asset_payload,
+                },
+                {
+                    "capacity": 300 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": emergency_type,
+                    "data": emergency_payload,
+                },
+            ],
+            cell_deps,
+        )
+        valid_tx = transaction(
+            initial["cells"],
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": release_record_type}],
+            ["0x" + release_record_data(lock_hash, 125, owner).hex()],
+            cell_deps,
+            [
+                entry_witness(owner, bytes([required_approvals]), current_height)
+                if original_scoped
+                else entry_witness(owner, required_approvals),
+                "0x",
+                "0x",
+            ],
+        )
+        malformed_tx = transaction(
+            initial["cells"],
+            [{"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": release_record_type}],
+            ["0x" + release_record_data(lock_hash, 126, owner).hex()],
+            cell_deps,
+            [
+                entry_witness(owner, bytes([required_approvals]), current_height)
+                if original_scoped
+                else entry_witness(owner, required_approvals),
+                "0x",
+                "0x",
+            ],
         )
     else:
         raise RuntimeError(f"unsupported TimeLock action harness: {action}")
@@ -1520,9 +4211,31 @@ try:
         report["onchain"]["completed_timelock_actions"] = len(report["onchain"]["timelock_action_runs"])
         write_report()
 
+    for action_record in multisig_action_artifacts:
+        action_result = run_multisig_action(action_record, always_success_dep)
+        report["onchain"]["multisig_action_runs"].append(action_result)
+        report["onchain"]["completed_multisig_actions"] = len(report["onchain"]["multisig_action_runs"])
+        write_report()
+
+    for action_record in vesting_action_artifacts:
+        action_result = run_vesting_action(action_record, always_success_dep)
+        report["onchain"]["vesting_action_runs"].append(action_result)
+        report["onchain"]["completed_vesting_actions"] = len(report["onchain"]["vesting_action_runs"])
+        write_report()
+
+    for action_record in amm_action_artifacts:
+        action_result = run_amm_action(action_record, always_success_dep)
+        report["onchain"]["amm_action_runs"].append(action_result)
+        report["onchain"]["completed_amm_actions"] = len(report["onchain"]["amm_action_runs"])
+        write_report()
+
+    for action_record in launch_action_artifacts:
+        action_result = run_launch_action(action_record, always_success_dep)
+        report["onchain"]["launch_action_runs"].append(action_result)
+        report["onchain"]["completed_launch_actions"] = len(report["onchain"]["launch_action_runs"])
+        write_report()
+
     tip_after = rpc("get_tip_header")
-    report["status"] = "passed"
-    report["onchain"]["status"] = "passed"
     report["onchain"]["tip_after"] = tip_after
     report["onchain"]["all_artifacts_deployed_and_spent"] = True
     report["onchain"]["bundled_examples_deployed_and_spent"] = [
@@ -1537,13 +4250,79 @@ try:
     ]
     report["onchain"]["nft_actions_exercised"] = [run["action"] for run in report["onchain"]["nft_action_runs"]]
     report["onchain"]["all_nft_actions_exercised"] = sorted(report["onchain"]["nft_actions_exercised"]) == [
+        "accept_offer",
         "burn",
+        "buy_from_listing",
+        "cancel_listing",
+        "create_listing",
+        "create_offer",
+        "mint",
         "transfer",
     ]
     report["onchain"]["timelock_actions_exercised"] = [run["action"] for run in report["onchain"]["timelock_action_runs"]]
     report["onchain"]["all_timelock_actions_exercised"] = report["onchain"]["timelock_actions_exercised"] == [
+        "create_absolute_lock",
+        "create_relative_lock",
+        "lock_asset",
+        "request_release",
+        "request_emergency_release",
+        "approve_emergency_release",
         "extend_lock",
+        "execute_release",
+        "execute_emergency_release",
     ]
+    report["onchain"]["multisig_actions_exercised"] = [run["action"] for run in report["onchain"]["multisig_action_runs"]]
+    report["onchain"]["all_multisig_actions_exercised"] = sorted(report["onchain"]["multisig_actions_exercised"]) == [
+        "add_signature",
+        "cancel_proposal",
+        "create_wallet",
+        "execute_proposal",
+        "propose_add_signer",
+        "propose_change_threshold",
+        "propose_remove_signer",
+        "propose_transfer",
+    ]
+    report["onchain"]["vesting_actions_exercised"] = [run["action"] for run in report["onchain"]["vesting_action_runs"]]
+    report["onchain"]["all_vesting_actions_exercised"] = report["onchain"]["vesting_actions_exercised"] == [
+        "create_vesting_config",
+        "grant_vesting",
+    ]
+    report["onchain"]["amm_actions_exercised"] = [run["action"] for run in report["onchain"]["amm_action_runs"]]
+    report["onchain"]["all_amm_actions_exercised"] = sorted(report["onchain"]["amm_actions_exercised"]) == [
+        "isqrt",
+        "min",
+    ]
+    report["onchain"]["launch_actions_exercised"] = [run["action"] for run in report["onchain"]["launch_action_runs"]]
+    report["onchain"]["all_launch_actions_exercised"] = report["onchain"]["launch_actions_exercised"] == [
+        "simple_launch",
+    ]
+    update_ckb_business_coverage({
+        "token.cell": report["onchain"]["token_actions_exercised"],
+        "nft.cell": report["onchain"]["nft_actions_exercised"],
+        "timelock.cell": report["onchain"]["timelock_actions_exercised"],
+        "multisig.cell": report["onchain"]["multisig_actions_exercised"],
+        "vesting.cell": report["onchain"]["vesting_actions_exercised"],
+        "amm_pool.cell": report["onchain"]["amm_actions_exercised"],
+        "launch.cell": report["onchain"]["launch_actions_exercised"],
+    })
+    if not report["onchain"]["all_artifacts_deployed_and_spent"]:
+        raise RuntimeError("not all CKB smoke artifacts deployed and spent")
+    if not report["onchain"]["all_token_actions_exercised"]:
+        raise RuntimeError(f"incomplete token action coverage: {report['onchain']['token_actions_exercised']}")
+    if not report["onchain"]["all_nft_actions_exercised"]:
+        raise RuntimeError(f"incomplete nft action coverage: {report['onchain']['nft_actions_exercised']}")
+    if not report["onchain"]["all_timelock_actions_exercised"]:
+        raise RuntimeError(f"incomplete timelock action coverage: {report['onchain']['timelock_actions_exercised']}")
+    if not report["onchain"]["all_multisig_actions_exercised"]:
+        raise RuntimeError(f"incomplete multisig action coverage: {report['onchain']['multisig_actions_exercised']}")
+    if not report["onchain"]["all_vesting_actions_exercised"]:
+        raise RuntimeError(f"incomplete vesting action coverage: {report['onchain']['vesting_actions_exercised']}")
+    if not report["onchain"]["all_amm_actions_exercised"]:
+        raise RuntimeError(f"incomplete AMM action coverage: {report['onchain']['amm_actions_exercised']}")
+    if not report["onchain"]["all_launch_actions_exercised"]:
+        raise RuntimeError(f"incomplete launch action coverage: {report['onchain']['launch_actions_exercised']}")
+    report["status"] = "passed"
+    report["onchain"]["status"] = "passed"
     write_report()
 except Exception as error:
     report["status"] = "failed"
@@ -1553,4 +4332,4 @@ except Exception as error:
     raise
 PY
 
-echo "CKB CellScript acceptance passed: $REPORT_JSON"
+echo "CKB CellScript $ACCEPTANCE_MODE acceptance passed: $REPORT_JSON"

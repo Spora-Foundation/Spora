@@ -92,6 +92,7 @@ run_smoke() {
       -- --nocapture --test-threads=1
   )
   validate_smoke_report
+  mark_json_status "$SMOKE_REPORT_JSON" "passed"
   SMOKE_STATUS="passed"
 }
 
@@ -157,6 +158,23 @@ for item in examples:
         raise SystemExit(f"{name} malformed spend did not fail fast in script/business validation: {reason}")
     if not item.get("artifact_size_bytes", 0) > 0:
         raise SystemExit(f"{name} artifact size was not recorded")
+PY
+}
+
+mark_json_status() {
+  local path="$1"
+  local status="$2"
+  python3 - "$path" "$status" <<'PY'
+import json
+import sys
+
+path, status = sys.argv[1], sys.argv[2]
+with open(path, "r", encoding="utf-8") as fh:
+    report = json.load(fh)
+report["status"] = status
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(report, fh, indent=2)
+    fh.write("\n")
 PY
 }
 
@@ -357,6 +375,7 @@ def optional_int(env_name):
 
 report = {
     "profile": os.environ["PROFILE"],
+    "status": os.environ["RESULT"],
     "run_id": os.environ["RUN_ID"],
     "run_dir": os.environ["RUN_DIR"],
     "generated_at_utc": os.environ["STARTED_AT_UTC"],

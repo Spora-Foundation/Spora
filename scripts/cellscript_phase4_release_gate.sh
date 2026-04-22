@@ -28,20 +28,12 @@ run() {
 
 check_trailing_whitespace() {
     local files=(
-        ".github/workflows/cellscript-v1.yml"
+        ".github/workflows/cellscript-dual-chain.yml"
         ".github/workflows/spora-devnet-acceptance.yml"
         "cellscript/CHANGELOG.md"
         "cellscript/README.md"
         "cellscript/README_CN.md"
-        "docs/CELLSCRIPT_CKB_COMPATIBILITY_DECISION.md"
-        "docs/CELLSCRIPT_COMPATIBILITY_MATRIX.md"
-        "docs/CELLSCRIPT_DESIGN_IMPLEMENTATION_AUDIT.md"
-        "docs/CELLSCRIPT_EXECUTION_PHASES.md"
-        "docs/CELLSCRIPT_IMPLEMENTATION_STATUS.md"
-        "docs/CELLSCRIPT_RELEASE_CHECKLIST.md"
-        "docs/CELLSCRIPT_V1_FEATURE_COMPLETENESS_AUDIT.md"
-        "docs/CELLSCRIPT_V1_RELEASE_SCOPE.md"
-        "docs/SPORA_CELLSCRIPT_DEVNET_ACCEPTANCE_PLAN.md"
+        "docs/CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md"
         "scripts/cellscript_phase4_release_gate.sh"
         "scripts/ckb_cellscript_acceptance.sh"
         "scripts/devnet_acceptance.sh"
@@ -72,154 +64,60 @@ check_trailing_whitespace() {
     fi
 }
 
-check_v1_release_scope() {
-    local doc="docs/CELLSCRIPT_V1_RELEASE_SCOPE.md"
+check_dual_chain_production_plan() {
+    local doc="docs/CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md"
     local required=(
-        "first-class \`launch\`"
-        "first-class \`pool\`"
-        "registry package install/publish/update"
-        "executable Wasm action/lock backend"
-        "full CKB contract compatibility"
-        "legacy Borsh scheduler witnesses are explicit"
-        "ActionMetadata public scheduler witness decode rejects legacy Borsh fields"
-        "action metadata validated as Molecule scheduler witness bytes"
-        "Conflicting Molecule scheduler witness aliases rejected"
-        "legacy Borsh scheduler fields rejected on the public wallet metadata path"
-        "Raw scheduler witness configuration has a checked wallet setter"
-        "Artifact verification can pin the expected target profile"
-        "reject Spora/CKB artifact mixups"
-        "Wallet generator CellScript integration is explicit."
-        "not automatic protocol synthesis"
-        "Public README and CellScript README release claims are part of the v1 gate"
-        "Borsh must stay legacy-only"
-        "for public CellScript/CKB-facing paths"
-        "feature-completeness audit and CKB"
-        "compatibility decision keep the bounded v1 status"
-        "wording avoids known overclaims"
-    )
-
-    if [[ ! -f "$doc" ]]; then
-        printf 'missing v1 release scope document: %s\n' "$doc" >&2
-        exit 1
-    fi
-
-    for pattern in "${required[@]}"; do
-        if ! rg --quiet --fixed-strings "$pattern" "$doc"; then
-            printf 'v1 release scope document is missing required boundary: %s\n' "$pattern" >&2
-            exit 1
-        fi
-    done
-}
-
-check_v1_feature_completeness_audit() {
-    local doc="docs/CELLSCRIPT_V1_FEATURE_COMPLETENESS_AUDIT.md"
-    local required=(
-        "No new P0 blocker was found inside the current v1 release scope."
-        "V1-complete"
-        "V1-bounded"
-        "Post-v1"
-        "CellScript is **not** complete as a full generalized protocol language"
-        "Claims To Avoid"
-        "For v1 as scoped: **complete enough to close**"
-        "For the full CellScript vision: **not complete**"
-        '| Single-file and package compilation | V1-complete |'
-        '| CLI local workflow | V1-complete |'
-        '| RISC-V output | V1-bounded |'
-        '| `spora` target profile | V1-complete |'
-        '| `ckb` target profile | V1-bounded |'
-        '| `portable-cell` profile | V1-bounded |'
-        '| `resource` declarations and linear ownership | V1-complete |'
-        '| `shared` declarations and mutation metadata | V1-bounded |'
-        '| `receipt` declarations and claim mapping | V1-bounded |'
-        '| `action` definitions | V1-complete |'
-        '| `fn` helper definitions | V1-bounded |'
-        '| `lock` definitions | V1-bounded |'
-        '| `consume` and direct input data loading | V1-complete |'
-        '| `create` and output field verification | V1-bounded |'
-        '| `transfer` | V1-bounded |'
-        '| `destroy` | V1-bounded |'
-        '| `claim` | V1-bounded |'
-        '| `settle` | V1-bounded |'
-        '| Lifecycle annotations | V1-bounded |'
-        '| Fixed-width schema metadata | V1-complete |'
-        '| Dynamic/versioned schema migration | Post-v1 |'
-        '| Stable type identity | V1-bounded |'
-        '| Metadata and artifact self-validation | V1-complete |'
-        '| Policy gates and blocker visibility | V1-complete |'
-        '| Spora scheduler witness metadata | V1-complete for in-process path |'
-        '| External RPC trusted-summary submission | Post-v1 |'
-        '| Wallet generator integration | V1-bounded |'
-        '| WASM SDK surface | V1-bounded |'
-        '| SDK adaptor examples | V1-complete |'
-        '| Examples | V1-complete as regression inputs |'
-        '| Package registry workflow | Post-v1 |'
-        '| First-class `launch` | Post-v1 |'
-        '| First-class `pool` / AMM economics | Post-v1 |'
-        "Spora and CKB are both supported through explicit target profiles."
-        "Public VM/CellScript ABI surfaces use Molecule"
-        "legacy Borsh scheduler witness"
-        "CKB artifacts are supported for the pure admitted subset"
-        "release scope, feature-audit, CKB compatibility decision, and status-doc"
-        "boundary checks"
-    )
-
-    if [[ ! -f "$doc" ]]; then
-        printf 'missing v1 feature completeness audit: %s\n' "$doc" >&2
-        exit 1
-    fi
-
-    for pattern in "${required[@]}"; do
-        if ! rg --quiet --fixed-strings "$pattern" "$doc"; then
-            printf 'v1 feature completeness audit is missing required boundary: %s\n' "$pattern" >&2
-            exit 1
-        fi
-    done
-}
-
-check_v1_ckb_compatibility_decision() {
-    local doc="docs/CELLSCRIPT_CKB_COMPATIBILITY_DECISION.md"
-    local required=(
-        "**Status**: V1 bounded compatibility decision"
-        "The current implementation has a real CKB artifact profile for the pure admitted CellScript subset."
-        'CKB compatibility claims are bounded to artifacts explicitly compiled with the `ckb` profile and admitted by the profile gates.'
-        "Full arbitrary CKB contract compatibility remains post-v1 work."
-        "the original P0 blockers are closed for the v1 admitted subset"
-        "Phase E is implemented for v1 classification and pure-subset admission"
-        "Phase F is implemented for the v1 pure subset covered by the release gate"
-        "Phase G is implemented for the v1 pure subset"
-        "The remaining post-v1 tasks implied by the plan are"
-        "2026-04-21 CKB Local Devnet Acceptance"
-        "scripts/ckb_cellscript_acceptance.sh"
-        "On-chain status: passed."
-        "bundled_examples_exact_order"
-        "strict_original_ckb_compile_policy_fail_closed"
-        "strict_original_ckb_compile_unexpected_failures = []"
-        "onchain.all_artifacts_deployed_and_spent = true"
+        "**Status**: Canonical production roadmap"
+        "This document replaces the older CellScript v1 scope"
+        "Current Truth"
+        "Production Definition"
+        "Bundled Example Closure Matrix"
+        "Phase A: CKB Strict Original Closure"
+        "Phase B: Molecule Schema Productionization"
+        "Phase C: Action Transaction Builder"
+        "Phase D: Dual-Chain Acceptance Gates"
+        "Phase E: Package Manager and Tooling RC"
+        "Phase F: Security and External Audit Readiness"
+        "strict_original_ckb_compile_policy_fail_closed == []"
+        '`token.cell`'
+        '`nft.cell`'
+        '`timelock.cell`'
+        '`multisig.cell`'
+        '`vesting.cell`'
+        '`amm_pool.cell`'
+        '`launch.cell`'
+        "Smoke artifacts remain useful only as VM-plumbing regression tests."
+        "Do not claim full CKB production support until all original bundled examples"
+        "Do not let Spora support regress while closing CKB support."
+        "Do not reintroduce public Borsh CellScript/CKB wire formats."
+        "Every bundled example has a generated schema manifest."
+        "Acceptance scripts use the builder instead of bespoke Python transaction"
     )
     local forbidden=(
-        "not yet a real CKB artifact profile"
-        "full CKB contract compatibility only applies to artifacts explicitly compiled"
-        "Phase E has started"
-        "Phase G has started"
-        "The implementation tasks implied by the plan are"
+        "V1-complete"
+        "V1-bounded"
+        "Phase 4 release evidence"
+        "Operationally closed"
+        "complete enough to close"
+        "all original CKB P0 blockers are closed"
     )
 
     if [[ ! -f "$doc" ]]; then
-        printf 'missing CKB compatibility decision document: %s\n' "$doc" >&2
+        printf 'missing dual-chain production plan: %s\n' "$doc" >&2
         exit 1
     fi
 
     local pattern
     for pattern in "${required[@]}"; do
         if ! rg --quiet --fixed-strings "$pattern" "$doc"; then
-            printf 'CKB compatibility decision is missing required v1 status: %s\n' "$pattern" >&2
+            printf 'dual-chain production plan is missing required boundary: %s\n' "$pattern" >&2
             exit 1
         fi
     done
 
     for pattern in "${forbidden[@]}"; do
         if rg --quiet --fixed-strings "$pattern" "$doc"; then
-            printf 'CKB compatibility decision contains stale pre-v1 status: %s\n' "$pattern" >&2
+            printf 'dual-chain production plan contains stale v1 wording: %s\n' "$pattern" >&2
             rg -n --fixed-strings "$pattern" "$doc" >&2
             exit 1
         fi
@@ -272,118 +170,16 @@ check_v1_public_docs_boundaries() {
     done
 }
 
-check_v1_status_docs_boundaries() {
-    local required=(
-        'docs/CELLSCRIPT_IMPLEMENTATION_STATUS.md::V1 pure-subset profile path implemented'
-        'docs/CELLSCRIPT_IMPLEMENTATION_STATUS.md::The Phase 3 operational path is closed; remaining work is post-v1 hardening'
-        'docs/CELLSCRIPT_COMPATIBILITY_MATRIX.md::CKB artifacts are supported for the pure admitted subset'
-        'docs/CELLSCRIPT_COMPATIBILITY_MATRIX.md::Remaining work is post-v1 hardening'
-        'docs/CELLSCRIPT_DESIGN_IMPLEMENTATION_AUDIT.md::`ckb` can produce artifacts for the pure supported subset'
-        'docs/CELLSCRIPT_DESIGN_IMPLEMENTATION_AUDIT.md::RPC trusted-summary submission/authentication and broader adversarial/property coverage remain post-v1 hardening'
-        'docs/SPORA_DSL_DESIGN_PROPOSAL_CN.md::已消费 transaction-admitted witness'
-        'docs/SPORA_DSL_DESIGN_PROPOSAL_CN.md::剩余 post-v1 未闭合的是外部提交路径'
-    )
-    local forbidden=(
-        "not yet a real CKB artifact profile"
-        "CKB ELF packaging is not implemented"
-        "artifact-producing non-spora profiles"
-        "Phase E has started"
-        "Phase G has started"
-        "Remaining work belongs to Phase 4 hardening"
-        "Remaining work is Phase 4 hardening"
-        "remaining work is Phase 4 hardening"
-        "RPC trusted-summary submission remains Phase 4 hardening"
-        "release-grade verification gates need to be kept green"
-        "add profile-specific CKB artifact generation"
-        "已开始消费 transaction-admitted witness"
-        "剩余未闭合的是外部提交路径"
-    )
-    local status_docs=(
-        "docs/CELLSCRIPT_IMPLEMENTATION_STATUS.md"
-        "docs/CELLSCRIPT_COMPATIBILITY_MATRIX.md"
-        "docs/CELLSCRIPT_DESIGN_IMPLEMENTATION_AUDIT.md"
-        "docs/SPORA_DSL_DESIGN_PROPOSAL_CN.md"
-    )
-
-    local item file pattern
-    for item in "${required[@]}"; do
-        file="${item%%::*}"
-        pattern="${item#*::}"
-        if ! rg --quiet --fixed-strings "$pattern" "$file"; then
-            printf 'v1 status docs are missing required boundary in %s: %s\n' "$file" "$pattern" >&2
-            exit 1
-        fi
-    done
-
-    for pattern in "${forbidden[@]}"; do
-        if rg --quiet --fixed-strings "$pattern" "${status_docs[@]}"; then
-            printf 'v1 status docs contain stale pre-v1 wording: %s\n' "$pattern" >&2
-            rg -n --fixed-strings "$pattern" "${status_docs[@]}" >&2
-            exit 1
-        fi
-    done
-}
-
-check_v1_release_process_docs() {
-    local required=(
-        'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::docs/CELLSCRIPT_CKB_COMPATIBILITY_DECISION.md'
-        'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::original CKB P0 blockers are closed for the v1 admitted subset'
-        'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::the feature matrix, the CKB compatibility decision, status-doc boundaries'
-        'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::full arbitrary CKB contract compatibility remain outside the v1 promise'
-        'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::.github/workflows/cellscript-v1.yml'
-        'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::runs `./scripts/cellscript_phase4_release_gate.sh v1`'
-        'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::cellc verify-artifact --expect-target-profile'
-        'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::reject profile mixups'
-        'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::local path install writes `Cell.lock`'
-        'docs/CELLSCRIPT_RELEASE_CHECKLIST.md::normal dependency removal prunes stale lock entries'
-        'docs/CELLSCRIPT_EXECUTION_PHASES.md::Status: **Closed for the v1 core-language convergence gate**.'
-        'docs/CELLSCRIPT_EXECUTION_PHASES.md::Release-v1 can remain closed only if these surfaces stay outside the v1 core'
-        'docs/CELLSCRIPT_EXECUTION_PHASES.md::feature-completeness, the feature matrix, CKB-compatibility decision, status-doc'
-        'docs/CELLSCRIPT_EXECUTION_PHASES.md::boundaries, and public README overclaim boundaries'
-        'docs/SPORA_CELLSCRIPT_DEVNET_ACCEPTANCE_PLAN.md::CKB 本地集成 devnet 验收'
-        'docs/SPORA_CELLSCRIPT_DEVNET_ACCEPTANCE_PLAN.md::scripts/ckb_cellscript_acceptance.sh'
-        'docs/SPORA_CELLSCRIPT_DEVNET_ACCEPTANCE_PLAN.md::InsufficientCellCapacity(Outputs[0])'
-        'docs/SPORA_CELLSCRIPT_DEVNET_ACCEPTANCE_PLAN.md::strict_original_ckb_compile_unexpected_failures == []'
-    )
-    local forbidden=(
-        "because it validates the release-scope boundary before running the full gate"
-        "feature-completeness, CKB-compatibility decision, and public README overclaim"
-    )
-    local docs=(
-        "docs/CELLSCRIPT_RELEASE_CHECKLIST.md"
-        "docs/CELLSCRIPT_EXECUTION_PHASES.md"
-        "docs/SPORA_CELLSCRIPT_DEVNET_ACCEPTANCE_PLAN.md"
-    )
-
-    local item file pattern
-    for item in "${required[@]}"; do
-        file="${item%%::*}"
-        pattern="${item#*::}"
-        if ! rg --quiet --fixed-strings "$pattern" "$file"; then
-            printf 'v1 release-process docs are missing required boundary in %s: %s\n' "$file" "$pattern" >&2
-            exit 1
-        fi
-    done
-
-    for pattern in "${forbidden[@]}"; do
-        if rg --quiet --fixed-strings "$pattern" "${docs[@]}"; then
-            printf 'v1 release-process docs contain stale gate wording: %s\n' "$pattern" >&2
-            rg -n --fixed-strings "$pattern" "${docs[@]}" >&2
-            exit 1
-        fi
-    done
-}
-
 check_v1_ci_workflow() {
-    local workflow=".github/workflows/cellscript-v1.yml"
+    local workflow=".github/workflows/cellscript-dual-chain.yml"
     local standalone_workflow="cellscript/.github/workflows/ci.yml"
     local devnet_workflow=".github/workflows/spora-devnet-acceptance.yml"
     local required=(
-        "name: CellScript V1 Gate"
+        "name: CellScript Dual-Chain Gate"
         "workflow_dispatch:"
         "rustup toolchain install 1.85.0 --profile minimal --component rustfmt"
         "ripgrep"
-        "CARGO_TARGET_DIR: /tmp/spora-v1-release-gate-target"
+        "CARGO_TARGET_DIR: /tmp/spora-dual-chain-release-gate-target"
         "CELLSCRIPT_BACKEND_SHAPE_REPORT:"
         '"cellscript"'
         '"cellscript/**"'
@@ -523,6 +319,8 @@ check_v1_code_boundaries() {
         'scripts/cellscript_phase4_release_gate.sh::scripts/devnet_acceptance.sh'
         'scripts/cellscript_phase4_release_gate.sh::scripts/regenerate_snapshots.sh'
         'scripts/cellscript_phase4_release_gate.sh::scripts/regenerate_test_data.sh'
+        'scripts/devnet_acceptance.sh::mark_json_status "$SMOKE_REPORT_JSON" "passed"'
+        'scripts/devnet_acceptance.sh::"status": os.environ["RESULT"]'
         'cellscript/src/lib.rs::const VM_ABI_TRAILER_MAGIC: &[u8; 8] = b"SPORABI\0";'
         'cellscript/src/lib.rs::const CKB_ACCEPTANCE_SMOKE_POLICY_BYPASS_ENV'
         'cellscript/src/lib.rs::fn ckb_acceptance_smoke_policy_bypass_allowed_for_env'
@@ -555,6 +353,12 @@ check_v1_code_boundaries() {
         'scripts/ckb_cellscript_acceptance.sh::strict_original_ckb_compile_unexpected_failures'
         'scripts/ckb_cellscript_acceptance.sh::acceptance_smoke_policy_bypass'
         'scripts/ckb_cellscript_acceptance.sh::all_artifacts_deployed_and_spent'
+        'scripts/ckb_cellscript_acceptance.sh::all_token_actions_exercised'
+        'scripts/ckb_cellscript_acceptance.sh::all_nft_actions_exercised'
+        'scripts/ckb_cellscript_acceptance.sh::all_timelock_actions_exercised'
+        'scripts/ckb_cellscript_acceptance.sh::incomplete token action coverage'
+        'scripts/ckb_cellscript_acceptance.sh::incomplete nft action coverage'
+        'scripts/ckb_cellscript_acceptance.sh::incomplete timelock action coverage'
         'scripts/ckb_cellscript_acceptance.sh::malformed_spend_without_code_dep'
         'scripts/ckb_cellscript_acceptance.sh::policy_or_capacity_reason'
         'scripts/ckb_cellscript_acceptance.sh::send_test_transaction'
@@ -646,12 +450,8 @@ case "$MODE" in
         run_full_gate
         ;;
     v1)
-        check_v1_release_scope
-        check_v1_feature_completeness_audit
-        check_v1_ckb_compatibility_decision
+        check_dual_chain_production_plan
         check_v1_public_docs_boundaries
-        check_v1_status_docs_boundaries
-        check_v1_release_process_docs
         check_v1_ci_workflow
         check_v1_code_boundaries
         run_full_gate
@@ -662,4 +462,4 @@ case "$MODE" in
         ;;
 esac
 
-printf '\nCellScript Phase 4 %s release gate passed.\n' "$MODE"
+printf '\nCellScript dual-chain %s release gate passed.\n' "$MODE"
