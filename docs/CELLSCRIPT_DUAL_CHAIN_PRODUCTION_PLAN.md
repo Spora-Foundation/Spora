@@ -1,6 +1,6 @@
 # CellScript Dual-Chain Production Plan
 
-**Date**: 2026-04-22
+**Date**: 2026-04-23
 **Status**: Canonical production roadmap
 **Scope**: CellScript, Spora profile, CKB profile, package/tooling, acceptance gates
 
@@ -22,7 +22,7 @@ The current production-readiness verdict is deliberately stricter:
 | Area | Current state | Production verdict |
 |---|---|---|
 | Spora examples | All seven bundled examples compile under `spora`; the current devnet coverage still includes smoke-style deployment/spend checks. | Not production complete until every bundled example has action-specific Spora transaction builders, valid lifecycle transactions, malformed script-logic rejection, and documented mass/cycle boundaries. |
-| CKB examples | `token.cell` is strict-admitted under `ckb`; action-scoped CKB artifacts can now be produced for portable entries inside otherwise-unportable examples. Bounded on-chain coverage reaches every currently strict action through original scoped bundled artifacts. `token.cell` mint/transfer/burn/merge, all non-batch `nft.cell` actions, all non-batch `timelock.cell` actions, all `multisig.cell` actions, AMM pure entries, and `launch.cell::simple_launch` now use original scoped artifacts on-chain. Batch dynamic collections, pool/claim/header paths, and launch pool composition still stay fail-closed. | Not production complete. The default CKB acceptance command is now a production gate and must fail until there are no smoke bypasses, no expected fail-closed entries, and every bundled example compiles/runs as original CKB business artifacts. Use `--bounded` only for development coverage. |
+| CKB examples | `token.cell` is strict-admitted under `ckb`; action-scoped CKB artifacts can now be produced for portable entries inside otherwise-unportable examples. Bounded on-chain coverage reaches every strict action. `token.cell` mint/transfer/burn/merge, all non-batch `nft.cell` actions, all non-batch `timelock.cell` actions, all original `multisig.cell` actions, every AMM action/helper, and `launch.cell::simple_launch` now run on CKB local devnet. Batch dynamic collections and launch pool composition still stay fail-closed. | Not production complete. The default CKB acceptance command is now a production gate and must fail until there are no smoke bypasses, no expected fail-closed entries, and every bundled example compiles/runs as original CKB business artifacts. Use `--bounded` only for development coverage. |
 | Molecule | Public VM/CellScript ABI surfaces use Molecule, fixed-width schema metadata exists, fixed enum fields lower into fixed Molecule schema aliases, payload enum fields lower as dynamic Molecule bytes fields, and dynamic persistent types emit `molecule-table-v1` metadata. Fixed-width fields inside Molecule tables, fixed-element `Vec<T>.len()`/index/iteration paths for table fields and schema-pointer parameters, selected dynamic table mutation replacement checks, empty dynamic vectors, fixed-element dynamic vector append checks, and constructed local byte vectors can now be decoded for verifier paths; generic dynamic table mutation, batch collection construction, and selected scalar-push byte-vector construction remain fail-closed. | Needs production schema manifest, broader generated dynamic mutation/table preservation decoders, snapshot tests, and builder integration. |
 | Package/tooling | Local package workflow, lockfile validation, README/wiki docs, LSP, and CI reports exist. Registry and release distribution are still beta/RC quality. | Needs release packaging, reproducible builds, package verification, and stable CLI workflows. |
 | Backend | Branch relaxation, shared fail handlers, machine-block/CFG metrics, call-edge accounting, and backend shape budgets exist. | Usable, but code size, branch distance, and CFG metrics must stay release artifacts. |
@@ -50,15 +50,17 @@ coverage, not production readiness:
   development coverage matrix.
 - Latest production compile-only gate failed as expected because the tracked
   production blockers still exist:
-  `target/ckb-cellscript-acceptance/20260423-032556-31584/ckb-cellscript-acceptance-report.json`.
+  `target/ckb-cellscript-acceptance/20260423-080841-44395/ckb-cellscript-acceptance-report.json`.
+  The remaining strict original bundled-example policy failures are
+  `amm_pool.cell`, `launch.cell`, `nft.cell`, and `timelock.cell`.
 - CKB scoped artifact coverage is now a hard compile/verify gate:
   - latest bounded full report:
-    `target/ckb-cellscript-acceptance/20260423-032509-29398/ckb-cellscript-acceptance-report.json`;
+    `target/ckb-cellscript-acceptance/20260423-080754-42844/ckb-cellscript-acceptance-report.json`;
   - latest bounded compile-only report:
-    `target/ckb-cellscript-acceptance/20260423-031851-10177/ckb-cellscript-acceptance-report.json`;
-  - original scoped actions admitted: 34;
+    `target/ckb-cellscript-acceptance/20260423-080743-42069/ckb-cellscript-acceptance-report.json`;
+  - original scoped actions admitted: 40;
   - original scoped locks admitted: 15;
-  - expected original scoped action gaps fail-closed by policy: 9;
+  - expected original scoped action gaps fail-closed by policy: 3;
   - expected original scoped lock gaps fail-closed by policy: 0.
 - CKB acceptance now emits `ckb_business_coverage`, which compares source
   action/lock definitions against strict CKB compile coverage and real CKB
@@ -67,11 +69,11 @@ coverage, not production readiness:
   coverage expectations fails the gate.
 - Latest bounded CKB coverage is action-complete under the development matrix:
   - source actions: 43;
-  - strict CKB actions: 34;
-  - expected fail-closed actions: 9;
+  - strict CKB actions: 40;
+  - expected fail-closed actions: 3;
   - source locks: 15;
   - strict CKB locks: 15;
-  - real on-chain CKB action harnesses: 34;
+  - real on-chain CKB action harnesses: 40;
   - `ckb_business_coverage.status: complete`;
   - `ckb_business_coverage.missing_ckb_onchain_actions: {}`.
 - CKB action harness coverage remains intentionally narrower than scoped
@@ -87,15 +89,16 @@ coverage, not production readiness:
     `execute_release`, `execute_emergency_release`, and `extend_lock` from
     `cellscript/examples/timelock.cell`;
   - original scoped multisig harnesses cover `create_wallet`,
-    `propose_transfer`, `add_signature`, `propose_add_signer`,
-    `propose_remove_signer`, `propose_change_threshold`, `execute_proposal`,
-    and `cancel_proposal` from
-    `cellscript/examples/multisig.cell`;
+    `propose_transfer`, `add_signature`, `propose_remove_signer`,
+    `propose_add_signer`, `propose_change_threshold`, `execute_proposal`,
+    and `cancel_proposal` from `cellscript/examples/multisig.cell`;
   - original scoped launch harness covers `simple_launch` from
     `cellscript/examples/launch.cell`;
-  - original scoped AMM pure-entry harnesses cover `isqrt` and `min` from
-    `cellscript/examples/amm_pool.cell`.
-  - original scoped vesting harness covers `create_vesting_config`.
+  - original scoped AMM harnesses cover `seed_pool`, `swap_a_for_b`,
+    `add_liquidity`, `remove_liquidity`, `isqrt`, and `min` from
+    `cellscript/examples/amm_pool.cell`;
+  - original scoped vesting harnesses cover `create_vesting_config`,
+    `grant_vesting`, `claim_vested`, and `revoke_grant`.
 - Entry witness ABI now supports scalar arguments that spill past a0-a7 onto
   the caller stack. Schema-backed and fixed-byte pointer/length arguments still
   fail closed if their two-slot ABI pair would cross the register boundary.
@@ -152,7 +155,7 @@ coverage, not production readiness:
   Empty dynamic vectors, fixed-element vector append checks, and local
   constructed byte-vector outputs now cover selected create/mutate paths:
   `multisig.cell::propose_transfer`, `multisig.cell::add_signature`,
-  `multisig.cell::propose_add_signer`, `multisig.cell::propose_remove_signer`,
+  `multisig.cell::propose_remove_signer`,
   `multisig.cell::propose_change_threshold`,
   `timelock.cell::request_emergency_release`, and
   `timelock.cell::approve_emergency_release` are strict-admitted. CKB action
@@ -165,6 +168,23 @@ coverage, not production readiness:
   path is rejected only when its actual state semantics remain runtime-required.
   This admits `vesting.cell::create_vesting_config`, whose shared create output
   fields and lock binding are verifier-covered.
+- AMM `seed_pool` now runs as an original scoped CKB harness with real Token
+  inputs, Pool and LPReceipt outputs, token-pair admission, positive reserve
+  checks, fee bounds, LP supply coupling, output lock binding, and malformed
+  output rejection. This closure exposed and fixed two compiler bugs: scoped
+  entry artifacts did not retain called action helpers such as `isqrt`, and
+  mutable `let` bindings could alias a parameter stack slot (`let mut x = n`)
+  and corrupt helper semantics. `add_liquidity` closure then exposed and fixed
+  two CKB entry/runtime ABI bugs: stack-spilled fixed-byte parameters past a0-a7
+  were fail-closed, and runtime-loaded cell `type_hash()` values used scratch
+  storage whose size word could be overwritten before output-field coupling.
+  `remove_liquidity` closure then proved the same typed runtime path for
+  LPReceipt burn, Pool reserve/LP supply subtraction, Token withdrawal outputs,
+  and malformed withdrawal rejection. `swap_a_for_b` closure then made AMM swap
+  resource conservation CKB-admitted through checked pool symbol admission,
+  fee accounting, constant-product pricing, TokenB output verification, Pool
+  reserve replacement, and malformed swap output rejection. AMM now has no
+  expected fail-closed scoped actions under the bounded CKB matrix.
 - `env::current_timepoint()` is the cross-chain time API. It lowers to Spora
   DAA score under the Spora target profile and to the CKB header epoch number
   under the CKB target profile. `env::current_daa_score()` remains Spora-only
@@ -190,15 +210,14 @@ coverage, not production readiness:
   outputs are rejected by script logic.
 - The CKB multisig harnesses now cover every `multisig.cell` action on-chain
   with valid transactions, malformed script-logic rejections, and committed
-  outputs. `create_wallet` now uses the original scoped bundled artifact and
-  original dynamic `Vec<Address>` Molecule signer schema. `propose_transfer`
-  now uses the original scoped bundled artifact with dynamic `MultisigWallet`
-  and `Proposal` Molecule table data, including `Vec<u8>` and
-  `Vec<Signature>` empty-vector fields. The remaining
-  multisig action harnesses are still fixed-width portable harnesses: they prove
-  the sign/execute/cancel and non-transfer proposal control-flow and output verification skeleton
-  under CKB, but they do not yet close the original dynamic `Vec<Signature>` and
-  proposal `Vec<u8>` Molecule schema production work. The harness also exposed a
+  outputs. Original scoped artifacts are used for `create_wallet`,
+  `propose_transfer`, `add_signature`, `propose_remove_signer`,
+  `propose_change_threshold`, `execute_proposal`, and `cancel_proposal`.
+  `propose_add_signer` and `propose_change_threshold` now use original scoped
+  artifacts after the metadata/codegen path learned to prove local constructed
+  byte vectors (`Vec::new` plus `extend_from_slice` or `push`) as Molecule
+  bytes create-output fields.
+  The harness also exposed a
   real CKB packaging constraint: typed data outputs need enough capacity and a
   nonzero effective fee, because dry-run can pass while a local node refuses to
   package an otherwise valid zero-fee or under-capacity transaction.
@@ -212,11 +231,11 @@ Full-file CKB admission still requires closing dynamic schema/state semantics
 before the smoke bypass can be removed from CKB compatibility claims.
 
 The latest CKB transaction-harness report has no missing on-chain actions under
-the bounded coverage matrix, and no on-chain action harness still uses a
-standalone portable source. This is not the same as claiming original bundled
-example production closure: smoke bypass artifacts, expected fail-closed entries,
-original dynamic collections, pool composition, and full lifecycle semantics
-remain tracked as production work.
+the bounded coverage matrix. This is not the same as claiming original bundled
+example production closure: all on-chain action harnesses now use original scoped artifacts, but full-file
+strict admission still requires
+closing original dynamic collections, pool transition semantics, launch
+composition, and full lifecycle malformed-case matrices.
 
 The timelock `lock_asset`, `request_release`, and `request_emergency_release`
 bounded CKB harnesses now use original scoped `timelock.cell` artifacts.
@@ -268,9 +287,9 @@ to strict original execution on both chains.
 | `token.cell` | Compiles and passes Spora smoke malformed-spend coverage. | Strict admitted; original scoped CKB mint/transfer/burn/merge harnesses run on-chain with valid output liveness and malformed script rejection. | Harden capacity, TYPE_ID, malformed witness/data/type/dep matrix, and builder output. |
 | `nft.cell` | Compiles and passes Spora smoke malformed-spend coverage. | Scoped CKB compile and original scoped on-chain harnesses work for `mint`, `transfer`, `create_listing`, `cancel_listing`, `buy_from_listing`, `create_offer`, `accept_offer`, and `burn`; lock `collection_creator` compiles. `batch_mint` now checks the `Collection.total_supply += recipients.len()` mutation through a dynamic Molecule vector length source, but the action remains fail-closed because returning `Vec<NFT>` still needs a real cell-backed linear collection output model. | Close batch mint collection semantics, collection lineage, metadata/data-hash rules, marketplace counterparty binding, and malformed owner/type/data cases. |
 | `timelock.cell` | Compiles and passes Spora smoke malformed-spend coverage. | Scoped CKB compile works for `create_absolute_lock`, `create_relative_lock`, `lock_asset`, `request_release`, `request_emergency_release`, `approve_emergency_release`, `execute_release`, `execute_emergency_release`, `extend_lock`, locks `can_unlock_lock`, `is_owner`, `asset_matches`, `not_expired`, and `emergency_approved`; original scoped on-chain harnesses now cover every non-batch timelock action with valid transactions and malformed output rejection. `batch_create_locks` remains fail-closed because it needs dynamic vector construction and batch output indexing. | Add CKB epoch/since/header semantics, broaden malformed time/output/type/dependency cases, and close `batch_create_locks` dynamic collection construction. |
-| `multisig.cell` | Compiles and passes Spora smoke malformed-spend coverage. | All original scoped CKB actions now compile and run on-chain: `create_wallet`, `propose_transfer`, `add_signature`, `propose_add_signer`, `propose_remove_signer`, `propose_change_threshold`, `execute_proposal`, `cancel_proposal`; all original locks compile: `is_signer_lock`, `can_execute`, `can_cancel`, `has_enough_signatures`, `not_expired`. | Broaden malformed signer/threshold/signature/expiry matrices and replace smoke-level bundled-example admission with production transaction builders. |
-| `vesting.cell` | Compiles and passes Spora smoke malformed-spend coverage. | Scoped CKB compile and original scoped on-chain harnesses work for `create_vesting_config` and `grant_vesting`; `grant_vesting` now uses `env::current_timepoint()` and verifies a real Token input, VestingConfig input, VestingGrant output, header-dep timepoint, and malformed output rejection. `claim_vested` and `revoke_grant` remain fail-closed due claim witness/signature helper gaps and remaining accounting semantics. | Replace Spora-only claim helper assumptions, add CKB witness/signature/accounting checks for claim/revoke, and broaden malformed schedule/claim cases. |
-| `amm_pool.cell` | Compiles and passes Spora smoke malformed-spend coverage. | Scoped CKB compile and original scoped on-chain harnesses work for pure entries `isqrt` and `min`; pool actions remain policy fail-closed due pool-pattern scheduler/admission semantics. | Add pool create, add/remove liquidity, swap, reserve conservation, LP output rules, and malformed invariant/slippage cases. |
+| `multisig.cell` | Compiles and passes Spora smoke malformed-spend coverage. | All original scoped CKB actions compile and run on-chain: `create_wallet`, `propose_transfer`, `add_signature`, `propose_add_signer`, `propose_remove_signer`, `propose_change_threshold`, `execute_proposal`, and `cancel_proposal`; all original locks compile: `is_signer_lock`, `can_execute`, `can_cancel`, `has_enough_signatures`, `not_expired`. | Broaden malformed signer/threshold/signature/expiry matrices and remove full-file dynamic-schema blockers so the whole bundled example is strict-admitted. |
+| `vesting.cell` | Compiles and passes Spora smoke malformed-spend coverage. | All original scoped CKB actions now compile and run on-chain: `create_vesting_config`, `grant_vesting`, `claim_vested`, and `revoke_grant`. `grant_vesting` uses `env::current_timepoint()` and verifies a real Token input, VestingConfig input, VestingGrant output, header-dep timepoint, and malformed output rejection. `claim_vested` uses CKB-compatible input lock-hash authorization binding for `VestingGrant.beneficiary`, verifies claim output plus updated grant output, and rejects malformed claim output data. `revoke_grant` now requires `admin == config.admin`, verifies the config read_ref input, employee/admin token outputs, and malformed revoke output rejection. | Broaden malformed schedule/claim/revoke cases and replace the lock-script harness with a type-script deployment harness where possible. |
+| `amm_pool.cell` | Compiles and passes Spora smoke malformed-spend coverage. | All original scoped CKB AMM entries compile and run on-chain: `seed_pool`, `swap_a_for_b`, `add_liquidity`, `remove_liquidity`, `isqrt`, and `min`. The harnesses verify real Token inputs, Pool/LPReceipt outputs, Pool replacement identity, LP supply coupling, add/remove proportional accounting, swap fee accounting, constant-product output pricing, Token output symbols/amounts, TypeHash binding, and malformed output rejection. | Broaden malformed slippage/symbol/type/capacity matrices and remove full-file strict blockers once only dynamic unrelated entries remain. |
 | `launch.cell` | Compiles and passes Spora smoke malformed-spend coverage. | Original `launch_token` remains policy fail-closed due pool-composition semantics; original scoped `simple_launch` now runs on-chain with the eight-recipient fixed aggregate ABI, valid output coverage, and malformed-output rejection. | Add sale lifecycle, cap/allocation/finalization, pool composition wiring, and malformed phase/allocation cases for the remaining launch action. |
 
 Production exit criterion:
@@ -299,8 +318,8 @@ Work items:
 2. Finish `nft.cell` strict mint plus dynamic/fixed schema split.
 3. Finish `timelock.cell` create/release/emergency flows and CKB time semantics.
 4. Add `multisig.cell` dynamic signer/proposal Molecule schema and action harness.
-5. Replace the remaining `vesting.cell` claim/revoke helper assumptions with
-   CKB-admitted witness/signature/accounting checks.
+5. Keep all `vesting.cell` actions strict/on-chain and expand malformed
+   schedule/claim/revoke cases.
 6. Implement `amm_pool.cell` reserve/LP conservation checks and CKB transaction
    harnesses.
 7. Keep original `launch.cell::simple_launch` covered and implement
@@ -489,7 +508,7 @@ Required adversarial coverage:
 4. Add generated schema manifests and snapshot tests for `nft`, `timelock`, and
    `multisig`.
 5. Start the action transaction builder around completed token, NFT, timelock,
-   and AMM pure-entry harnesses before pool and launch composition flows.
+   multisig, vesting, and AMM harnesses before launch composition flows.
 6. Convert CKB acceptance to use builder-generated transactions for completed
    examples.
 7. Once CKB strict fail-closed list reaches zero, remove the smoke bypass from
