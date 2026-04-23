@@ -20,8 +20,8 @@ Usage: scripts/ckb_cellscript_acceptance.sh [--ckb-repo <path>] [--ckb-bin <path
 
 Runs CellScript CKB compatibility acceptance against a local CKB integration
 devnet from the parent CKB repository. The default mode is the production gate:
-it fails closed if any CKB coverage still depends on smoke bypasses, standalone
-portable harnesses, expected fail-closed entries, or non-original artifacts.
+it fails closed if any CKB coverage still depends on standalone portable
+harnesses, expected fail-closed entries, or non-original artifacts.
 
 Options:
   --ckb-repo <path>   Parent CKB checkout. Defaults to ../ckb.
@@ -32,7 +32,7 @@ Options:
                       mode does not require a CKB checkout or executable.
   --production        Enforce the production gate. This is the default.
   --bounded           Run the bounded development coverage matrix. This keeps
-                      legacy smoke/bounded harnesses visible, but it is not a
+                      bounded harnesses visible, but it is not a
                       production-readiness claim.
   -h, --help          Show this help.
 USAGE
@@ -258,7 +258,6 @@ EXAMPLES = [
     "token.cell",
     "vesting.cell",
 ]
-BYPASS_ENV = "CELLSCRIPT_CKB_ACCEPTANCE_SMOKE_ALLOW_UNPORTABLE_EXAMPLES"
 TRUNCATE = 12000
 
 examples_dir = repo_root / "cellscript" / "examples"
@@ -266,8 +265,7 @@ actual_examples = sorted(path.name for path in examples_dir.glob("*.cell") if pa
 if actual_examples != sorted(EXAMPLES):
     raise SystemExit(f"bundled examples changed: expected {sorted(EXAMPLES)}, found {actual_examples}")
 
-source_root = run_dir / "smoke-sources"
-example_source_root = source_root / "examples"
+source_root = run_dir / "generated-sources"
 baseline_source_root = source_root / "baseline"
 token_action_source_root = source_root / "token-actions"
 nft_action_source_root = source_root / "nft-actions"
@@ -277,7 +275,6 @@ multisig_action_source_root = source_root / "multisig-actions"
 artifact_root = run_dir / "artifacts"
 strict_root = run_dir / "strict-original-ckb"
 for path in (
-    example_source_root,
     baseline_source_root,
     token_action_source_root,
     nft_action_source_root,
@@ -299,20 +296,6 @@ action main() -> u64 {
 """,
     encoding="utf-8",
 )
-
-for name in EXAMPLES:
-    original = examples_dir / name
-    smoke_source = example_source_root / name
-    smoke_source.write_text(
-        original.read_text(encoding="utf-8")
-        + """
-
-action main() -> u64 {
-    0
-}
-""",
-        encoding="utf-8",
-    )
 
 TOKEN_TYPES_SOURCE = """resource Token has store, transfer, destroy {
     amount: u64
@@ -514,6 +497,48 @@ action burn(nft: NFT) {
     destroy nft
 }
 """,
+    "batch_mint": """
+action batch_mint(
+    collection: &mut Collection,
+    recipients: [Address; 4],
+    metadata_hashes: [Hash; 4],
+) -> (NFT, NFT, NFT, NFT) {
+    assert_invariant(collection.total_supply + 4 <= collection.max_supply, "max supply reached")
+    let first_token_id = collection.total_supply + 1
+
+    let nft0 = create NFT {
+        token_id: first_token_id,
+        owner: recipients[0],
+        metadata_hash: metadata_hashes[0],
+        royalty_recipient: collection.creator,
+        royalty_bps: 250
+    }
+    let nft1 = create NFT {
+        token_id: first_token_id + 1,
+        owner: recipients[1],
+        metadata_hash: metadata_hashes[1],
+        royalty_recipient: collection.creator,
+        royalty_bps: 250
+    }
+    let nft2 = create NFT {
+        token_id: first_token_id + 2,
+        owner: recipients[2],
+        metadata_hash: metadata_hashes[2],
+        royalty_recipient: collection.creator,
+        royalty_bps: 250
+    }
+    let nft3 = create NFT {
+        token_id: first_token_id + 3,
+        owner: recipients[3],
+        metadata_hash: metadata_hashes[3],
+        royalty_recipient: collection.creator,
+        royalty_bps: 250
+    }
+
+    collection.total_supply = collection.total_supply + 4
+    (nft0, nft1, nft2, nft3)
+}
+""",
 }
 
 for action, source in NFT_ACTION_SOURCES.items():
@@ -673,6 +698,49 @@ action execute_emergency_release(
     destroy emergency
 
     record
+}
+""",
+    "batch_create_locks": """
+action batch_create_locks(
+    owners: [Address; 4],
+    unlock_heights: [u64; 4],
+    current_height: u64,
+) -> (TimeLock, TimeLock, TimeLock, TimeLock) {
+    assert_invariant(unlock_heights[0] > current_height + 10, "too close")
+    assert_invariant(unlock_heights[1] > current_height + 10, "too close")
+    assert_invariant(unlock_heights[2] > current_height + 10, "too close")
+    assert_invariant(unlock_heights[3] > current_height + 10, "too close")
+    assert_invariant(unlock_heights[0] <= current_height + 2628000, "too far")
+    assert_invariant(unlock_heights[1] <= current_height + 2628000, "too far")
+    assert_invariant(unlock_heights[2] <= current_height + 2628000, "too far")
+    assert_invariant(unlock_heights[3] <= current_height + 2628000, "too far")
+
+    let lock0 = create TimeLock {
+        owner: owners[0],
+        lock_type: 0,
+        unlock_height: unlock_heights[0],
+        created_at: current_height
+    }
+    let lock1 = create TimeLock {
+        owner: owners[1],
+        lock_type: 0,
+        unlock_height: unlock_heights[1],
+        created_at: current_height
+    }
+    let lock2 = create TimeLock {
+        owner: owners[2],
+        lock_type: 0,
+        unlock_height: unlock_heights[2],
+        created_at: current_height
+    }
+    let lock3 = create TimeLock {
+        owner: owners[3],
+        lock_type: 0,
+        unlock_height: unlock_heights[3],
+        created_at: current_height
+    }
+
+    (lock0, lock1, lock2, lock3)
 }
 """,
 }
@@ -1107,6 +1175,7 @@ ORIGINAL_SCOPED_ACTIONS = {
         "create_offer",
         "accept_offer",
         "burn",
+        "batch_mint",
     ],
     "timelock.cell": [
         "create_absolute_lock",
@@ -1118,6 +1187,7 @@ ORIGINAL_SCOPED_ACTIONS = {
         "execute_release",
         "execute_emergency_release",
         "extend_lock",
+        "batch_create_locks",
     ],
     "multisig.cell": [
         "create_wallet",
@@ -1131,7 +1201,7 @@ ORIGINAL_SCOPED_ACTIONS = {
     ],
     "vesting.cell": ["create_vesting_config", "grant_vesting", "claim_vested", "revoke_grant"],
     "amm_pool.cell": ["seed_pool", "swap_a_for_b", "add_liquidity", "remove_liquidity", "isqrt", "min"],
-    "launch.cell": ["simple_launch"],
+    "launch.cell": ["launch_token", "simple_launch"],
 }
 
 ORIGINAL_SCOPED_LOCKS = {
@@ -1140,13 +1210,7 @@ ORIGINAL_SCOPED_LOCKS = {
     "multisig.cell": ["is_signer_lock", "can_execute", "can_cancel", "has_enough_signatures", "not_expired"],
 }
 
-ORIGINAL_SCOPED_ACTION_FAIL_CLOSED = {
-    "nft.cell": ["batch_mint"],
-    "timelock.cell": [
-        "batch_create_locks",
-    ],
-    "launch.cell": ["launch_token"],
-}
+ORIGINAL_SCOPED_ACTION_FAIL_CLOSED = {}
 
 ORIGINAL_SCOPED_LOCK_FAIL_CLOSED = {}
 
@@ -1207,7 +1271,7 @@ CKB_ONCHAIN_ACTION_HARNESSES = {
     "multisig.cell": list(MULTISIG_ACTION_SOURCES.keys()),
     "vesting.cell": ["create_vesting_config", "grant_vesting", "claim_vested", "revoke_grant"],
     "amm_pool.cell": list(AMM_ACTION_SOURCES.keys()),
-    "launch.cell": ["simple_launch"],
+    "launch.cell": ["launch_token", "simple_launch"],
 }
 
 def clipped(text):
@@ -1343,20 +1407,18 @@ def verify_artifact(artifact):
     except json.JSONDecodeError as error:
         raise RuntimeError(f"verify-artifact did not return JSON for {artifact}: {clipped(completed.stdout)}") from error
 
-def compile_artifact(name, kind, source, artifact, *, bypass_policy, entry_args=None):
+def compile_artifact(name, kind, source, artifact, *, entry_args=None):
     entry_args = entry_args or []
     env = os.environ.copy()
-    if bypass_policy:
-        env[BYPASS_ENV] = "1"
     result = run([cellc, source, "--target-profile", "ckb", "--target", "riscv64-elf", *entry_args, "-o", artifact], env=env)
     if result["returncode"] != 0:
-        raise RuntimeError(f"CKB smoke compile failed for {name}: {result['stderr']}")
+        raise RuntimeError(f"CKB artifact compile failed for {name}: {result['stderr']}")
     if not artifact.exists():
-        raise RuntimeError(f"CKB smoke compile did not produce artifact for {name}: {artifact}")
+        raise RuntimeError(f"CKB artifact compile did not produce artifact for {name}: {artifact}")
 
     metadata_path = pathlib.Path(str(artifact) + ".meta.json")
     if not metadata_path.exists():
-        raise RuntimeError(f"CKB smoke compile did not produce metadata sidecar for {name}: {metadata_path}")
+        raise RuntimeError(f"CKB artifact compile did not produce metadata sidecar for {name}: {metadata_path}")
 
     artifact_bytes = artifact.read_bytes()
     artifact_has_sporabi_trailer = b"SPORABI" in artifact_bytes[-64:]
@@ -1381,7 +1443,6 @@ def compile_artifact(name, kind, source, artifact, *, bypass_policy, entry_args=
         "artifact_has_sporabi_trailer": False,
         "target_profile": "ckb",
         "artifact_packaging": metadata.get("target_profile", {}).get("artifact_packaging"),
-        "acceptance_smoke_policy_bypass": bypass_policy,
         "entry_args": [str(arg) for arg in entry_args],
         "compile": result,
         "verify": verify,
@@ -1438,7 +1499,6 @@ baseline = compile_artifact(
     "pure-baseline",
     baseline_source,
     artifact_root / "ckb_noop.elf",
-    bypass_policy=False,
 )
 artifacts.append(baseline)
 
@@ -1449,17 +1509,13 @@ for name in EXAMPLES:
         raise RuntimeError(
             f"strict original CKB compile for {name} failed for a non-policy reason: {strict['stderr']}"
         )
-    record = compile_artifact(
-        name,
-        "bundled-example-smoke",
-        example_source_root / name,
-        artifact_root / f"{name}.elf",
-        bypass_policy=True,
-    )
-    record["original_source"] = str(examples_dir / name)
-    record["strict_original_ckb_compile"] = strict
+    record = {
+        "name": name,
+        "kind": "bundled-example-strict-original",
+        "source": str(examples_dir / name),
+        "strict_original_ckb_compile": strict,
+    }
     bundled_examples.append(record)
-    artifacts.append(record)
 
 token_action_artifacts = []
 for action in TOKEN_ACTION_SOURCES:
@@ -1469,7 +1525,6 @@ for action in TOKEN_ACTION_SOURCES:
         "token-action-strict",
         source,
         artifact_root / f"token_{action}.elf",
-        bypass_policy=False,
     )
     record["action"] = action
     record["original_source"] = str(examples_dir / "token.cell")
@@ -1483,7 +1538,6 @@ for action in NFT_ACTION_SOURCES:
         "nft-action-strict",
         source,
         artifact_root / f"nft_{action}.elf",
-        bypass_policy=False,
     )
     record["action"] = action
     record["original_source"] = str(examples_dir / "nft.cell")
@@ -1497,7 +1551,6 @@ for action in TIMELOCK_ACTION_SOURCES:
         "timelock-action-strict",
         source,
         artifact_root / f"timelock_{action}.elf",
-        bypass_policy=False,
     )
     record["action"] = action
     record["original_source"] = str(examples_dir / "timelock.cell")
@@ -1511,7 +1564,6 @@ for action in AMM_ACTION_SOURCES:
         "amm-action-strict",
         source,
         artifact_root / f"amm_{action}.elf",
-        bypass_policy=False,
     )
     record["action"] = action
     record["original_source"] = str(examples_dir / "amm_pool.cell")
@@ -1525,7 +1577,6 @@ for action in MULTISIG_ACTION_SOURCES:
         "multisig-action-strict",
         source,
         artifact_root / f"multisig_{action}.elf",
-        bypass_policy=False,
     )
     record["action"] = action
     record["original_source"] = str(examples_dir / "multisig.cell")
@@ -1539,7 +1590,6 @@ for example_name, actions in ORIGINAL_SCOPED_ACTIONS.items():
             "original-scoped-action-strict",
             examples_dir / example_name,
             artifact_root / f"original_{example_name.removesuffix('.cell')}_{action}.elf",
-            bypass_policy=False,
             entry_args=["--entry-action", action],
         )
         record["example"] = example_name
@@ -1550,7 +1600,7 @@ for example_name, actions in ORIGINAL_SCOPED_ACTIONS.items():
 launch_action_artifacts = [
     record
     for record in original_scoped_action_artifacts
-    if record["example"] == "launch.cell" and record["action"] == "simple_launch"
+    if record["example"] == "launch.cell" and record["action"] in ("launch_token", "simple_launch")
 ]
 
 token_action_artifacts = [
@@ -1590,6 +1640,7 @@ timelock_action_artifacts = [
         "execute_release",
         "execute_emergency_release",
         "extend_lock",
+        "batch_create_locks",
     ) else record
     for record in timelock_action_artifacts
 ]
@@ -1633,7 +1684,6 @@ for example_name, locks in ORIGINAL_SCOPED_LOCKS.items():
             "original-scoped-lock-strict",
             examples_dir / example_name,
             artifact_root / f"original_{example_name.removesuffix('.cell')}_{lock}.elf",
-            bypass_policy=False,
             entry_args=["--entry-lock", lock],
         )
         record["example"] = example_name
@@ -1749,7 +1799,7 @@ report = {
     "status": "artifact-verified",
     "acceptance_mode": acceptance_mode,
     "ckb_acceptance_scope": (
-        "Production mode is a hard gate and must not depend on smoke bypasses, standalone portable harnesses, "
+        "Production mode is a hard gate and must not depend on standalone portable harnesses, "
         "expected fail-closed entries, or non-original artifacts. Bounded mode is a development coverage matrix only."
     ),
     "cellc": str(cellc),
@@ -1760,10 +1810,8 @@ report = {
         for record in bundled_examples
         if record["strict_original_ckb_compile"]["status"] == "passed"
     ],
-    "bundled_examples_smoke_bypass": [record["name"] for record in bundled_examples],
     "strict_original_ckb_compile_policy_fail_closed": strict_original_policy_fail_closed,
     "strict_original_ckb_compile_unexpected_failures": strict_original_unexpected_failures,
-    "acceptance_smoke_policy_bypass_env": BYPASS_ENV,
     "pure_baseline": baseline,
     "bundled_examples": bundled_examples,
     "token_action_artifacts": token_action_artifacts,
@@ -1791,11 +1839,6 @@ report = {
 
 def production_gate_failures(report):
     failures = []
-    if report.get("bundled_examples_smoke_bypass"):
-        failures.append(
-            "bundled example smoke bypass artifacts are present: "
-            + ", ".join(report["bundled_examples_smoke_bypass"])
-        )
     if report.get("strict_original_ckb_compile_policy_fail_closed"):
         failures.append(
             "strict original bundled examples still fail CKB policy: "
@@ -1827,6 +1870,7 @@ def production_gate_failures(report):
             "timelock_action_artifacts",
             "amm_action_artifacts",
             "multisig_action_artifacts",
+            "launch_action_artifacts",
         )
         for record in report.get(key, [])
         if record.get("kind") != "original-scoped-action-strict"
@@ -1847,7 +1891,6 @@ production_failures = production_gate_failures(report)
 report["production_gate"] = {
     "status": "passed" if not production_failures else "failed",
     "failures": production_failures,
-    "requires_no_smoke_bypass": True,
     "requires_no_standalone_or_portable_harnesses": True,
     "requires_no_expected_fail_closed_entries": True,
     "requires_all_bundled_examples_strict_original_ckb": True,
@@ -2117,6 +2160,45 @@ def fixed_recipient_tuple_array(recipients):
             raise RuntimeError(f"launch recipient address must be exactly 32 bytes, got {len(address)}")
         out.extend(address)
         out.extend(int(amount).to_bytes(8, "little"))
+    return bytes(out)
+
+def fixed_recipient_tuple_array4(recipients):
+    if len(recipients) != 4:
+        raise RuntimeError(f"launch recipients must contain exactly 4 entries, got {len(recipients)}")
+    out = bytearray()
+    for address, amount in recipients:
+        if len(address) != 32:
+            raise RuntimeError(f"launch recipient address must be exactly 32 bytes, got {len(address)}")
+        out.extend(address)
+        out.extend(int(amount).to_bytes(8, "little"))
+    return bytes(out)
+
+def fixed_address_array4(addresses):
+    if len(addresses) != 4:
+        raise RuntimeError(f"address array must contain exactly 4 entries, got {len(addresses)}")
+    out = bytearray()
+    for address in addresses:
+        if len(address) != 32:
+            raise RuntimeError(f"address array entry must be exactly 32 bytes, got {len(address)}")
+        out.extend(address)
+    return bytes(out)
+
+def fixed_hash_array4(hashes):
+    if len(hashes) != 4:
+        raise RuntimeError(f"hash array must contain exactly 4 entries, got {len(hashes)}")
+    out = bytearray()
+    for value in hashes:
+        if len(value) != 32:
+            raise RuntimeError(f"hash array entry must be exactly 32 bytes, got {len(value)}")
+        out.extend(value)
+    return bytes(out)
+
+def fixed_u64_array4(values):
+    if len(values) != 4:
+        raise RuntimeError(f"u64 array must contain exactly 4 entries, got {len(values)}")
+    out = bytearray()
+    for value in values:
+        out.extend(int(value).to_bytes(8, "little"))
     return bytes(out)
 
 def nft_data(token_id, owner, metadata_hash, royalty_recipient, royalty_bps):
@@ -2438,14 +2520,16 @@ def transaction(input_cells, outputs, outputs_data, cell_deps, witnesses=None, h
 
 def submit_and_commit(tx, label, max_blocks=64):
     tx_hash = rpc("send_test_transaction", [tx, "passthrough"])
+    last_status = None
     for generated in range(max_blocks + 1):
         status = rpc("get_transaction", [tx_hash])
         tx_status = (status or {}).get("tx_status", {})
+        last_status = tx_status
         if tx_status.get("status") == "committed":
             return {"tx_hash": tx_hash, "generated_blocks_after_submit": generated, "status": tx_status}
         rpc("generate_block")
         time.sleep(0.05)
-    raise RuntimeError(f"{label} was not committed after {max_blocks} generated blocks: {tx_hash}")
+    raise RuntimeError(f"{label} was not committed after {max_blocks} generated blocks: {tx_hash}; last_status={last_status}")
 
 def expect_dry_run_rejected(tx, label, expected_fragments):
     try:
@@ -2493,7 +2577,6 @@ def run_artifact(artifact_record, always_success_dep):
         "artifact_size_bytes": len(artifact),
         "artifact_ckb_data_hash_blake2b": artifact_ckb_data_hash,
         "artifact_has_sporabi_trailer": b"SPORABI" in artifact[-64:],
-        "acceptance_smoke_policy_bypass": artifact_record.get("acceptance_smoke_policy_bypass", False),
     }
     if result["artifact_has_sporabi_trailer"]:
         raise RuntimeError(f"{name} CKB artifact still contains a SPORABI trailer")
@@ -2523,7 +2606,7 @@ def run_artifact(artifact_record, always_success_dep):
     })
 
     create_input = collect_spendable_cellbases(100 * 100_000_000, max_cells=1)
-    cellscript_lock = {"code_hash": artifact_ckb_data_hash, "hash_type": "data", "args": "0x"}
+    cellscript_lock = {"code_hash": artifact_ckb_data_hash, "hash_type": "data1", "args": "0x"}
     create_tx = transaction(
         create_input,
         [
@@ -2659,7 +2742,7 @@ def run_token_action(action_record, always_success_dep):
     action = action_record["action"]
     name = action_record["name"]
     code = deploy_code_cell(name, action_record["artifact"], always_success_dep)
-    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data", "args": "0x"}
+    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data1", "args": "0x"}
     cellscript_type = always_success_lock()
     destination_lock = always_success_lock()
     destination_lock_hash = decode_hex(script_hash(destination_lock), 32)
@@ -2832,7 +2915,7 @@ def run_nft_action(action_record, always_success_dep):
     action = action_record["action"]
     name = action_record["name"]
     code = deploy_code_cell(name, action_record["artifact"], always_success_dep)
-    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data", "args": "0x"}
+    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data1", "args": "0x"}
     cellscript_type = always_success_lock()
     destination_lock = always_success_lock()
     current_owner = decode_hex(script_hash(cellscript_lock), 32)
@@ -3178,6 +3261,54 @@ def run_nft_action(action_record, always_success_dep):
             cell_deps,
             [entry_witness()],
         )
+    elif action == "batch_mint":
+        collection_type = always_success_lock("0x25")
+        recipients = [
+            destination_owner,
+            bytes([0x31]) * 32,
+            bytes([0x32]) * 32,
+            bytes([0x33]) * 32,
+        ]
+        metadata_hashes = [
+            bytes(range(32)),
+            bytes([0x41]) * 32,
+            bytes([0x42]) * 32,
+            bytes([0x43]) * 32,
+        ]
+        input_collection_payload = collection_molecule_data(current_owner, 20, 1000)
+        output_collection_payload = collection_molecule_data(current_owner, 24, 1000)
+        initial = create_script_locked_cells(
+            "nft.batch_mint",
+            [
+                {
+                    "capacity": 2500 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": collection_type,
+                    "data": input_collection_payload,
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        outputs = [
+            {"capacity": hex_u64(250 * 100_000_000), "lock": cellscript_lock, "type": nft_type},
+            {"capacity": hex_u64(250 * 100_000_000), "lock": cellscript_lock, "type": nft_type},
+            {"capacity": hex_u64(250 * 100_000_000), "lock": cellscript_lock, "type": nft_type},
+            {"capacity": hex_u64(250 * 100_000_000), "lock": cellscript_lock, "type": nft_type},
+            {"capacity": hex_u64(1000 * 100_000_000), "lock": cellscript_lock, "type": collection_type},
+        ]
+        outputs_data = [
+            "0x" + nft_data(21, recipients[0], metadata_hashes[0], current_owner, 250).hex(),
+            "0x" + nft_data(22, recipients[1], metadata_hashes[1], current_owner, 250).hex(),
+            "0x" + nft_data(23, recipients[2], metadata_hashes[2], current_owner, 250).hex(),
+            "0x" + nft_data(24, recipients[3], metadata_hashes[3], current_owner, 250).hex(),
+            "0x" + output_collection_payload.hex(),
+        ]
+        witness = entry_witness(fixed_address_array4(recipients), fixed_hash_array4(metadata_hashes))
+        valid_tx = transaction(input_cell, outputs, outputs_data, cell_deps, [witness])
+        malformed_outputs_data = list(outputs_data)
+        malformed_outputs_data[2] = "0x" + nft_data(99, recipients[2], metadata_hashes[2], current_owner, 250).hex()
+        malformed_tx = transaction(input_cell, outputs, malformed_outputs_data, cell_deps, [witness])
     else:
         raise RuntimeError(f"unsupported NFT action harness: {action}")
 
@@ -3209,7 +3340,7 @@ def run_amm_action(action_record, always_success_dep):
     action = action_record["action"]
     name = action_record["name"]
     code = deploy_code_cell(name, action_record["artifact"], always_success_dep)
-    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data", "args": "0x"}
+    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data1", "args": "0x"}
     destination_lock = always_success_lock()
     cell_deps = [always_success_dep, code["code_cell_dep"]]
 
@@ -3475,7 +3606,7 @@ def run_multisig_action(action_record, always_success_dep):
     action = action_record["action"]
     name = action_record["name"]
     code = deploy_code_cell(name, action_record["artifact"], always_success_dep)
-    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data", "args": "0x"}
+    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data1", "args": "0x"}
     cellscript_type = always_success_lock()
     wallet_type = always_success_lock("0x51")
     proposal_type = always_success_lock("0x52")
@@ -3855,22 +3986,29 @@ def run_launch_action(action_record, always_success_dep):
     action = action_record["action"]
     name = action_record["name"]
     if action != "simple_launch":
-        raise RuntimeError(f"unsupported launch action harness: {action}")
+        if action != "launch_token":
+            raise RuntimeError(f"unsupported launch action harness: {action}")
     code = deploy_code_cell(name, action_record["artifact"], always_success_dep)
-    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data", "args": "0x"}
+    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data1", "args": "0x"}
     auth_type = always_success_lock("0x61")
     token_type = always_success_lock("0x62")
+    pool_paired_type = always_success_lock("0x63")
     symbol = b"LAUNCH01"
     max_supply = 10_000
     initial_mint = 1_000
+    pool_seed_amount = 500
+    paired_amount = 250
+    paired_symbol = b"PAIR0001"
+    fee_rate_bps = 30
     creator_lock = always_success_lock("0x60")
-    recipient_locks = [always_success_lock("0x7" + format(index, "x")) for index in range(8)]
+    recipient_count = 4 if action == "launch_token" else 8
+    recipient_locks = [always_success_lock("0x7" + format(index, "x")) for index in range(recipient_count)]
     creator = decode_hex(script_hash(creator_lock), 32)
     recipients = [
         (decode_hex(script_hash(lock), 32), amount)
-        for lock, amount in zip(recipient_locks, [10, 20, 30, 40, 50, 60, 70, 80])
+        for lock, amount in zip(recipient_locks, [10, 20, 30, 40] if action == "launch_token" else [10, 20, 30, 40, 50, 60, 70, 80])
     ]
-    recipient_payload = fixed_recipient_tuple_array(recipients)
+    recipient_payload = fixed_recipient_tuple_array4(recipients) if action == "launch_token" else fixed_recipient_tuple_array(recipients)
     total_distributed = sum(amount for _, amount in recipients)
     cell_deps = [always_success_dep, code["code_cell_dep"]]
 
@@ -3882,25 +4020,53 @@ def run_launch_action(action_record, always_success_dep):
         "cellscript_lock_hash": script_hash(cellscript_lock),
     }
 
-    initial = create_script_locked_cells(
-        "launch.simple_launch",
-        [{"capacity": 4000 * 100_000_000, "lock": cellscript_lock, "type": None, "data": b""}],
-        cell_deps,
-    )
-    input_cell = initial["cells"][0]
-    outputs = [{"capacity": hex_u64(400 * 100_000_000), "lock": creator_lock, "type": auth_type}]
-    outputs_data = ["0x" + mint_authority_data(symbol, max_supply, initial_mint).hex()]
-    for recipient_lock, (_, amount) in zip(recipient_locks, recipients):
-        outputs.append({"capacity": hex_u64(200 * 100_000_000), "lock": recipient_lock, "type": token_type})
-        outputs_data.append("0x" + token_data(amount, symbol).hex())
-    outputs.append({"capacity": hex_u64(200 * 100_000_000), "lock": creator_lock, "type": token_type})
-    outputs_data.append("0x" + token_data(initial_mint - total_distributed, symbol).hex())
-    witness = entry_witness(symbol, max_supply, initial_mint, creator, recipient_payload)
-    valid_tx = transaction(input_cell, outputs, outputs_data, cell_deps, [witness])
+    if action == "launch_token":
+        initial = create_script_locked_cells(
+            "launch.launch_token",
+            [
+                {
+                    "capacity": 4000 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": pool_paired_type,
+                    "data": token_data(paired_amount, paired_symbol),
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        outputs = [{"capacity": hex_u64(400 * 100_000_000), "lock": creator_lock, "type": auth_type}]
+        outputs_data = ["0x" + mint_authority_data(symbol, max_supply, initial_mint).hex()]
+        for recipient_lock, (_, amount) in zip(recipient_locks, recipients):
+            outputs.append({"capacity": hex_u64(200 * 100_000_000), "lock": recipient_lock, "type": token_type})
+            outputs_data.append("0x" + token_data(amount, symbol).hex())
+        outputs.append({"capacity": hex_u64(200 * 100_000_000), "lock": creator_lock, "type": token_type})
+        outputs_data.append("0x" + token_data(pool_seed_amount, symbol).hex())
+        witness = entry_witness(symbol, max_supply, initial_mint, pool_seed_amount, bytes([fee_rate_bps & 0xff, fee_rate_bps >> 8]), creator, recipient_payload)
+        valid_tx = transaction(input_cell, outputs, outputs_data, cell_deps, [witness])
 
-    malformed_outputs_data = list(outputs_data)
-    malformed_outputs_data[-1] = "0x" + token_data(initial_mint - total_distributed - 1, symbol).hex()
-    malformed_tx = transaction(input_cell, outputs, malformed_outputs_data, cell_deps, [witness])
+        malformed_outputs_data = list(outputs_data)
+        malformed_outputs_data[-1] = "0x" + token_data(pool_seed_amount - 1, symbol).hex()
+        malformed_tx = transaction(input_cell, outputs, malformed_outputs_data, cell_deps, [witness])
+    else:
+        initial = create_script_locked_cells(
+            "launch.simple_launch",
+            [{"capacity": 4000 * 100_000_000, "lock": cellscript_lock, "type": None, "data": b""}],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        outputs = [{"capacity": hex_u64(400 * 100_000_000), "lock": creator_lock, "type": auth_type}]
+        outputs_data = ["0x" + mint_authority_data(symbol, max_supply, initial_mint).hex()]
+        for recipient_lock, (_, amount) in zip(recipient_locks, recipients):
+            outputs.append({"capacity": hex_u64(200 * 100_000_000), "lock": recipient_lock, "type": token_type})
+            outputs_data.append("0x" + token_data(amount, symbol).hex())
+        outputs.append({"capacity": hex_u64(200 * 100_000_000), "lock": creator_lock, "type": token_type})
+        outputs_data.append("0x" + token_data(initial_mint - total_distributed, symbol).hex())
+        witness = entry_witness(symbol, max_supply, initial_mint, creator, recipient_payload)
+        valid_tx = transaction(input_cell, outputs, outputs_data, cell_deps, [witness])
+
+        malformed_outputs_data = list(outputs_data)
+        malformed_outputs_data[-1] = "0x" + token_data(initial_mint - total_distributed - 1, symbol).hex()
+        malformed_tx = transaction(input_cell, outputs, malformed_outputs_data, cell_deps, [witness])
 
     malformed_rejection = expect_dry_run_rejected(
         malformed_tx,
@@ -3929,7 +4095,7 @@ def run_vesting_action(action_record, always_success_dep):
     action = action_record["action"]
     name = action_record["name"]
     code = deploy_code_cell(name, action_record["artifact"], always_success_dep)
-    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data", "args": "0x"}
+    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data1", "args": "0x"}
     admin_lock = always_success_lock()
     config_type = always_success_lock("0x41")
     admin = decode_hex(script_hash(admin_lock), 32)
@@ -4225,7 +4391,7 @@ def run_timelock_action(action_record, always_success_dep):
     action = action_record["action"]
     name = action_record["name"]
     code = deploy_code_cell(name, action_record["artifact"], always_success_dep)
-    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data", "args": "0x"}
+    cellscript_lock = {"code_hash": code["artifact_ckb_data_hash_blake2b"], "hash_type": "data1", "args": "0x"}
     cellscript_type = always_success_lock()
     owner = decode_hex(script_hash(cellscript_lock), 32)
     cell_deps = [always_success_dep, code["code_cell_dep"]]
@@ -4688,6 +4854,45 @@ def run_timelock_action(action_record, always_success_dep):
                 "0x",
             ],
         )
+    elif action == "batch_create_locks":
+        current_height = 50
+        owners = [
+            owner,
+            bytes([0x51]) * 32,
+            bytes([0x52]) * 32,
+            bytes([0x53]) * 32,
+        ]
+        unlock_heights = [100, 110, 120, 130]
+        initial = create_script_locked_cells(
+            "timelock.batch_create_locks",
+            [
+                {
+                    "capacity": 1500 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": None,
+                    "data": b"",
+                }
+            ],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        outputs = [
+            {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type},
+            {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type},
+            {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type},
+            {"capacity": hex_u64(300 * 100_000_000), "lock": cellscript_lock, "type": cellscript_type},
+        ]
+        outputs_data = [
+            "0x" + timelock_data(owners[0], 0, unlock_heights[0], current_height).hex(),
+            "0x" + timelock_data(owners[1], 0, unlock_heights[1], current_height).hex(),
+            "0x" + timelock_data(owners[2], 0, unlock_heights[2], current_height).hex(),
+            "0x" + timelock_data(owners[3], 0, unlock_heights[3], current_height).hex(),
+        ]
+        witness = entry_witness(fixed_address_array4(owners), fixed_u64_array4(unlock_heights), current_height)
+        valid_tx = transaction(input_cell, outputs, outputs_data, cell_deps, [witness])
+        malformed_outputs_data = list(outputs_data)
+        malformed_outputs_data[1] = "0x" + timelock_data(owners[1], 0, unlock_heights[1] + 1, current_height).hex()
+        malformed_tx = transaction(input_cell, outputs, malformed_outputs_data, cell_deps, [witness])
     else:
         raise RuntimeError(f"unsupported TimeLock action harness: {action}")
 
@@ -4793,6 +4998,7 @@ try:
     report["onchain"]["nft_actions_exercised"] = [run["action"] for run in report["onchain"]["nft_action_runs"]]
     report["onchain"]["all_nft_actions_exercised"] = sorted(report["onchain"]["nft_actions_exercised"]) == [
         "accept_offer",
+        "batch_mint",
         "burn",
         "buy_from_listing",
         "cancel_listing",
@@ -4812,6 +5018,7 @@ try:
         "extend_lock",
         "execute_release",
         "execute_emergency_release",
+        "batch_create_locks",
     ]
     report["onchain"]["multisig_actions_exercised"] = [run["action"] for run in report["onchain"]["multisig_action_runs"]]
     report["onchain"]["all_multisig_actions_exercised"] = sorted(report["onchain"]["multisig_actions_exercised"]) == [
@@ -4842,6 +5049,7 @@ try:
     ]
     report["onchain"]["launch_actions_exercised"] = [run["action"] for run in report["onchain"]["launch_action_runs"]]
     report["onchain"]["all_launch_actions_exercised"] = report["onchain"]["launch_actions_exercised"] == [
+        "launch_token",
         "simple_launch",
     ]
     update_ckb_business_coverage({
@@ -4854,7 +5062,7 @@ try:
         "launch.cell": report["onchain"]["launch_actions_exercised"],
     })
     if not report["onchain"]["all_artifacts_deployed_and_spent"]:
-        raise RuntimeError("not all CKB smoke artifacts deployed and spent")
+        raise RuntimeError("not all CKB artifacts deployed and spent")
     if not report["onchain"]["all_token_actions_exercised"]:
         raise RuntimeError(f"incomplete token action coverage: {report['onchain']['token_actions_exercised']}")
     if not report["onchain"]["all_nft_actions_exercised"]:
