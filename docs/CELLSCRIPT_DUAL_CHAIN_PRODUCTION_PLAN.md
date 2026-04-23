@@ -26,6 +26,7 @@ The current production-readiness verdict is deliberately stricter:
 | Molecule | Public VM/CellScript ABI surfaces use Molecule, fixed-width schema metadata exists, fixed enum fields lower into fixed Molecule schema aliases, payload enum fields lower as dynamic Molecule bytes fields, and dynamic persistent types emit `molecule-table-v1` metadata. Fixed-width fields inside Molecule tables, fixed-element `Vec<T>.len()`/index/iteration paths for table fields and schema-pointer parameters, selected dynamic table mutation replacement checks, empty dynamic vectors, fixed-element dynamic vector append checks, and constructed local byte vectors can now be decoded for verifier paths; generic dynamic table mutation, batch collection construction, and selected scalar-push byte-vector construction remain fail-closed. | Needs production schema manifest, broader generated dynamic mutation/table preservation decoders, snapshot tests, and builder integration. |
 | Package/tooling | Local package workflow, lockfile validation, README/wiki docs, LSP, and CI reports exist. Registry and release distribution are still beta/RC quality. | Needs release packaging, reproducible builds, package verification, and stable CLI workflows. |
 | Backend | Branch relaxation, shared fail handlers, machine-block/CFG metrics, call-edge accounting, and backend shape budgets exist. | Usable, but code size, branch distance, and CFG metrics must stay release artifacts. |
+| Production constraints | Metadata schema 27 adds profile-aware `constraints`, and `cellc constraints` emits the same report directly. The report covers entry ABI slots/spills/witness bytes, artifact/backend shape, CKB capacity lower bounds and configured cycle/block limits, and Spora v0 mass estimates. | Not complete until builders and acceptance feed measured CKB dry-run cycles, serialized tx bytes, derived occupied capacity, and measured Spora mass back into release artifacts. |
 
 ## Latest Local Verification
 
@@ -116,6 +117,37 @@ coverage, not production readiness:
   generated Molecule schemas.
 - Standalone CellScript and the Spora submodule have matching source changes
   for the entry witness ABI, entry-scoped compile, and fixed enum schema fixes.
+- CellScript metadata now includes a profile-aware `constraints` section, and
+  `cellc constraints` can emit it without writing the full artifact/metadata
+  pair. This is the compiler-facing production constraints surface:
+  - `entry_abi` reports action/lock parameter count, ABI slots used,
+    a0-a7 register slots, caller-stack spill slots/bytes, witness payload
+    bytes, pointer/length pair placement, and unsupported parameter reasons;
+  - `artifact` reports artifact bytes and backend shape metrics when assembly
+    can be analyzed, including text/rodata bytes, relaxed branch count,
+    maximum conditional branch distance, machine block/edge/call-edge counts,
+    and unreachable machine blocks;
+  - `ckb` reports configured `max_tx_verify_cycles`, `max_block_cycles`,
+    `max_block_bytes`, code-cell data capacity lower bound, recommended code
+    cell capacity margin, entry witness byte bounds, and explicit
+    `dry_run_required_for_production`;
+  - `spora` reports v0 compute/storage/transient/code-deployment mass
+    estimates, configured max block mass, and whether the compiler estimate
+    would require a relaxed mass policy;
+  - CKB limits can be overridden with
+    `CELLSCRIPT_CKB_MAX_TX_VERIFY_CYCLES`,
+    `CELLSCRIPT_CKB_MAX_BLOCK_CYCLES`, and
+    `CELLSCRIPT_CKB_MAX_BLOCK_BYTES`; Spora max block mass can be overridden
+    with `CELLSCRIPT_SPORA_MAX_BLOCK_MASS`.
+- `build --json`, `check --json`, and `verify-artifact --json` now carry the
+  same constraints object so CI, wallet builders, and acceptance scripts can
+  consume it without parsing prose logs.
+- The current constraints report is intentionally honest about what the
+  compiler cannot know by itself: CKB cycles are marked
+  `not-measured-by-compiler`, CKB transaction size is `builder-required`, CKB
+  capacity is a code-cell data lower bound until a builder derives full
+  occupied capacity, and Spora mass is a v0 estimate requiring devnet or
+  builder confirmation.
 - The CKB acceptance script now records both positive scoped coverage and
   expected fail-closed scoped gaps. A gap entry that starts compiling is treated
   as a failing gate until its transaction harness and malformed matrix are
@@ -509,7 +541,10 @@ Required adversarial coverage:
    `multisig`.
 5. Start the action transaction builder around completed token, NFT, timelock,
    multisig, vesting, and AMM harnesses before launch composition flows.
-6. Convert CKB acceptance to use builder-generated transactions for completed
+6. Feed builder/dry-run results back into constraints artifacts: measured CKB
+   cycles, serialized transaction bytes, exact occupied capacity, recommended
+   fee/capacity margin, and measured Spora compute/storage/transient mass.
+7. Convert CKB acceptance to use builder-generated transactions for completed
    examples.
-7. Once CKB strict fail-closed list reaches zero, remove the smoke bypass from
+8. Once CKB strict fail-closed list reaches zero, remove the smoke bypass from
    compatibility claims and keep it only as a VM plumbing regression path.
