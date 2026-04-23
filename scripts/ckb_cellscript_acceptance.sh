@@ -684,6 +684,201 @@ for action, source in TIMELOCK_ACTION_SOURCES.items():
     )
 
 AMM_ACTION_SOURCES = {
+    "seed_pool": """
+resource Token has store {
+    amount: u64
+    symbol: [u8; 8]
+}
+
+shared Pool {
+    token_a_symbol: [u8; 8]
+    token_b_symbol: [u8; 8]
+    reserve_a: u64
+    reserve_b: u64
+    total_lp: u64
+    fee_rate_bps: u16
+}
+
+receipt LPReceipt {
+    pool_id: Hash
+    lp_amount: u64
+    provider: Address
+}
+
+action seed_pool(token_a: Token, token_b: Token, fee_rate_bps: u16, provider: Address) -> (Pool, LPReceipt) {
+    assert_invariant(token_a.symbol != token_b.symbol, "same token")
+    assert_invariant(token_a.amount > 0 && token_b.amount > 0, "empty reserve")
+    assert_invariant(fee_rate_bps <= 10000, "fee too high")
+
+    let initial_lp = isqrt(token_a.amount * token_b.amount)
+
+    consume token_a
+    consume token_b
+
+    let pool = create Pool {
+        token_a_symbol: token_a.symbol,
+        token_b_symbol: token_b.symbol,
+        reserve_a: token_a.amount,
+        reserve_b: token_b.amount,
+        total_lp: initial_lp,
+        fee_rate_bps: fee_rate_bps
+    }
+
+    let receipt = create LPReceipt {
+        pool_id: pool.type_hash(),
+        lp_amount: initial_lp,
+        provider: provider
+    } with_lock(provider)
+
+    (pool, receipt)
+}
+
+action isqrt(n: u64) -> u64 {
+    if n == 0 {
+        return 0
+    }
+
+    let mut x = n
+    let mut y = (x + 1) / 2
+
+    while y < x {
+        x = y
+        y = (x + n / x) / 2
+    }
+
+    x
+}
+""",
+    "add_liquidity": """
+resource Token has store {
+    amount: u64
+    symbol: [u8; 8]
+}
+
+shared Pool {
+    token_a_symbol: [u8; 8]
+    token_b_symbol: [u8; 8]
+    reserve_a: u64
+    reserve_b: u64
+    total_lp: u64
+    fee_rate_bps: u16
+}
+
+receipt LPReceipt {
+    pool_id: Hash
+    lp_amount: u64
+    provider: Address
+}
+
+action add_liquidity(pool: &mut Pool, token_a: Token, token_b: Token, provider: Address) -> LPReceipt {
+    assert_invariant(token_a.symbol == pool.token_a_symbol, "wrong token a")
+    assert_invariant(token_b.symbol == pool.token_b_symbol, "wrong token b")
+
+    let lp_from_a = token_a.amount * pool.total_lp / pool.reserve_a
+    let lp_from_b = token_b.amount * pool.total_lp / pool.reserve_b
+    let lp_amount = min(lp_from_a, lp_from_b)
+
+    consume token_a
+    consume token_b
+
+    pool.reserve_a = pool.reserve_a + token_a.amount
+    pool.reserve_b = pool.reserve_b + token_b.amount
+    pool.total_lp = pool.total_lp + lp_amount
+
+    create LPReceipt {
+        pool_id: pool.type_hash(),
+        lp_amount: lp_amount,
+        provider: provider
+    } with_lock(provider)
+}
+
+action min(a: u64, b: u64) -> u64 {
+    if a < b { a } else { b }
+}
+""",
+    "swap_a_for_b": """
+resource Token has store {
+    amount: u64
+    symbol: [u8; 8]
+}
+
+shared Pool {
+    token_a_symbol: [u8; 8]
+    token_b_symbol: [u8; 8]
+    reserve_a: u64
+    reserve_b: u64
+    total_lp: u64
+    fee_rate_bps: u16
+}
+
+action swap_a_for_b(pool: &mut Pool, input: Token, min_output: u64, to: Address) -> Token {
+    assert_invariant(input.symbol == pool.token_a_symbol, "wrong input token")
+
+    let fee = input.amount * pool.fee_rate_bps as u64 / 10000
+    let net_input = input.amount - fee
+
+    let output = pool.reserve_b * net_input / (pool.reserve_a + net_input)
+
+    assert_invariant(output >= min_output, "slippage exceeded")
+    assert_invariant(output < pool.reserve_b, "insufficient reserves")
+
+    consume input
+
+    pool.reserve_a = pool.reserve_a + input.amount
+    pool.reserve_b = pool.reserve_b - output
+
+    create Token {
+        amount: output,
+        symbol: pool.token_b_symbol
+    } with_lock(to)
+}
+""",
+    "remove_liquidity": """
+resource Token has store {
+    amount: u64
+    symbol: [u8; 8]
+}
+
+shared Pool {
+    token_a_symbol: [u8; 8]
+    token_b_symbol: [u8; 8]
+    reserve_a: u64
+    reserve_b: u64
+    total_lp: u64
+    fee_rate_bps: u16
+}
+
+receipt LPReceipt {
+    pool_id: Hash
+    lp_amount: u64
+    provider: Address
+}
+
+action remove_liquidity(pool: &mut Pool, receipt: LPReceipt, provider: Address) -> (Token, Token) {
+    assert_invariant(receipt.pool_id == pool.type_hash(), "wrong pool")
+
+    let amount_a = receipt.lp_amount * pool.reserve_a / pool.total_lp
+    let amount_b = receipt.lp_amount * pool.reserve_b / pool.total_lp
+
+    consume receipt
+
+    pool.reserve_a = pool.reserve_a - amount_a
+    pool.reserve_b = pool.reserve_b - amount_b
+    pool.total_lp = pool.total_lp - receipt.lp_amount
+
+    let token_a = create Token {
+        amount: amount_a,
+        symbol: pool.token_a_symbol
+    } with_lock(provider)
+
+    let token_b = create Token {
+        amount: amount_b,
+        symbol: pool.token_b_symbol
+    } with_lock(provider)
+
+    (token_a, token_b)
+}
+""",
     "isqrt": """
 action isqrt(n: u64) -> u64 {
     if n == 0 {
@@ -929,13 +1124,13 @@ ORIGINAL_SCOPED_ACTIONS = {
         "propose_transfer",
         "add_signature",
         "propose_add_signer",
-        "propose_remove_signer",
         "propose_change_threshold",
+        "propose_remove_signer",
         "execute_proposal",
         "cancel_proposal",
     ],
-    "vesting.cell": ["create_vesting_config", "grant_vesting"],
-    "amm_pool.cell": ["isqrt", "min"],
+    "vesting.cell": ["create_vesting_config", "grant_vesting", "claim_vested", "revoke_grant"],
+    "amm_pool.cell": ["seed_pool", "swap_a_for_b", "add_liquidity", "remove_liquidity", "isqrt", "min"],
     "launch.cell": ["simple_launch"],
 }
 
@@ -950,8 +1145,6 @@ ORIGINAL_SCOPED_ACTION_FAIL_CLOSED = {
     "timelock.cell": [
         "batch_create_locks",
     ],
-    "vesting.cell": ["claim_vested", "revoke_grant"],
-    "amm_pool.cell": ["seed_pool", "swap_a_for_b", "add_liquidity", "remove_liquidity"],
     "launch.cell": ["launch_token"],
 }
 
@@ -1012,7 +1205,7 @@ CKB_ONCHAIN_ACTION_HARNESSES = {
     "nft.cell": list(NFT_ACTION_SOURCES.keys()),
     "timelock.cell": list(TIMELOCK_ACTION_SOURCES.keys()),
     "multisig.cell": list(MULTISIG_ACTION_SOURCES.keys()),
-    "vesting.cell": ["create_vesting_config"],
+    "vesting.cell": ["create_vesting_config", "grant_vesting", "claim_vested", "revoke_grant"],
     "amm_pool.cell": list(AMM_ACTION_SOURCES.keys()),
     "launch.cell": ["simple_launch"],
 }
@@ -1755,7 +1948,8 @@ multisig_action_artifacts = report.get("multisig_action_artifacts", [])
 vesting_action_artifacts = [
     record
     for record in report.get("original_scoped_action_artifacts", [])
-    if record.get("example") == "vesting.cell" and record.get("action") in {"create_vesting_config", "grant_vesting"}
+    if record.get("example") == "vesting.cell"
+    and record.get("action") in {"create_vesting_config", "grant_vesting", "claim_vested", "revoke_grant"}
 ]
 launch_action_artifacts = report.get("launch_action_artifacts", [])
 
@@ -1902,6 +2096,12 @@ def token_data(amount, symbol=b"TOKEN001"):
     if len(symbol) != 8:
         raise RuntimeError(f"token symbol must be exactly 8 bytes, got {len(symbol)}")
     return amount.to_bytes(8, "little") + symbol
+
+def pool_data(token_a_symbol, token_b_symbol, reserve_a, reserve_b, total_lp, fee_rate_bps):
+    return token_a_symbol + token_b_symbol + reserve_a.to_bytes(8, "little") + reserve_b.to_bytes(8, "little") + total_lp.to_bytes(8, "little") + fee_rate_bps.to_bytes(2, "little")
+
+def lp_receipt_data(pool_id, lp_amount, provider):
+    return pool_id + lp_amount.to_bytes(8, "little") + provider
 
 def mint_authority_data(token_symbol=b"TOKEN001", max_supply=1000, minted=0):
     if len(token_symbol) != 8:
@@ -3021,48 +3221,239 @@ def run_amm_action(action_record, always_success_dep):
         "cellscript_lock_hash": script_hash(cellscript_lock),
     }
 
-    initial = create_script_locked_cells(
-        f"amm.{action}",
-        [
+    if action == "seed_pool":
+        token_a_symbol = b"AMMA0001"
+        token_b_symbol = b"AMMB0001"
+        token_a_amount = 4
+        token_b_amount = 9
+        fee_rate_bps = 30
+        initial_lp = 6
+        provider_lock = always_success_lock("0x61")
+        provider = decode_hex(script_hash(provider_lock), 32)
+        token_a_type = always_success_lock("0x62")
+        token_b_type = always_success_lock("0x63")
+        pool_type = always_success_lock("0x64")
+        lp_type = always_success_lock("0x65")
+        pool_id = decode_hex(script_hash(pool_type), 32)
+        initial = create_script_locked_cells("amm.seed_pool", [
+            {"capacity": 200 * 100_000_000, "lock": cellscript_lock, "type": token_a_type, "data": token_data(token_a_amount, token_a_symbol)},
+            {"capacity": 200 * 100_000_000, "lock": cellscript_lock, "type": token_b_type, "data": token_data(token_b_amount, token_b_symbol)},
+        ], cell_deps)
+        valid_tx = transaction(initial["cells"], [
+            {"capacity": hex_u64(200 * 100_000_000), "lock": destination_lock, "type": pool_type},
+            {"capacity": hex_u64(200 * 100_000_000), "lock": provider_lock, "type": lp_type},
+        ], [
+            "0x" + pool_data(token_a_symbol, token_b_symbol, token_a_amount, token_b_amount, initial_lp, fee_rate_bps).hex(),
+            "0x" + lp_receipt_data(pool_id, initial_lp, provider).hex(),
+        ], cell_deps, [entry_witness(fee_rate_bps.to_bytes(2, "little"), provider), "0x"])
+        malformed_tx = transaction(initial["cells"], [
+            {"capacity": hex_u64(200 * 100_000_000), "lock": destination_lock, "type": pool_type},
+            {"capacity": hex_u64(200 * 100_000_000), "lock": provider_lock, "type": lp_type},
+        ], [
+            "0x" + pool_data(token_a_symbol, token_b_symbol, token_a_amount + 1, token_b_amount, initial_lp, fee_rate_bps).hex(),
+            "0x" + lp_receipt_data(pool_id, initial_lp, provider).hex(),
+        ], cell_deps, [entry_witness(fee_rate_bps.to_bytes(2, "little"), provider), "0x"])
+        input_cells_to_check = initial["cells"]
+    elif action == "swap_a_for_b":
+        token_a_symbol = b"AMMA0001"
+        token_b_symbol = b"AMMB0001"
+        pool_reserve_a = 10_000
+        pool_reserve_b = 20_000
+        pool_total_lp = 10_000
+        input_amount = 1_000
+        fee_rate_bps = 30
+        fee = input_amount * fee_rate_bps // 10_000
+        net_input = input_amount - fee
+        output_amount = pool_reserve_b * net_input // (pool_reserve_a + net_input)
+        min_output = output_amount - 1
+        to_lock = always_success_lock("0x70")
+        to = decode_hex(script_hash(to_lock), 32)
+        token_a_type = always_success_lock("0x71")
+        token_b_type = always_success_lock("0x72")
+        pool_type = always_success_lock("0x73")
+        initial = create_script_locked_cells("amm.swap_a_for_b", [
+            {"capacity": 200 * 100_000_000, "lock": cellscript_lock, "type": token_a_type, "data": token_data(input_amount, token_a_symbol)},
             {
-                "capacity": 100 * 100_000_000,
+                "capacity": 400 * 100_000_000,
                 "lock": cellscript_lock,
-                "type": None,
-                "data": b"",
-            }
-        ],
-        cell_deps,
-    )
-    input_cell = initial["cells"][0]
-    if action == "isqrt":
-        valid_witness = entry_witness(0)
-        malformed_witness = entry_witness(4)
-    elif action == "min":
-        valid_witness = entry_witness(0, 0)
-        malformed_witness = entry_witness(1, 2)
+                "type": pool_type,
+                "data": pool_data(token_a_symbol, token_b_symbol, pool_reserve_a, pool_reserve_b, pool_total_lp, fee_rate_bps),
+            },
+        ], cell_deps)
+        valid_tx = transaction(initial["cells"], [
+            {"capacity": hex_u64(200 * 100_000_000), "lock": to_lock, "type": token_b_type},
+            {"capacity": hex_u64(400 * 100_000_000), "lock": cellscript_lock, "type": pool_type},
+        ], [
+            "0x" + token_data(output_amount, token_b_symbol).hex(),
+            "0x" + pool_data(
+                token_a_symbol,
+                token_b_symbol,
+                pool_reserve_a + input_amount,
+                pool_reserve_b - output_amount,
+                pool_total_lp,
+                fee_rate_bps,
+            ).hex(),
+        ], cell_deps, [entry_witness(min_output, to), "0x"])
+        malformed_tx = transaction(initial["cells"], [
+            {"capacity": hex_u64(200 * 100_000_000), "lock": to_lock, "type": token_b_type},
+            {"capacity": hex_u64(400 * 100_000_000), "lock": cellscript_lock, "type": pool_type},
+        ], [
+            "0x" + token_data(output_amount + 1, token_b_symbol).hex(),
+            "0x" + pool_data(
+                token_a_symbol,
+                token_b_symbol,
+                pool_reserve_a + input_amount,
+                pool_reserve_b - output_amount,
+                pool_total_lp,
+                fee_rate_bps,
+            ).hex(),
+        ], cell_deps, [entry_witness(min_output, to), "0x"])
+        input_cells_to_check = initial["cells"]
+    elif action == "add_liquidity":
+        token_a_symbol = b"AMMA0001"
+        token_b_symbol = b"AMMB0001"
+        pool_reserve_a = 100
+        pool_reserve_b = 200
+        pool_total_lp = 1000
+        token_a_amount = 10
+        token_b_amount = 20
+        minted_lp = 100
+        fee_rate_bps = 30
+        provider_lock = always_success_lock("0x66")
+        provider = decode_hex(script_hash(provider_lock), 32)
+        token_a_type = always_success_lock("0x67")
+        token_b_type = always_success_lock("0x68")
+        pool_type = always_success_lock("0x69")
+        lp_type = always_success_lock("0x6a")
+        pool_id = decode_hex(script_hash(pool_type), 32)
+        initial = create_script_locked_cells("amm.add_liquidity", [
+            {"capacity": 200 * 100_000_000, "lock": cellscript_lock, "type": token_a_type, "data": token_data(token_a_amount, token_a_symbol)},
+            {"capacity": 200 * 100_000_000, "lock": cellscript_lock, "type": token_b_type, "data": token_data(token_b_amount, token_b_symbol)},
+            {
+                "capacity": 400 * 100_000_000,
+                "lock": cellscript_lock,
+                "type": pool_type,
+                "data": pool_data(token_a_symbol, token_b_symbol, pool_reserve_a, pool_reserve_b, pool_total_lp, fee_rate_bps),
+            },
+        ], cell_deps)
+        valid_tx = transaction(initial["cells"], [
+            {"capacity": hex_u64(200 * 100_000_000), "lock": provider_lock, "type": lp_type},
+            {"capacity": hex_u64(400 * 100_000_000), "lock": cellscript_lock, "type": pool_type},
+        ], [
+            "0x" + lp_receipt_data(pool_id, minted_lp, provider).hex(),
+            "0x" + pool_data(
+                token_a_symbol,
+                token_b_symbol,
+                pool_reserve_a + token_a_amount,
+                pool_reserve_b + token_b_amount,
+                pool_total_lp + minted_lp,
+                fee_rate_bps,
+            ).hex(),
+        ], cell_deps, [entry_witness(provider), "0x", "0x"])
+        malformed_tx = transaction(initial["cells"], [
+            {"capacity": hex_u64(200 * 100_000_000), "lock": provider_lock, "type": lp_type},
+            {"capacity": hex_u64(400 * 100_000_000), "lock": cellscript_lock, "type": pool_type},
+        ], [
+            "0x" + lp_receipt_data(pool_id, minted_lp + 1, provider).hex(),
+            "0x" + pool_data(
+                token_a_symbol,
+                token_b_symbol,
+                pool_reserve_a + token_a_amount,
+                pool_reserve_b + token_b_amount,
+                pool_total_lp + minted_lp,
+                fee_rate_bps,
+            ).hex(),
+        ], cell_deps, [entry_witness(provider), "0x", "0x"])
+        input_cells_to_check = initial["cells"]
+    elif action == "remove_liquidity":
+        token_a_symbol = b"AMMA0001"
+        token_b_symbol = b"AMMB0001"
+        pool_reserve_a = 100
+        pool_reserve_b = 200
+        pool_total_lp = 1000
+        burned_lp = 100
+        withdrawn_a = 10
+        withdrawn_b = 20
+        fee_rate_bps = 30
+        provider_lock = always_success_lock("0x6b")
+        provider = decode_hex(script_hash(provider_lock), 32)
+        token_a_type = always_success_lock("0x6c")
+        token_b_type = always_success_lock("0x6d")
+        pool_type = always_success_lock("0x6e")
+        lp_type = always_success_lock("0x6f")
+        pool_id = decode_hex(script_hash(pool_type), 32)
+        initial = create_script_locked_cells("amm.remove_liquidity", [
+            {
+                "capacity": 600 * 100_000_000,
+                "lock": cellscript_lock,
+                "type": lp_type,
+                "data": lp_receipt_data(pool_id, burned_lp, provider),
+            },
+            {
+                "capacity": 400 * 100_000_000,
+                "lock": cellscript_lock,
+                "type": pool_type,
+                "data": pool_data(token_a_symbol, token_b_symbol, pool_reserve_a, pool_reserve_b, pool_total_lp, fee_rate_bps),
+            },
+        ], cell_deps)
+        valid_tx = transaction(initial["cells"], [
+            {"capacity": hex_u64(200 * 100_000_000), "lock": provider_lock, "type": token_a_type},
+            {"capacity": hex_u64(200 * 100_000_000), "lock": provider_lock, "type": token_b_type},
+            {"capacity": hex_u64(400 * 100_000_000), "lock": cellscript_lock, "type": pool_type},
+        ], [
+            "0x" + token_data(withdrawn_a, token_a_symbol).hex(),
+            "0x" + token_data(withdrawn_b, token_b_symbol).hex(),
+            "0x" + pool_data(
+                token_a_symbol,
+                token_b_symbol,
+                pool_reserve_a - withdrawn_a,
+                pool_reserve_b - withdrawn_b,
+                pool_total_lp - burned_lp,
+                fee_rate_bps,
+            ).hex(),
+        ], cell_deps, [entry_witness(provider), "0x"])
+        malformed_tx = transaction(initial["cells"], [
+            {"capacity": hex_u64(200 * 100_000_000), "lock": provider_lock, "type": token_a_type},
+            {"capacity": hex_u64(200 * 100_000_000), "lock": provider_lock, "type": token_b_type},
+            {"capacity": hex_u64(400 * 100_000_000), "lock": cellscript_lock, "type": pool_type},
+        ], [
+            "0x" + token_data(withdrawn_a + 1, token_a_symbol).hex(),
+            "0x" + token_data(withdrawn_b, token_b_symbol).hex(),
+            "0x" + pool_data(
+                token_a_symbol,
+                token_b_symbol,
+                pool_reserve_a - withdrawn_a,
+                pool_reserve_b - withdrawn_b,
+                pool_total_lp - burned_lp,
+                fee_rate_bps,
+            ).hex(),
+        ], cell_deps, [entry_witness(provider), "0x"])
+        input_cells_to_check = initial["cells"]
     else:
-        raise RuntimeError(f"unsupported AMM action harness: {action}")
-
-    valid_tx = transaction(
-        input_cell,
-        [{"capacity": hex_u64(100 * 100_000_000), "lock": destination_lock, "type": None}],
-        ["0x"],
-        cell_deps,
-        [valid_witness],
-    )
-    malformed_tx = transaction(
-        input_cell,
-        [{"capacity": hex_u64(100 * 100_000_000), "lock": destination_lock, "type": None}],
-        ["0x"],
-        cell_deps,
-        [malformed_witness],
-    )
+        initial = create_script_locked_cells(
+            f"amm.{action}",
+            [{"capacity": 100 * 100_000_000, "lock": cellscript_lock, "type": None, "data": b""}],
+            cell_deps,
+        )
+        input_cell = initial["cells"][0]
+        if action == "isqrt":
+            valid_witness = entry_witness(0)
+            malformed_witness = entry_witness(4)
+        elif action == "min":
+            valid_witness = entry_witness(0, 0)
+            malformed_witness = entry_witness(1, 2)
+        else:
+            raise RuntimeError(f"unsupported AMM action harness: {action}")
+        valid_tx = transaction(input_cell, [{"capacity": hex_u64(100 * 100_000_000), "lock": destination_lock, "type": None}], ["0x"], cell_deps, [valid_witness])
+        malformed_tx = transaction(input_cell, [{"capacity": hex_u64(100 * 100_000_000), "lock": destination_lock, "type": None}], ["0x"], cell_deps, [malformed_witness])
+        input_cells_to_check = [input_cell]
     malformed_rejection = expect_dry_run_rejected(
         malformed_tx,
         f"{name} malformed action transaction",
         ("Script", "script", "ValidationFailure", "error code", "VM", "Run result", "Invalid"),
     )
-    assert_live(input_cell["tx_hash"], input_cell["index"], f"{name} input cell after malformed transaction")
+    for index, input_cell in enumerate(input_cells_to_check):
+        assert_live(input_cell["tx_hash"], input_cell["index"], f"{name} input cell {index} after malformed transaction")
 
     valid_dry_run = rpc("dry_run_transaction", [valid_tx])
     commit = submit_and_commit(valid_tx, f"{name} valid action transaction")
@@ -3548,7 +3939,7 @@ def run_vesting_action(action_record, always_success_dep):
     revocable = True
     cell_deps = [always_success_dep, code["code_cell_dep"]]
 
-    if action not in {"create_vesting_config", "grant_vesting"}:
+    if action not in {"create_vesting_config", "grant_vesting", "claim_vested", "revoke_grant"}:
         raise RuntimeError(f"unsupported vesting action harness: {action}")
 
     result = {
@@ -3589,7 +3980,7 @@ def run_vesting_action(action_record, always_success_dep):
             cell_deps,
             [entry_witness(admin, symbol, cliff_period, total_period, bytes([1]))],
         )
-    else:
+    elif action == "grant_vesting":
         beneficiary_lock = always_success_lock("0x42")
         beneficiary = decode_hex(script_hash(beneficiary_lock), 32)
         grant_type = always_success_lock("0x43")
@@ -3653,6 +4044,157 @@ def run_vesting_action(action_record, always_success_dep):
             ],
             cell_deps,
             [entry_witness(beneficiary)],
+            [header_dep],
+        )
+    elif action == "claim_vested":
+        beneficiary_lock = cellscript_lock
+        beneficiary = decode_hex(script_hash(beneficiary_lock), 32)
+        grant_type = always_success_lock("0x43")
+        token_type = always_success_lock("0x45")
+        total_amount = 100
+        claimed_amount = 20
+        claimable = total_amount - claimed_amount
+        grant_timepoint = 0
+        cliff_timepoint = 0
+        end_timepoint = 0
+        header_dep = find_spendable_cellbase()["block_hash"]
+        initial = create_script_locked_cells(
+            "vesting.claim_vested",
+            [
+                {
+                    "capacity": 500 * 100_000_000,
+                    "lock": beneficiary_lock,
+                    "type": grant_type,
+                    "data": vesting_grant_data(
+                        1,
+                        beneficiary,
+                        total_amount,
+                        claimed_amount,
+                        grant_timepoint,
+                        cliff_timepoint,
+                        end_timepoint,
+                        symbol,
+                    ),
+                },
+            ],
+            cell_deps,
+        )
+        input_cells_to_check = initial["cells"]
+        valid_tx = transaction(
+            initial["cells"],
+            [
+                {"capacity": hex_u64(200 * 100_000_000), "lock": beneficiary_lock, "type": token_type},
+                {"capacity": hex_u64(200 * 100_000_000), "lock": beneficiary_lock, "type": grant_type},
+            ],
+            [
+                "0x" + token_data(claimable, symbol).hex(),
+                "0x"
+                + vesting_grant_data(
+                    2,
+                    beneficiary,
+                    total_amount,
+                    total_amount,
+                    grant_timepoint,
+                    cliff_timepoint,
+                    end_timepoint,
+                    symbol,
+                ).hex(),
+            ],
+            cell_deps,
+            [entry_witness()],
+            [header_dep],
+        )
+        malformed_tx = transaction(
+            initial["cells"],
+            [
+                {"capacity": hex_u64(200 * 100_000_000), "lock": beneficiary_lock, "type": token_type},
+                {"capacity": hex_u64(200 * 100_000_000), "lock": beneficiary_lock, "type": grant_type},
+            ],
+            [
+                "0x" + token_data(claimable - 1, symbol).hex(),
+                "0x"
+                + vesting_grant_data(
+                    2,
+                    beneficiary,
+                    total_amount,
+                    total_amount,
+                    grant_timepoint,
+                    cliff_timepoint,
+                    end_timepoint,
+                    symbol,
+                ).hex(),
+            ],
+            cell_deps,
+            [entry_witness()],
+            [header_dep],
+        )
+    else:
+        beneficiary_lock = always_success_lock("0x42")
+        beneficiary = decode_hex(script_hash(beneficiary_lock), 32)
+        grant_type = always_success_lock("0x43")
+        token_type = always_success_lock("0x45")
+        total_amount = 100
+        claimed_amount = 20
+        unclaimed_vested = total_amount - claimed_amount
+        unvested = 0
+        grant_timepoint = 0
+        cliff_timepoint = 0
+        end_timepoint = 0
+        header_dep = find_spendable_cellbase()["block_hash"]
+        initial = create_script_locked_cells(
+            "vesting.revoke_grant",
+            [
+                {
+                    "capacity": 500 * 100_000_000,
+                    "lock": cellscript_lock,
+                    "type": grant_type,
+                    "data": vesting_grant_data(
+                        1,
+                        beneficiary,
+                        total_amount,
+                        claimed_amount,
+                        grant_timepoint,
+                        cliff_timepoint,
+                        end_timepoint,
+                        symbol,
+                    ),
+                },
+                {
+                    "capacity": 200 * 100_000_000,
+                    "lock": admin_lock,
+                    "type": config_type,
+                    "data": vesting_config_data(admin, symbol, cliff_period, total_period, revocable),
+                },
+            ],
+            cell_deps,
+        )
+        input_cells_to_check = initial["cells"]
+        valid_tx = transaction(
+            initial["cells"],
+            [
+                {"capacity": hex_u64(200 * 100_000_000), "lock": beneficiary_lock, "type": token_type},
+                {"capacity": hex_u64(200 * 100_000_000), "lock": admin_lock, "type": token_type},
+            ],
+            [
+                "0x" + token_data(unclaimed_vested, symbol).hex(),
+                "0x" + token_data(unvested, symbol).hex(),
+            ],
+            cell_deps,
+            [entry_witness(admin), "0x"],
+            [header_dep],
+        )
+        malformed_tx = transaction(
+            initial["cells"],
+            [
+                {"capacity": hex_u64(200 * 100_000_000), "lock": beneficiary_lock, "type": token_type},
+                {"capacity": hex_u64(200 * 100_000_000), "lock": admin_lock, "type": token_type},
+            ],
+            [
+                "0x" + token_data(unclaimed_vested - 1, symbol).hex(),
+                "0x" + token_data(unvested, symbol).hex(),
+            ],
+            cell_deps,
+            [entry_witness(admin), "0x"],
             [header_dep],
         )
     malformed_rejection = expect_dry_run_rejected(
@@ -4286,11 +4828,17 @@ try:
     report["onchain"]["all_vesting_actions_exercised"] = report["onchain"]["vesting_actions_exercised"] == [
         "create_vesting_config",
         "grant_vesting",
+        "claim_vested",
+        "revoke_grant",
     ]
     report["onchain"]["amm_actions_exercised"] = [run["action"] for run in report["onchain"]["amm_action_runs"]]
     report["onchain"]["all_amm_actions_exercised"] = sorted(report["onchain"]["amm_actions_exercised"]) == [
+        "add_liquidity",
         "isqrt",
         "min",
+        "remove_liquidity",
+        "seed_pool",
+        "swap_a_for_b",
     ]
     report["onchain"]["launch_actions_exercised"] = [run["action"] for run in report["onchain"]["launch_action_runs"]]
     report["onchain"]["all_launch_actions_exercised"] = report["onchain"]["launch_actions_exercised"] == [
