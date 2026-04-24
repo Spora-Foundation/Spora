@@ -1964,17 +1964,20 @@ if [[ "$ready" != "1" ]]; then
   exit 1
 fi
 
-python3 - "$RPC_URL" "$REPORT_JSON" "$CKB_REPO" "$CKB_BIN" "$CKB_LOG" <<'PY'
+python3 - "$RPC_URL" "$REPORT_JSON" "$CKB_REPO" "$CKB_BIN" "$CKB_LOG" "$REPO_ROOT" <<'PY'
 import hashlib
 import json
 import pathlib
+import shutil
 import sys
 import time
 import urllib.error
 import urllib.request
 
-rpc_url, report_path, ckb_repo, ckb_bin, ckb_log = sys.argv[1:]
+rpc_url, report_path, ckb_repo, ckb_bin, ckb_log, repo_root = sys.argv[1:]
 report_path = pathlib.Path(report_path)
+ckb_repo = pathlib.Path(ckb_repo)
+repo_root = pathlib.Path(repo_root)
 
 ALWAYS_SUCCESS_CODE_HASH = "0x28e83a1277d48add8e72fadaa9248559e1b632bab2bd60b27955ebc4c03800a5"
 ALWAYS_SUCCESS_INDEX = "0x5"
@@ -1998,7 +2001,7 @@ launch_action_artifacts = report.get("launch_action_artifacts", [])
 
 report.update({
     "status": "running-onchain",
-    "ckb_repo": ckb_repo,
+    "ckb_repo": str(ckb_repo),
     "ckb_bin": ckb_bin,
     "ckb_log": ckb_log,
     "rpc_url": rpc_url,
@@ -2533,24 +2536,51 @@ def json_serialized_size_bytes(value):
 def ensure_ckb_tx_measure_bin():
     import pathlib
     import subprocess
-    workspace_root = pathlib.Path.cwd()
-    tx_measure_bin = workspace_root / "target" / "debug" / "cellscript-ckb-tx-measure"
+    helper_root = report_path.parent / "ckb-tx-measure-helper"
+    tx_measure_manifest = helper_root / "Cargo.toml"
+    tx_measure_lock = helper_root / "Cargo.lock"
+    tx_measure_target = helper_root / "target"
+    tx_measure_bin = tx_measure_target / "debug" / "cellscript-ckb-tx-measure"
     if tx_measure_bin.exists():
         return tx_measure_bin
+    helper_root.mkdir(parents=True, exist_ok=True)
+    source_bin = repo_root / "cellscript" / "src" / "bin" / "ckb_tx_measure.rs"
+    lock_src = repo_root / "cellscript" / "tools" / "ckb-tx-measure" / "Cargo.lock"
+    shutil.copyfile(lock_src, tx_measure_lock)
+    tx_measure_manifest.write_text(
+        f"""[package]
+name = "cellscript-ckb-tx-measure"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85.0"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "cellscript-ckb-tx-measure"
+path = "{source_bin.as_posix()}"
+
+[dependencies]
+ckb-jsonrpc-types = {{ path = "{(ckb_repo / "util" / "jsonrpc-types").as_posix()}" }}
+ckb-types = {{ path = "{(ckb_repo / "util" / "types").as_posix()}" }}
+serde = {{ version = "1.0", features = ["derive"] }}
+serde_json = "1.0"
+""",
+        encoding="utf-8",
+    )
     subprocess.run(
         [
             "cargo",
             "build",
             "--locked",
             "--manifest-path",
-            str(workspace_root / "Cargo.toml"),
-            "-p",
-            "cellscript",
-            "--bin",
-            "cellscript-ckb-tx-measure",
+            str(tx_measure_manifest),
+            "--target-dir",
+            str(tx_measure_target),
         ],
         check=True,
-        cwd=workspace_root,
+        cwd=helper_root,
     )
     if not tx_measure_bin.exists():
         raise RuntimeError(f"ckb tx measure helper was not built at {tx_measure_bin}")
@@ -2614,6 +2644,9 @@ def measure_release_constraints(valid_tx, valid_dry_run):
         "output_data_bytes": output_data_bytes,
         "occupied_capacity_shannons": None if tx_shape is None else tx_shape.get("occupied_capacity_shannons"),
         "output_occupied_capacity_shannons": [] if tx_shape is None else tx_shape.get("output_occupied_capacity_shannons", []),
+        "measured_output_capacity_shannons": [] if tx_shape is None else tx_shape.get("output_capacity_shannons", []),
+        "capacity_is_sufficient": None if tx_shape is None else tx_shape.get("capacity_is_sufficient"),
+        "under_capacity_output_indexes": [] if tx_shape is None else tx_shape.get("under_capacity_output_indexes", []),
         "occupied_capacity_status": occupied_capacity_status,
         "input_count": input_count,
         "output_count": len(outputs),
@@ -4574,6 +4607,15 @@ try:
         final_hardening_failures.append(
             "exact occupied capacity is not yet derived for: " + ", ".join(missing_occupied_capacity_actions)
         )
+    under_capacity_actions = [
+        f"{run['name']}@{(run.get('measured_constraints') or {}).get('under_capacity_output_indexes')}"
+        for run in all_action_runs
+        if ((run.get("measured_constraints") or {}).get("capacity_is_sufficient") is False)
+    ]
+    if under_capacity_actions:
+        final_hardening_failures.append(
+            "builder-generated transactions contain under-capacity outputs: " + ", ".join(under_capacity_actions)
+        )
     report["final_production_hardening_gate"] = {
         "status": "passed" if not final_hardening_failures else "blocked",
         "ready": not final_hardening_failures,
@@ -4619,4 +4661,12 @@ except Exception as error:
     raise
 PY
 
+if [[ "$ACCEPTANCE_MODE" == "production" ]]; then
+  if [[ "$RUN_ONCHAIN" == "1" ]]; then
+    python3 "$REPO_ROOT/scripts/validate_ckb_cellscript_production_evidence.py" "$REPORT_JSON"
+  else
+    python3 "$REPO_ROOT/scripts/validate_ckb_cellscript_production_evidence.py" "$REPORT_JSON" --compile-only
+    echo "CKB compile-only production evidence is not sufficient for external release; run without --compile-only for final hardening." >&2
+  fi
+fi
 echo "CKB CellScript $ACCEPTANCE_MODE acceptance passed: $REPORT_JSON"
