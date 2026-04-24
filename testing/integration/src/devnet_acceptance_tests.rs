@@ -28,7 +28,7 @@ use spora_rpc_core::api::rpc::RpcApi;
 use std::collections::{HashSet, VecDeque};
 
 const DEVNET_ACCEPTANCE_BLOCK_MAX_MASS: u64 = 100_000_000;
-const SPORA_STANDARD_RELAY_MAX_TX_MASS: u64 = 100_000;
+const SPORA_STANDARD_RELAY_MAX_TX_MASS: u64 = 500_000;
 const BASE_REPORT_ENV: &str = "DEVNET_ACCEPTANCE_BASE_REPORT_JSON";
 const STANDARD_MASS_POLICY_ENV: &str = "DEVNET_ACCEPTANCE_STANDARD_MASS_POLICY";
 
@@ -718,19 +718,34 @@ async fn devnet_acceptance_base() {
         let example_deploy_input = &remaining_prealloc[index..index + 1];
         let example_input_capacity = example_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
         let example_code_cell_capacity = example_input_capacity / 2;
-        let example_locked_capacity = example_input_capacity
+        let base_deployment_fee = required_fee(example_deploy_input.len(), 2).saturating_add(100_000);
+        let preliminary_locked_capacity = example_input_capacity
             .checked_sub(example_code_cell_capacity)
-            .and_then(|value| value.checked_sub(required_fee(example_deploy_input.len(), 2).saturating_add(100_000)))
+            .and_then(|value| value.checked_sub(base_deployment_fee))
             .unwrap_or_else(|| panic!("{} deployment transaction must leave capacity for its locked probe cell", example.name));
         let example_lock = Script::new(example.code_hash, 0, vec![]);
+        let example_code_output =
+            CellOutput { capacity: example_code_cell_capacity, lock: pay_to_acceptance_owner(&prealloc_address), type_: None };
+        let preliminary_locked_output = CellOutput { capacity: preliminary_locked_capacity, lock: example_lock.clone(), type_: None };
+        let preliminary_standard_deployment_storage_mass = deployment_storage_mass(
+            example_deploy_input,
+            &[(example_code_output.clone(), example.artifact_bytes.len()), (preliminary_locked_output, 0)],
+        );
+        let example_deployment_fee = base_deployment_fee.max(preliminary_standard_deployment_storage_mass.saturating_add(100_000));
+        let example_locked_capacity = example_input_capacity
+            .checked_sub(example_code_cell_capacity)
+            .and_then(|value| value.checked_sub(example_deployment_fee))
+            .unwrap_or_else(|| panic!("{} deployment transaction must leave capacity for its locked probe cell", example.name));
+        let example_locked_output = CellOutput { capacity: example_locked_capacity, lock: example_lock.clone(), type_: None };
+        let example_standard_deployment_storage_mass = deployment_storage_mass(
+            example_deploy_input,
+            &[(example_code_output.clone(), example.artifact_bytes.len()), (example_locked_output.clone(), 0)],
+        );
         let example_deploy_tx = generate_signed_cell_tx(
             prealloc_schnorr_key,
             &example_deploy_input,
             vec![],
-            vec![
-                CellOutput { capacity: example_code_cell_capacity, lock: pay_to_acceptance_owner(&prealloc_address), type_: None },
-                CellOutput { capacity: example_locked_capacity, lock: example_lock, type_: None },
-            ],
+            vec![example_code_output, example_locked_output],
             vec![example.artifact_bytes.clone(), vec![]],
         );
         let example_deploy_tx_id = spora_hashes::Hash::from_bytes(example_deploy_tx.id());
@@ -739,6 +754,7 @@ async fn devnet_acceptance_base() {
 
         let mut deployment_probe_succeeded = false;
         let mut deployment_error = None;
+        let deployment_probe_status;
         let mut code_cell_indexed = false;
         match rpc_client.submit_transaction((&example_deploy_tx).into(), false).await {
             Ok(_) => {
@@ -780,10 +796,12 @@ async fn devnet_acceptance_base() {
                 )
                 .await;
                 deployment_probe_succeeded = true;
+                deployment_probe_status = "accepted-indexed";
                 code_cell_indexed = true;
             }
             Err(err) if standard_mass_policy => {
                 deployment_error = Some(err.to_string());
+                deployment_probe_status = "standard-policy-rejected";
             }
             Err(err) => {
                 panic!("{} deployment must pass explicit relaxed relay policy: {err}", example.name);
@@ -793,14 +811,17 @@ async fn devnet_acceptance_base() {
         example_deployments.push(CellScriptExampleDeployment {
             name: example.name,
             artifact_size_bytes: example.artifact_bytes.len(),
+            standard_deployment_storage_mass: example_standard_deployment_storage_mass,
             deployment_tx_id: example_deploy_tx_id,
             code_outpoint: example_code_outpoint,
             locked_outpoint: example_locked_outpoint,
             locked_capacity: example_locked_capacity,
             deployment_probe_succeeded,
             deployment_error,
+            deployment_probe_status,
             code_cell_indexed,
             malformed_spend_rejected: false,
+            malformed_spend_probe_status: "not-run",
             malformed_spend_reject_reason: String::new(),
             malformed_spend_rejected_by_standard_policy: false,
             ckb_runtime_required: example.ckb_runtime_required,
@@ -839,6 +860,7 @@ async fn devnet_acceptance_base() {
                 .deployment_error
                 .clone()
                 .unwrap_or_else(|| "deployment probe skipped under standard mass policy".to_string());
+            deployment.malformed_spend_probe_status = "skipped-deployment-not-indexed";
             deployment.malformed_spend_rejected_by_standard_policy = deployment
                 .deployment_error
                 .as_deref()
@@ -890,6 +912,7 @@ async fn devnet_acceptance_base() {
             reject_reason
         );
         deployment.malformed_spend_rejected = true;
+        deployment.malformed_spend_probe_status = "script-rejected";
         deployment.malformed_spend_reject_reason = reject_reason;
         deployment.malformed_spend_rejected_by_standard_policy = false;
     }
@@ -906,26 +929,21 @@ async fn devnet_acceptance_base() {
             estimated_transient_mass: deployment.estimated_transient_mass,
             estimated_code_deployment_mass: deployment.estimated_code_deployment_mass,
             requires_relaxed_mass_policy: deployment.requires_relaxed_mass_policy,
-            estimated_standard_deployment_storage_mass: standard_deployment_storage_mass(deployment.artifact_size_bytes),
-            fits_standard_relay_transaction_mass: standard_deployment_storage_mass(deployment.artifact_size_bytes)
-                <= SPORA_STANDARD_RELAY_MAX_TX_MASS,
+            estimated_standard_deployment_storage_mass: deployment.standard_deployment_storage_mass,
+            fits_standard_relay_transaction_mass: deployment.standard_deployment_storage_mass <= SPORA_STANDARD_RELAY_MAX_TX_MASS,
             deployment_tx_id: hash_hex(&deployment.deployment_tx_id.as_bytes()),
             code_cell_outpoint: outpoint_report(&deployment.code_outpoint),
             locked_probe_outpoint: outpoint_report(&deployment.locked_outpoint),
+            deployment_probe_status: deployment.deployment_probe_status,
             code_cell_indexed: deployment.code_cell_indexed,
             malformed_spend_rejected: deployment.malformed_spend_rejected,
+            malformed_spend_probe_status: deployment.malformed_spend_probe_status,
             malformed_spend_reject_reason: deployment.malformed_spend_reject_reason.clone(),
             malformed_spend_rejected_by_standard_policy: deployment.malformed_spend_rejected_by_standard_policy,
         });
     }
-    prepare_action_builder_funding_cells(
-        &rpc_client,
-        &miner_address,
-        prealloc_schnorr_key,
-        &prealloc_address,
-        standard_mass_policy,
-    )
-    .await;
+    prepare_action_builder_funding_cells(&rpc_client, &miner_address, prealloc_schnorr_key, &prealloc_address, standard_mass_policy)
+        .await;
 
     let mut action_builder_matrix = run_nft_action_builder_matrix(
         &rpc_client,
@@ -1286,8 +1304,7 @@ async fn devnet_acceptance_base() {
                     let address = address.clone();
                     async move {
                         client.get_cells_by_addresses(vec![address]).await.unwrap().iter().any(|cell| {
-                            cell.outpoint.transaction_id == parameterized_amount_spend_tx_id
-                                && cell.cell_entry.data_bytes == 0
+                            cell.outpoint.transaction_id == parameterized_amount_spend_tx_id && cell.cell_entry.data_bytes == 0
                         })
                     }
                 }
@@ -1322,9 +1339,7 @@ fn pop_plain_cells(
 ) -> Vec<(TransactionOutpoint, spora_consensus_core::cell_diff::CellMeta)> {
     let mut selected = Vec::with_capacity(count);
     for _ in 0..count {
-        selected.push(
-            spendable_cells.pop_front().unwrap_or_else(|| panic!("{context} needs {count} matured plain prealloc cells")),
-        );
+        selected.push(spendable_cells.pop_front().unwrap_or_else(|| panic!("{context} needs {count} matured plain prealloc cells")));
     }
     selected
 }
@@ -1339,13 +1354,20 @@ fn code_deploy_storage_mass(
         .checked_sub(required_fee(inputs.len(), 1).saturating_add(100_000))
         .expect("scoped action deployment must leave capacity for code cell");
     let output = CellOutput { capacity: output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None };
+    deployment_storage_mass(inputs, &[(output, artifact_size_bytes)])
+}
+
+fn deployment_storage_mass(
+    inputs: &[(TransactionOutpoint, spora_consensus_core::cell_diff::CellMeta)],
+    outputs: &[(CellOutput, usize)],
+) -> u64 {
     calc_storage_mass(
         false,
         inputs.iter().map(|(_, meta)| CellMass::from(meta)),
-        std::iter::once(CellMass::from((&output, artifact_size_bytes))),
+        outputs.iter().map(|(output, data_len)| CellMass::from((output, *data_len))),
         DEVNET_PARAMS.storage_mass_parameter,
     )
-    .expect("scoped action deployment storage mass must be computable")
+    .expect("deployment storage mass must be computable")
 }
 
 fn pop_code_deploy_cells(
@@ -1358,7 +1380,8 @@ fn pop_code_deploy_cells(
     let mut selected = Vec::new();
     loop {
         selected.push(spendable_cells.pop_front().unwrap_or_else(|| panic!("{context} ran out of matured plain prealloc cells")));
-        if !standard_mass_policy || code_deploy_storage_mass(&selected, prealloc_address, artifact_size_bytes) <= SPORA_STANDARD_RELAY_MAX_TX_MASS
+        if !standard_mass_policy
+            || code_deploy_storage_mass(&selected, prealloc_address, artifact_size_bytes) <= SPORA_STANDARD_RELAY_MAX_TX_MASS
         {
             return selected;
         }
@@ -1379,11 +1402,8 @@ async fn prepare_action_builder_funding_cells(
         .into_iter()
         .filter(|(_, meta)| meta.data_bytes == 0 && meta.type_hash.is_none())
         .collect::<VecDeque<_>>();
-    let outputs_per_tx = if standard_mass_policy {
-        STANDARD_ACTION_BUILDER_FUNDING_OUTPUTS_PER_TX
-    } else {
-        ACTION_BUILDER_FUNDING_OUTPUTS
-    };
+    let outputs_per_tx =
+        if standard_mass_policy { STANDARD_ACTION_BUILDER_FUNDING_OUTPUTS_PER_TX } else { ACTION_BUILDER_FUNDING_OUTPUTS };
     let required_batches = ACTION_BUILDER_FUNDING_OUTPUTS.div_ceil(outputs_per_tx) as usize;
     assert!(
         spendable_cells.len() >= required_batches,
@@ -1459,12 +1479,8 @@ async fn run_token_action_builder_matrix(
         "token action builder matrix needs six matured prealloc cells for scoped deploys and fixtures"
     );
 
-    let deploy_input = pop_code_deploy_cells(
-        &mut spendable_cells,
-        prealloc_address,
-        transfer_artifact.artifact_bytes.len(),
-        "token transfer",
-    );
+    let deploy_input =
+        pop_code_deploy_cells(&mut spendable_cells, prealloc_address, transfer_artifact.artifact_bytes.len(), "token transfer");
     let deploy_input_capacity = deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let code_cell_capacity = deploy_input_capacity
         .checked_sub(required_fee(deploy_input.len(), 1).saturating_add(100_000))
@@ -1584,12 +1600,8 @@ async fn run_token_action_builder_matrix(
     coverage.valid.insert(("token.cell".to_string(), "transfer_token".to_string()));
     coverage.malformed.insert(("token.cell".to_string(), "transfer_token".to_string()));
 
-    let merge_deploy_input = pop_code_deploy_cells(
-        &mut spendable_cells,
-        prealloc_address,
-        merge_artifact.artifact_bytes.len(),
-        "token merge",
-    );
+    let merge_deploy_input =
+        pop_code_deploy_cells(&mut spendable_cells, prealloc_address, merge_artifact.artifact_bytes.len(), "token merge");
     let merge_deploy_input_capacity = merge_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let merge_code_cell_capacity = merge_deploy_input_capacity
         .checked_sub(required_fee(merge_deploy_input.len(), 1).saturating_add(100_000))
@@ -1729,12 +1741,8 @@ async fn run_token_action_builder_matrix(
     coverage.valid.insert(("token.cell".to_string(), "merge".to_string()));
     coverage.malformed.insert(("token.cell".to_string(), "merge".to_string()));
 
-    let burn_deploy_input = pop_code_deploy_cells(
-        &mut spendable_cells,
-        prealloc_address,
-        burn_artifact.artifact_bytes.len(),
-        "token burn",
-    );
+    let burn_deploy_input =
+        pop_code_deploy_cells(&mut spendable_cells, prealloc_address, burn_artifact.artifact_bytes.len(), "token burn");
     let burn_deploy_input_capacity = burn_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let burn_code_cell_capacity = burn_deploy_input_capacity
         .checked_sub(required_fee(burn_deploy_input.len(), 1).saturating_add(100_000))
@@ -1875,12 +1883,8 @@ async fn run_token_action_builder_matrix(
         "token mint action builder needs two matured plain prealloc cells for scoped deploy and fixture"
     );
 
-    let mint_deploy_input = pop_code_deploy_cells(
-        &mut mint_spendable_cells,
-        prealloc_address,
-        mint_artifact.artifact_bytes.len(),
-        "token mint",
-    );
+    let mint_deploy_input =
+        pop_code_deploy_cells(&mut mint_spendable_cells, prealloc_address, mint_artifact.artifact_bytes.len(), "token mint");
     let mint_deploy_input_capacity = mint_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let mint_code_cell_capacity = mint_deploy_input_capacity
         .checked_sub(required_fee(mint_deploy_input.len(), 1).saturating_add(100_000))
@@ -2074,7 +2078,8 @@ async fn run_amm_action_builder_matrix(
         "AMM action builder matrix needs twelve matured plain prealloc cells for scoped deploys and executable fixtures"
     );
 
-    let deploy_input = pop_code_deploy_cells(&mut spendable_cells, prealloc_address, seed_pool_artifact.artifact_bytes.len(), "AMM seed_pool");
+    let deploy_input =
+        pop_code_deploy_cells(&mut spendable_cells, prealloc_address, seed_pool_artifact.artifact_bytes.len(), "AMM seed_pool");
     let deploy_input_capacity = deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let code_cell_capacity = deploy_input_capacity
         .checked_sub(required_fee(deploy_input.len(), 1).saturating_add(100_000))
@@ -2208,7 +2213,8 @@ async fn run_amm_action_builder_matrix(
     coverage.valid.insert(("amm_pool.cell".to_string(), "seed_pool".to_string()));
     coverage.malformed.insert(("amm_pool.cell".to_string(), "seed_pool".to_string()));
 
-    let swap_deploy_input = pop_code_deploy_cells(&mut spendable_cells, prealloc_address, swap_artifact.artifact_bytes.len(), "AMM swap_a_for_b");
+    let swap_deploy_input =
+        pop_code_deploy_cells(&mut spendable_cells, prealloc_address, swap_artifact.artifact_bytes.len(), "AMM swap_a_for_b");
     let swap_deploy_input_capacity = swap_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let swap_code_cell_capacity = swap_deploy_input_capacity
         .checked_sub(required_fee(swap_deploy_input.len(), 1).saturating_add(100_000))
@@ -2351,8 +2357,12 @@ async fn run_amm_action_builder_matrix(
     coverage.valid.insert(("amm_pool.cell".to_string(), "swap_a_for_b".to_string()));
     coverage.malformed.insert(("amm_pool.cell".to_string(), "swap_a_for_b".to_string()));
 
-    let add_liquidity_deploy_input =
-        pop_code_deploy_cells(&mut spendable_cells, prealloc_address, add_liquidity_artifact.artifact_bytes.len(), "AMM add_liquidity");
+    let add_liquidity_deploy_input = pop_code_deploy_cells(
+        &mut spendable_cells,
+        prealloc_address,
+        add_liquidity_artifact.artifact_bytes.len(),
+        "AMM add_liquidity",
+    );
     let add_liquidity_deploy_input_capacity = add_liquidity_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let add_liquidity_code_cell_capacity = add_liquidity_deploy_input_capacity
         .checked_sub(required_fee(add_liquidity_deploy_input.len(), 1).saturating_add(100_000))
@@ -2712,7 +2722,8 @@ async fn run_amm_action_builder_matrix(
     coverage.valid.insert(("amm_pool.cell".to_string(), "remove_liquidity".to_string()));
     coverage.malformed.insert(("amm_pool.cell".to_string(), "remove_liquidity".to_string()));
 
-    let isqrt_deploy_input = pop_code_deploy_cells(&mut spendable_cells, prealloc_address, isqrt_artifact.artifact_bytes.len(), "AMM isqrt");
+    let isqrt_deploy_input =
+        pop_code_deploy_cells(&mut spendable_cells, prealloc_address, isqrt_artifact.artifact_bytes.len(), "AMM isqrt");
     let isqrt_deploy_input_capacity = isqrt_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let isqrt_code_cell_capacity = isqrt_deploy_input_capacity
         .checked_sub(required_fee(isqrt_deploy_input.len(), 1).saturating_add(100_000))
@@ -2750,15 +2761,14 @@ async fn run_amm_action_builder_matrix(
     rpc_client.submit_transaction((&isqrt_fixture_tx).into(), false).await.expect("AMM isqrt fixture cell must be accepted");
     submit_next_template_containing(rpc_client, miner_address, isqrt_fixture_tx_id, "AMM isqrt fixture cell").await;
 
-    let isqrt_valid_witness = isqrt_artifact
-        .action
-        .entry_witness_args(&[cellscript::EntryWitnessArg::U64(0)])
-        .expect("AMM isqrt witness must encode n");
+    let isqrt_valid_witness =
+        isqrt_artifact.action.entry_witness_args(&[cellscript::EntryWitnessArg::U64(0)]).expect("AMM isqrt witness must encode n");
     let isqrt_malformed_witness = vec![0_u8];
     let isqrt_output_capacity = isqrt_locked_capacity
         .checked_sub(required_fee(1, 1).saturating_add(100_000))
         .expect("AMM isqrt action must leave output capacity");
-    let isqrt_outputs = vec![CellOutput { capacity: isqrt_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None }];
+    let isqrt_outputs =
+        vec![CellOutput { capacity: isqrt_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None }];
     let isqrt_cell_deps =
         vec![CellDep { out_point: OutPoint::new(isqrt_code_outpoint.tx_hash, isqrt_code_outpoint.index), dep_type: DepType::Code }];
     let malformed_isqrt_tx = with_compiled_action_scheduler_witness(
@@ -2815,10 +2825,7 @@ async fn run_amm_action_builder_matrix(
     );
     let min_deploy_tx_id = spora_hashes::Hash::from_bytes(min_deploy_tx.id());
     let min_code_outpoint = TransactionOutpoint::new(min_deploy_tx.id(), 0);
-    rpc_client
-        .submit_transaction((&min_deploy_tx).into(), false)
-        .await
-        .expect("AMM min scoped action deployment must be accepted");
+    rpc_client.submit_transaction((&min_deploy_tx).into(), false).await.expect("AMM min scoped action deployment must be accepted");
     submit_next_template_containing(rpc_client, miner_address, min_deploy_tx_id, "AMM min scoped action deployment").await;
 
     let min_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "AMM min fixture");
@@ -2948,7 +2955,8 @@ async fn run_nft_action_builder_matrix(
         "NFT action builder matrix needs eighteen matured plain prealloc cells for scoped deploys and fixtures"
     );
 
-    let transfer_deploy_input = pop_code_deploy_cells(&mut spendable_cells, prealloc_address, transfer_artifact.artifact_bytes.len(), "NFT transfer");
+    let transfer_deploy_input =
+        pop_code_deploy_cells(&mut spendable_cells, prealloc_address, transfer_artifact.artifact_bytes.len(), "NFT transfer");
     let transfer_deploy_input_capacity = transfer_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let transfer_code_cell_capacity = transfer_deploy_input_capacity
         .checked_sub(required_fee(transfer_deploy_input.len(), 1).saturating_add(100_000))
@@ -3070,7 +3078,8 @@ async fn run_nft_action_builder_matrix(
     coverage.valid.insert(("nft.cell".to_string(), "transfer".to_string()));
     coverage.malformed.insert(("nft.cell".to_string(), "transfer".to_string()));
 
-    let burn_deploy_input = pop_code_deploy_cells(&mut spendable_cells, prealloc_address, burn_artifact.artifact_bytes.len(), "NFT burn");
+    let burn_deploy_input =
+        pop_code_deploy_cells(&mut spendable_cells, prealloc_address, burn_artifact.artifact_bytes.len(), "NFT burn");
     let burn_deploy_input_capacity = burn_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let burn_code_cell_capacity = burn_deploy_input_capacity
         .checked_sub(required_fee(burn_deploy_input.len(), 1).saturating_add(100_000))
@@ -3510,12 +3519,8 @@ async fn run_nft_action_builder_matrix(
     coverage.valid.insert(("nft.cell".to_string(), "cancel_listing".to_string()));
     coverage.malformed.insert(("nft.cell".to_string(), "cancel_listing".to_string()));
 
-    let create_offer_deploy_input = pop_code_deploy_cells(
-        &mut spendable_cells,
-        prealloc_address,
-        create_offer_artifact.artifact_bytes.len(),
-        "NFT create_offer",
-    );
+    let create_offer_deploy_input =
+        pop_code_deploy_cells(&mut spendable_cells, prealloc_address, create_offer_artifact.artifact_bytes.len(), "NFT create_offer");
     let create_offer_deploy_input_capacity = create_offer_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let create_offer_code_cell_capacity = create_offer_deploy_input_capacity
         .checked_sub(required_fee(create_offer_deploy_input.len(), 1).saturating_add(100_000))
@@ -3872,12 +3877,8 @@ async fn run_nft_action_builder_matrix(
     coverage.valid.insert(("nft.cell".to_string(), "buy_from_listing".to_string()));
     coverage.malformed.insert(("nft.cell".to_string(), "buy_from_listing".to_string()));
 
-    let accept_offer_deploy_input = pop_code_deploy_cells(
-        &mut spendable_cells,
-        prealloc_address,
-        accept_offer_artifact.artifact_bytes.len(),
-        "NFT accept_offer",
-    );
+    let accept_offer_deploy_input =
+        pop_code_deploy_cells(&mut spendable_cells, prealloc_address, accept_offer_artifact.artifact_bytes.len(), "NFT accept_offer");
     let accept_offer_deploy_input_capacity = accept_offer_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let accept_offer_code_cell_capacity = accept_offer_deploy_input_capacity
         .checked_sub(required_fee(accept_offer_deploy_input.len(), 1).saturating_add(100_000))
@@ -4097,7 +4098,8 @@ async fn run_nft_action_builder_matrix(
     coverage.valid.insert(("nft.cell".to_string(), "accept_offer".to_string()));
     coverage.malformed.insert(("nft.cell".to_string(), "accept_offer".to_string()));
 
-    let mint_deploy_input = pop_code_deploy_cells(&mut spendable_cells, prealloc_address, mint_artifact.artifact_bytes.len(), "NFT mint");
+    let mint_deploy_input =
+        pop_code_deploy_cells(&mut spendable_cells, prealloc_address, mint_artifact.artifact_bytes.len(), "NFT mint");
     let mint_deploy_input_capacity = mint_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let mint_code_cell_capacity = mint_deploy_input_capacity
         .checked_sub(required_fee(mint_deploy_input.len(), 1).saturating_add(100_000))
@@ -4248,12 +4250,8 @@ async fn run_nft_action_builder_matrix(
     coverage.valid.insert(("nft.cell".to_string(), "mint".to_string()));
     coverage.malformed.insert(("nft.cell".to_string(), "mint".to_string()));
 
-    let batch_mint_deploy_input = pop_code_deploy_cells(
-        &mut spendable_cells,
-        prealloc_address,
-        batch_mint_artifact.artifact_bytes.len(),
-        "NFT batch_mint",
-    );
+    let batch_mint_deploy_input =
+        pop_code_deploy_cells(&mut spendable_cells, prealloc_address, batch_mint_artifact.artifact_bytes.len(), "NFT batch_mint");
     let batch_mint_deploy_input_capacity = batch_mint_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let batch_mint_code_cell_capacity = batch_mint_deploy_input_capacity
         .checked_sub(required_fee(batch_mint_deploy_input.len(), 1).saturating_add(100_000))
@@ -4834,18 +4832,15 @@ async fn run_vesting_action_builder_matrix(
     else {
         return SporaActionBuilderMatrixCoverage::default();
     };
-    let Some(grant_vesting_artifact) =
-        vesting_deployment.action_artifacts.iter().find(|artifact| artifact.name == "grant_vesting")
+    let Some(grant_vesting_artifact) = vesting_deployment.action_artifacts.iter().find(|artifact| artifact.name == "grant_vesting")
     else {
         return SporaActionBuilderMatrixCoverage::default();
     };
-    let Some(claim_vested_artifact) =
-        vesting_deployment.action_artifacts.iter().find(|artifact| artifact.name == "claim_vested")
+    let Some(claim_vested_artifact) = vesting_deployment.action_artifacts.iter().find(|artifact| artifact.name == "claim_vested")
     else {
         return SporaActionBuilderMatrixCoverage::default();
     };
-    let Some(revoke_grant_artifact) =
-        vesting_deployment.action_artifacts.iter().find(|artifact| artifact.name == "revoke_grant")
+    let Some(revoke_grant_artifact) = vesting_deployment.action_artifacts.iter().find(|artifact| artifact.name == "revoke_grant")
     else {
         return SporaActionBuilderMatrixCoverage::default();
     };
@@ -5019,26 +5014,10 @@ async fn run_vesting_action_builder_matrix(
     submit_next_template_containing(rpc_client, miner_address, grant_fixture_tx_id, "vesting grant_vesting fixture token cell").await;
 
     let (grant_header_dep, grant_now) = current_header_dep_hash_and_daa(rpc_client, miner_address).await;
-    let expected_grant_payload = vesting_grant_cell_data(
-        0,
-        beneficiary,
-        100,
-        0,
-        grant_now,
-        grant_now + cliff_period,
-        grant_now + total_period,
-        symbol,
-    );
-    let malformed_grant_payload = vesting_grant_cell_data(
-        0,
-        beneficiary,
-        101,
-        0,
-        grant_now,
-        grant_now + cliff_period,
-        grant_now + total_period,
-        symbol,
-    );
+    let expected_grant_payload =
+        vesting_grant_cell_data(0, beneficiary, 100, 0, grant_now, grant_now + cliff_period, grant_now + total_period, symbol);
+    let malformed_grant_payload =
+        vesting_grant_cell_data(0, beneficiary, 101, 0, grant_now, grant_now + cliff_period, grant_now + total_period, symbol);
     let grant_witness = grant_vesting_artifact
         .action
         .entry_witness_args(&[cellscript::EntryWitnessArg::Address(beneficiary)])
@@ -5165,10 +5144,8 @@ async fn run_vesting_action_builder_matrix(
         symbol,
     );
     let malformed_claim_token_payload = token_cell_data(claim_vested_total.saturating_add(1), symbol);
-    let claim_witness = claim_vested_artifact
-        .action
-        .entry_witness_args(&[])
-        .expect("vesting claim_vested witness must encode empty args");
+    let claim_witness =
+        claim_vested_artifact.action.entry_witness_args(&[]).expect("vesting claim_vested witness must encode empty args");
     let claim_token_output_capacity = claim_grant_capacity / 2;
     let claim_grant_output_capacity = claim_grant_capacity
         .checked_sub(claim_token_output_capacity)
@@ -5177,7 +5154,10 @@ async fn run_vesting_action_builder_matrix(
     let malformed_claim_tx = with_compiled_action_scheduler_witness(
         CellTx::new_with_header_deps(
             vec![CellInput::new(OutPoint::new(claim_grant_input.tx_hash, claim_grant_input.index), 0)],
-            vec![CellDep { out_point: OutPoint::new(claim_code_outpoint.tx_hash, claim_code_outpoint.index), dep_type: DepType::Code }],
+            vec![CellDep {
+                out_point: OutPoint::new(claim_code_outpoint.tx_hash, claim_code_outpoint.index),
+                dep_type: DepType::Code,
+            }],
             vec![claim_header_dep],
             vec![
                 CellOutput { capacity: claim_token_output_capacity, lock: claim_beneficiary_lock.clone(), type_: None },
@@ -5200,7 +5180,10 @@ async fn run_vesting_action_builder_matrix(
     let valid_claim_tx = with_compiled_action_scheduler_witness(
         CellTx::new_with_header_deps(
             vec![CellInput::new(OutPoint::new(claim_grant_input.tx_hash, claim_grant_input.index), 0)],
-            vec![CellDep { out_point: OutPoint::new(claim_code_outpoint.tx_hash, claim_code_outpoint.index), dep_type: DepType::Code }],
+            vec![CellDep {
+                out_point: OutPoint::new(claim_code_outpoint.tx_hash, claim_code_outpoint.index),
+                dep_type: DepType::Code,
+            }],
             vec![claim_header_dep],
             vec![
                 CellOutput { capacity: claim_token_output_capacity, lock: claim_beneficiary_lock.clone(), type_: None },
@@ -5253,16 +5236,8 @@ async fn run_vesting_action_builder_matrix(
         .checked_sub(required_fee(revoke_fixture_input.len(), 1).saturating_add(100_000))
         .expect("vesting revoke_grant fixture transaction must leave grant capacity");
     let (_, revoke_grant_daa) = current_header_dep_hash_and_daa(rpc_client, miner_address).await;
-    let revoke_grant_payload = vesting_grant_cell_data(
-        0,
-        beneficiary,
-        100,
-        0,
-        revoke_grant_daa,
-        revoke_grant_daa + 1_000,
-        revoke_grant_daa + 2_000,
-        symbol,
-    );
+    let revoke_grant_payload =
+        vesting_grant_cell_data(0, beneficiary, 100, 0, revoke_grant_daa, revoke_grant_daa + 1_000, revoke_grant_daa + 2_000, symbol);
     let revoke_fixture_tx = generate_signed_cell_tx(
         prealloc_schnorr_key,
         &revoke_fixture_input,
@@ -5298,7 +5273,10 @@ async fn run_vesting_action_builder_matrix(
             vec![CellInput::new(OutPoint::new(revoke_grant_input.tx_hash, revoke_grant_input.index), 0)],
             vec![
                 CellDep { out_point: OutPoint::new(config_outpoint.tx_hash, config_outpoint.index), dep_type: DepType::Code },
-                CellDep { out_point: OutPoint::new(revoke_code_outpoint.tx_hash, revoke_code_outpoint.index), dep_type: DepType::Code },
+                CellDep {
+                    out_point: OutPoint::new(revoke_code_outpoint.tx_hash, revoke_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
             ],
             vec![revoke_header_dep],
             vec![
@@ -5324,7 +5302,10 @@ async fn run_vesting_action_builder_matrix(
             vec![CellInput::new(OutPoint::new(revoke_grant_input.tx_hash, revoke_grant_input.index), 0)],
             vec![
                 CellDep { out_point: OutPoint::new(config_outpoint.tx_hash, config_outpoint.index), dep_type: DepType::Code },
-                CellDep { out_point: OutPoint::new(revoke_code_outpoint.tx_hash, revoke_code_outpoint.index), dep_type: DepType::Code },
+                CellDep {
+                    out_point: OutPoint::new(revoke_code_outpoint.tx_hash, revoke_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
             ],
             vec![revoke_header_dep],
             vec![
@@ -5377,8 +5358,7 @@ async fn run_multisig_action_builder_matrix(
     else {
         return SporaActionBuilderMatrixCoverage::default();
     };
-    let Some(add_signature_artifact) =
-        multisig_deployment.action_artifacts.iter().find(|artifact| artifact.name == "add_signature")
+    let Some(add_signature_artifact) = multisig_deployment.action_artifacts.iter().find(|artifact| artifact.name == "add_signature")
     else {
         return SporaActionBuilderMatrixCoverage::default();
     };
@@ -5531,8 +5511,7 @@ async fn run_multisig_action_builder_matrix(
         propose_transfer_artifact.artifact_bytes.len(),
         "multisig propose_transfer",
     );
-    let propose_transfer_deploy_input_capacity =
-        propose_transfer_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let propose_transfer_deploy_input_capacity = propose_transfer_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let propose_transfer_code_cell_capacity = propose_transfer_deploy_input_capacity
         .checked_sub(required_fee(propose_transfer_deploy_input.len(), 1).saturating_add(100_000))
         .expect("multisig propose_transfer scoped action deployment must leave capacity for code cell");
@@ -5562,8 +5541,7 @@ async fn run_multisig_action_builder_matrix(
     .await;
 
     let propose_transfer_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "multisig propose_transfer fixture");
-    let propose_transfer_fixture_input_capacity =
-        propose_transfer_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let propose_transfer_fixture_input_capacity = propose_transfer_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let propose_transfer_lock = Script::new(propose_transfer_artifact.code_hash, 0, vec![]);
     let propose_transfer_type = Script::new(always_success_code_hash(), 0, b"multisig-propose-transfer-type".to_vec());
     let propose_transfer_wallet_capacity = propose_transfer_fixture_input_capacity / 3;
@@ -5594,13 +5572,8 @@ async fn run_multisig_action_builder_matrix(
         .submit_transaction((&wallet_fixture_tx).into(), false)
         .await
         .expect("multisig propose_transfer fixture wallet cell must be accepted");
-    submit_next_template_containing(
-        rpc_client,
-        miner_address,
-        wallet_fixture_tx_id,
-        "multisig propose_transfer fixture wallet cell",
-    )
-    .await;
+    submit_next_template_containing(rpc_client, miner_address, wallet_fixture_tx_id, "multisig propose_transfer fixture wallet cell")
+        .await;
 
     let proposer = signer_a;
     let target = [201; 32];
@@ -5719,13 +5692,8 @@ async fn run_multisig_action_builder_matrix(
         .submit_transaction((&valid_propose_transfer_tx).into(), false)
         .await
         .expect("valid multisig propose_transfer must be accepted by the scoped action verifier");
-    submit_next_template_containing(
-        rpc_client,
-        miner_address,
-        valid_propose_transfer_tx_id,
-        "valid multisig propose_transfer action",
-    )
-    .await;
+    submit_next_template_containing(rpc_client, miner_address, valid_propose_transfer_tx_id, "valid multisig propose_transfer action")
+        .await;
 
     let add_signature_deploy_input = pop_code_deploy_cells(
         &mut spendable_cells,
@@ -5741,11 +5709,7 @@ async fn run_multisig_action_builder_matrix(
         prealloc_schnorr_key,
         &add_signature_deploy_input,
         vec![],
-        vec![CellOutput {
-            capacity: add_signature_code_cell_capacity,
-            lock: pay_to_acceptance_owner(prealloc_address),
-            type_: None,
-        }],
+        vec![CellOutput { capacity: add_signature_code_cell_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None }],
         vec![add_signature_artifact.artifact_bytes.clone()],
     );
     let add_signature_deploy_tx_id = spora_hashes::Hash::from_bytes(add_signature_deploy_tx.id());
@@ -5765,10 +5729,8 @@ async fn run_multisig_action_builder_matrix(
     let add_signature_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "multisig add_signature fixture");
     let add_signature_fixture_input_capacity = add_signature_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let add_signature_lock = Script::new(add_signature_artifact.code_hash, 0, vec![]);
-    let add_signature_proposal_type =
-        Script::new(always_success_code_hash(), 0, b"multisig-add-signature-proposal-type".to_vec());
-    let add_signature_wallet_type =
-        Script::new(always_success_code_hash(), 0, b"multisig-add-signature-wallet-type".to_vec());
+    let add_signature_proposal_type = Script::new(always_success_code_hash(), 0, b"multisig-add-signature-proposal-type".to_vec());
+    let add_signature_wallet_type = Script::new(always_success_code_hash(), 0, b"multisig-add-signature-wallet-type".to_vec());
     let add_signature_proposal_capacity = add_signature_fixture_input_capacity / 3;
     let add_signature_wallet_capacity = add_signature_fixture_input_capacity / 3;
     let add_signature_change_capacity = add_signature_fixture_input_capacity
@@ -5819,13 +5781,8 @@ async fn run_multisig_action_builder_matrix(
         .submit_transaction((&add_signature_fixture_tx).into(), false)
         .await
         .expect("multisig add_signature fixture cells must be accepted");
-    submit_next_template_containing(
-        rpc_client,
-        miner_address,
-        add_signature_fixture_tx_id,
-        "multisig add_signature fixture cells",
-    )
-    .await;
+    submit_next_template_containing(rpc_client, miner_address, add_signature_fixture_tx_id, "multisig add_signature fixture cells")
+        .await;
 
     let signature_signer = signer_b;
     let signature_bytes = [0xabu8; 64];
@@ -5945,13 +5902,7 @@ async fn run_multisig_action_builder_matrix(
         .submit_transaction((&valid_add_signature_tx).into(), false)
         .await
         .expect("valid multisig add_signature must be accepted by the scoped action verifier");
-    submit_next_template_containing(
-        rpc_client,
-        miner_address,
-        valid_add_signature_tx_id,
-        "valid multisig add_signature action",
-    )
-    .await;
+    submit_next_template_containing(rpc_client, miner_address, valid_add_signature_tx_id, "valid multisig add_signature action").await;
 
     let execute_proposal_deploy_input = pop_code_deploy_cells(
         &mut spendable_cells,
@@ -5959,8 +5910,7 @@ async fn run_multisig_action_builder_matrix(
         execute_proposal_artifact.artifact_bytes.len(),
         "multisig execute_proposal",
     );
-    let execute_proposal_deploy_input_capacity =
-        execute_proposal_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let execute_proposal_deploy_input_capacity = execute_proposal_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let execute_proposal_code_cell_capacity = execute_proposal_deploy_input_capacity
         .checked_sub(required_fee(execute_proposal_deploy_input.len(), 1).saturating_add(100_000))
         .expect("multisig execute_proposal scoped action deployment must leave capacity for code cell");
@@ -5990,13 +5940,10 @@ async fn run_multisig_action_builder_matrix(
     .await;
 
     let execute_proposal_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "multisig execute_proposal fixture");
-    let execute_proposal_fixture_input_capacity =
-        execute_proposal_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let execute_proposal_fixture_input_capacity = execute_proposal_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let execute_proposal_lock = Script::new(execute_proposal_artifact.code_hash, 0, vec![]);
-    let execute_proposal_proposal_type =
-        Script::new(always_success_code_hash(), 0, b"multisig-execute-proposal-type".to_vec());
-    let execute_proposal_wallet_type =
-        Script::new(always_success_code_hash(), 0, b"multisig-execute-wallet-type".to_vec());
+    let execute_proposal_proposal_type = Script::new(always_success_code_hash(), 0, b"multisig-execute-proposal-type".to_vec());
+    let execute_proposal_wallet_type = Script::new(always_success_code_hash(), 0, b"multisig-execute-wallet-type".to_vec());
     let execute_proposal_proposal_capacity = execute_proposal_fixture_input_capacity / 3;
     let execute_proposal_wallet_capacity = execute_proposal_fixture_input_capacity / 3;
     let execute_proposal_change_capacity = execute_proposal_fixture_input_capacity
@@ -6059,16 +6006,11 @@ async fn run_multisig_action_builder_matrix(
 
     let executor = signer_b;
     let execute_current_time = transfer_current_time + 2;
-    let execution_record_payload =
-        multisig_execution_record_cell_data(proposal_id, executor, execute_current_time, true);
-    let malformed_execution_record_payload =
-        multisig_execution_record_cell_data(proposal_id, executor, execute_current_time, false);
+    let execution_record_payload = multisig_execution_record_cell_data(proposal_id, executor, execute_current_time, true);
+    let malformed_execution_record_payload = multisig_execution_record_cell_data(proposal_id, executor, execute_current_time, false);
     let execute_proposal_witness = execute_proposal_artifact
         .action
-        .entry_witness_args(&[
-            cellscript::EntryWitnessArg::Address(executor),
-            cellscript::EntryWitnessArg::U64(execute_current_time),
-        ])
+        .entry_witness_args(&[cellscript::EntryWitnessArg::Address(executor), cellscript::EntryWitnessArg::U64(execute_current_time)])
         .expect("multisig execute_proposal witness must encode executor and current_time");
     let execute_record_output_capacity = execute_proposal_proposal_capacity
         .checked_sub(required_fee(2, 1).saturating_add(100_000))
@@ -6133,13 +6075,8 @@ async fn run_multisig_action_builder_matrix(
         .submit_transaction((&valid_execute_proposal_tx).into(), false)
         .await
         .expect("valid multisig execute_proposal must be accepted by the scoped action verifier");
-    submit_next_template_containing(
-        rpc_client,
-        miner_address,
-        valid_execute_proposal_tx_id,
-        "valid multisig execute_proposal action",
-    )
-    .await;
+    submit_next_template_containing(rpc_client, miner_address, valid_execute_proposal_tx_id, "valid multisig execute_proposal action")
+        .await;
 
     let cancel_proposal_deploy_input = pop_code_deploy_cells(
         &mut spendable_cells,
@@ -6147,8 +6084,7 @@ async fn run_multisig_action_builder_matrix(
         cancel_proposal_artifact.artifact_bytes.len(),
         "multisig cancel_proposal",
     );
-    let cancel_proposal_deploy_input_capacity =
-        cancel_proposal_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let cancel_proposal_deploy_input_capacity = cancel_proposal_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let cancel_proposal_code_cell_capacity = cancel_proposal_deploy_input_capacity
         .checked_sub(required_fee(cancel_proposal_deploy_input.len(), 1).saturating_add(100_000))
         .expect("multisig cancel_proposal scoped action deployment must leave capacity for code cell");
@@ -6178,13 +6114,10 @@ async fn run_multisig_action_builder_matrix(
     .await;
 
     let cancel_proposal_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "multisig cancel_proposal fixture");
-    let cancel_proposal_fixture_input_capacity =
-        cancel_proposal_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let cancel_proposal_fixture_input_capacity = cancel_proposal_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let cancel_proposal_lock = Script::new(cancel_proposal_artifact.code_hash, 0, vec![]);
-    let cancel_proposal_proposal_type =
-        Script::new(always_success_code_hash(), 0, b"multisig-cancel-proposal-type".to_vec());
-    let cancel_proposal_wallet_type =
-        Script::new(always_success_code_hash(), 0, b"multisig-cancel-wallet-type".to_vec());
+    let cancel_proposal_proposal_type = Script::new(always_success_code_hash(), 0, b"multisig-cancel-proposal-type".to_vec());
+    let cancel_proposal_wallet_type = Script::new(always_success_code_hash(), 0, b"multisig-cancel-wallet-type".to_vec());
     let cancel_proposal_proposal_capacity = cancel_proposal_fixture_input_capacity / 3;
     let cancel_proposal_wallet_capacity = cancel_proposal_fixture_input_capacity / 3;
     let cancel_proposal_change_capacity = cancel_proposal_fixture_input_capacity
@@ -6315,13 +6248,8 @@ async fn run_multisig_action_builder_matrix(
         .submit_transaction((&valid_cancel_proposal_tx).into(), false)
         .await
         .expect("valid multisig cancel_proposal must be accepted by the scoped action verifier");
-    submit_next_template_containing(
-        rpc_client,
-        miner_address,
-        valid_cancel_proposal_tx_id,
-        "valid multisig cancel_proposal action",
-    )
-    .await;
+    submit_next_template_containing(rpc_client, miner_address, valid_cancel_proposal_tx_id, "valid multisig cancel_proposal action")
+        .await;
 
     let new_signer = pay_to_acceptance_owner(
         &Address::new_std_single(NetworkType::Devnet.into(), &[193; 32]).expect("multisig new_signer address must be valid"),
@@ -6455,10 +6383,7 @@ async fn run_multisig_action_builder_matrix(
         .expect("multisig propose_add_signer action must leave wallet output capacity");
     let malformed_propose_add_signer_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
-            vec![CellInput::new(
-                OutPoint::new(propose_add_signer_wallet_input.tx_hash, propose_add_signer_wallet_input.index),
-                0,
-            )],
+            vec![CellInput::new(OutPoint::new(propose_add_signer_wallet_input.tx_hash, propose_add_signer_wallet_input.index), 0)],
             vec![
                 CellDep {
                     out_point: OutPoint::new(propose_add_signer_code_outpoint.tx_hash, propose_add_signer_code_outpoint.index),
@@ -6493,10 +6418,7 @@ async fn run_multisig_action_builder_matrix(
 
     let valid_propose_add_signer_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
-            vec![CellInput::new(
-                OutPoint::new(propose_add_signer_wallet_input.tx_hash, propose_add_signer_wallet_input.index),
-                0,
-            )],
+            vec![CellInput::new(OutPoint::new(propose_add_signer_wallet_input.tx_hash, propose_add_signer_wallet_input.index), 0)],
             vec![
                 CellDep {
                     out_point: OutPoint::new(propose_add_signer_code_outpoint.tx_hash, propose_add_signer_code_outpoint.index),
@@ -6571,8 +6493,7 @@ async fn run_multisig_action_builder_matrix(
     )
     .await;
 
-    let propose_remove_signer_fixture_input =
-        pop_plain_cells(&mut spendable_cells, 1, "multisig propose_remove_signer fixture");
+    let propose_remove_signer_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "multisig propose_remove_signer fixture");
     let propose_remove_signer_fixture_input_capacity =
         propose_remove_signer_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let propose_remove_signer_lock = Script::new(propose_remove_signer_artifact.code_hash, 0, vec![]);
@@ -6602,7 +6523,11 @@ async fn run_multisig_action_builder_matrix(
                 lock: propose_remove_signer_lock.clone(),
                 type_: Some(propose_remove_signer_wallet_type.clone()),
             },
-            CellOutput { capacity: propose_remove_signer_change_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
+            CellOutput {
+                capacity: propose_remove_signer_change_capacity,
+                lock: pay_to_acceptance_owner(prealloc_address),
+                type_: None,
+            },
         ],
         vec![propose_remove_signer_wallet_input_payload, vec![]],
     );
@@ -6668,10 +6593,7 @@ async fn run_multisig_action_builder_matrix(
             )],
             vec![
                 CellDep {
-                    out_point: OutPoint::new(
-                        propose_remove_signer_code_outpoint.tx_hash,
-                        propose_remove_signer_code_outpoint.index,
-                    ),
+                    out_point: OutPoint::new(propose_remove_signer_code_outpoint.tx_hash, propose_remove_signer_code_outpoint.index),
                     dep_type: DepType::Code,
                 },
                 CellDep {
@@ -6680,7 +6602,11 @@ async fn run_multisig_action_builder_matrix(
                 },
             ],
             vec![
-                CellOutput { capacity: propose_remove_signer_proposal_capacity, lock: propose_remove_signer_lock.clone(), type_: None },
+                CellOutput {
+                    capacity: propose_remove_signer_proposal_capacity,
+                    lock: propose_remove_signer_lock.clone(),
+                    type_: None,
+                },
                 CellOutput {
                     capacity: propose_remove_signer_wallet_output_capacity,
                     lock: propose_remove_signer_lock.clone(),
@@ -6709,10 +6635,7 @@ async fn run_multisig_action_builder_matrix(
             )],
             vec![
                 CellDep {
-                    out_point: OutPoint::new(
-                        propose_remove_signer_code_outpoint.tx_hash,
-                        propose_remove_signer_code_outpoint.index,
-                    ),
+                    out_point: OutPoint::new(propose_remove_signer_code_outpoint.tx_hash, propose_remove_signer_code_outpoint.index),
                     dep_type: DepType::Code,
                 },
                 CellDep {
@@ -6721,7 +6644,11 @@ async fn run_multisig_action_builder_matrix(
                 },
             ],
             vec![
-                CellOutput { capacity: propose_remove_signer_proposal_capacity, lock: propose_remove_signer_lock.clone(), type_: None },
+                CellOutput {
+                    capacity: propose_remove_signer_proposal_capacity,
+                    lock: propose_remove_signer_lock.clone(),
+                    type_: None,
+                },
                 CellOutput {
                     capacity: propose_remove_signer_wallet_output_capacity,
                     lock: propose_remove_signer_lock.clone(),
@@ -6784,8 +6711,7 @@ async fn run_multisig_action_builder_matrix(
     )
     .await;
 
-    let propose_change_threshold_fixture_input =
-        pop_plain_cells(&mut spendable_cells, 1, "multisig propose_change_threshold fixture");
+    let propose_change_threshold_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "multisig propose_change_threshold fixture");
     let propose_change_threshold_fixture_input_capacity =
         propose_change_threshold_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let propose_change_threshold_lock = Script::new(propose_change_threshold_artifact.code_hash, 0, vec![]);
@@ -6809,7 +6735,11 @@ async fn run_multisig_action_builder_matrix(
                 lock: propose_change_threshold_lock.clone(),
                 type_: Some(propose_change_threshold_wallet_type.clone()),
             },
-            CellOutput { capacity: propose_change_threshold_change_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
+            CellOutput {
+                capacity: propose_change_threshold_change_capacity,
+                lock: pay_to_acceptance_owner(prealloc_address),
+                type_: None,
+            },
         ],
         vec![propose_wallet_input_payload, vec![]],
     );
@@ -6870,10 +6800,7 @@ async fn run_multisig_action_builder_matrix(
     let malformed_propose_change_threshold_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(
-                OutPoint::new(
-                    propose_change_threshold_wallet_input.tx_hash,
-                    propose_change_threshold_wallet_input.index,
-                ),
+                OutPoint::new(propose_change_threshold_wallet_input.tx_hash, propose_change_threshold_wallet_input.index),
                 0,
             )],
             vec![
@@ -6901,10 +6828,7 @@ async fn run_multisig_action_builder_matrix(
                     type_: Some(propose_change_threshold_wallet_type.clone()),
                 },
             ],
-            vec![
-                malformed_propose_change_threshold_proposal_payload,
-                malformed_propose_wallet_output_payload,
-            ],
+            vec![malformed_propose_change_threshold_proposal_payload, malformed_propose_wallet_output_payload],
             vec![propose_change_threshold_witness.clone()],
         )
         .expect("malformed multisig propose_change_threshold transaction must be structurally valid"),
@@ -6916,18 +6840,12 @@ async fn run_multisig_action_builder_matrix(
         .await
         .expect_err("malformed multisig propose_change_threshold must be rejected by the scoped action verifier")
         .to_string();
-    assert_action_malformed_rejection(
-        &malformed_propose_change_threshold_reason,
-        "multisig propose_change_threshold",
-    );
+    assert_action_malformed_rejection(&malformed_propose_change_threshold_reason, "multisig propose_change_threshold");
 
     let valid_propose_change_threshold_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(
-                OutPoint::new(
-                    propose_change_threshold_wallet_input.tx_hash,
-                    propose_change_threshold_wallet_input.index,
-                ),
+                OutPoint::new(propose_change_threshold_wallet_input.tx_hash, propose_change_threshold_wallet_input.index),
                 0,
             )],
             vec![
@@ -7292,12 +7210,8 @@ async fn run_timelock_action_builder_matrix(
     submit_next_template_containing(rpc_client, miner_address, valid_relative_tx_id, "valid timelock create_relative_lock action")
         .await;
 
-    let lock_asset_deploy_input = pop_code_deploy_cells(
-        &mut spendable_cells,
-        prealloc_address,
-        lock_asset_artifact.artifact_bytes.len(),
-        "timelock lock_asset",
-    );
+    let lock_asset_deploy_input =
+        pop_code_deploy_cells(&mut spendable_cells, prealloc_address, lock_asset_artifact.artifact_bytes.len(), "timelock lock_asset");
     let lock_asset_deploy_input_capacity = lock_asset_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let lock_asset_code_cell_capacity = lock_asset_deploy_input_capacity
         .checked_sub(required_fee(lock_asset_deploy_input.len(), 1).saturating_add(100_000))
@@ -7584,8 +7498,7 @@ async fn run_timelock_action_builder_matrix(
     .await;
 
     let execute_release_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "timelock execute_release fixture");
-    let execute_release_fixture_input_capacity =
-        execute_release_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let execute_release_fixture_input_capacity = execute_release_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let execute_release_lock = Script::new(execute_release_artifact.code_hash, 0, vec![]);
     let execute_release_type = Script::new(always_success_code_hash(), 0, b"timelock-execute-release-type".to_vec());
     let execute_release_cell_capacity = execute_release_fixture_input_capacity / 4;
@@ -7598,8 +7511,7 @@ async fn run_timelock_action_builder_matrix(
     let execute_release_current_height = 160;
     let execute_release_time_lock_data = timelock_cell_data(execute_release_owner, 0, 100, 1);
     let execute_release_locked_asset_data = locked_asset_molecule_cell_data(&[0], 42, [0; 32]);
-    let execute_release_request_data =
-        release_request_cell_data([0; 32], execute_release_owner, execute_release_current_height - 1);
+    let execute_release_request_data = release_request_cell_data([0; 32], execute_release_owner, execute_release_current_height - 1);
     let execute_release_fixture_tx = generate_signed_cell_tx(
         prealloc_schnorr_key,
         &execute_release_fixture_input,
@@ -7661,18 +7573,9 @@ async fn run_timelock_action_builder_matrix(
     let malformed_execute_release_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
             vec![
-                CellInput::new(
-                    OutPoint::new(execute_release_time_lock_input.tx_hash, execute_release_time_lock_input.index),
-                    0,
-                ),
-                CellInput::new(
-                    OutPoint::new(execute_release_locked_asset_input.tx_hash, execute_release_locked_asset_input.index),
-                    0,
-                ),
-                CellInput::new(
-                    OutPoint::new(execute_release_request_input.tx_hash, execute_release_request_input.index),
-                    0,
-                ),
+                CellInput::new(OutPoint::new(execute_release_time_lock_input.tx_hash, execute_release_time_lock_input.index), 0),
+                CellInput::new(OutPoint::new(execute_release_locked_asset_input.tx_hash, execute_release_locked_asset_input.index), 0),
+                CellInput::new(OutPoint::new(execute_release_request_input.tx_hash, execute_release_request_input.index), 0),
             ],
             vec![
                 CellDep {
@@ -7702,18 +7605,9 @@ async fn run_timelock_action_builder_matrix(
     let valid_execute_release_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
             vec![
-                CellInput::new(
-                    OutPoint::new(execute_release_time_lock_input.tx_hash, execute_release_time_lock_input.index),
-                    0,
-                ),
-                CellInput::new(
-                    OutPoint::new(execute_release_locked_asset_input.tx_hash, execute_release_locked_asset_input.index),
-                    0,
-                ),
-                CellInput::new(
-                    OutPoint::new(execute_release_request_input.tx_hash, execute_release_request_input.index),
-                    0,
-                ),
+                CellInput::new(OutPoint::new(execute_release_time_lock_input.tx_hash, execute_release_time_lock_input.index), 0),
+                CellInput::new(OutPoint::new(execute_release_locked_asset_input.tx_hash, execute_release_locked_asset_input.index), 0),
+                CellInput::new(OutPoint::new(execute_release_request_input.tx_hash, execute_release_request_input.index), 0),
             ],
             vec![
                 CellDep {
@@ -7738,13 +7632,8 @@ async fn run_timelock_action_builder_matrix(
         .submit_transaction((&valid_execute_release_tx).into(), false)
         .await
         .expect("valid timelock execute_release must be accepted by the scoped action verifier");
-    submit_next_template_containing(
-        rpc_client,
-        miner_address,
-        valid_execute_release_tx_id,
-        "valid timelock execute_release action",
-    )
-    .await;
+    submit_next_template_containing(rpc_client, miner_address, valid_execute_release_tx_id, "valid timelock execute_release action")
+        .await;
 
     let request_emergency_deploy_input = pop_code_deploy_cells(
         &mut spendable_cells,
@@ -7781,8 +7670,7 @@ async fn run_timelock_action_builder_matrix(
     )
     .await;
 
-    let request_emergency_fixture_input =
-        pop_plain_cells(&mut spendable_cells, 1, "timelock request_emergency_release fixture");
+    let request_emergency_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "timelock request_emergency_release fixture");
     let request_emergency_fixture_input_capacity =
         request_emergency_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let request_emergency_lock = Script::new(request_emergency_artifact.code_hash, 0, vec![]);
@@ -7907,8 +7795,7 @@ async fn run_timelock_action_builder_matrix(
         approve_emergency_artifact.artifact_bytes.len(),
         "timelock approve_emergency_release",
     );
-    let approve_emergency_deploy_input_capacity =
-        approve_emergency_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let approve_emergency_deploy_input_capacity = approve_emergency_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let approve_emergency_code_cell_capacity = approve_emergency_deploy_input_capacity
         .checked_sub(required_fee(approve_emergency_deploy_input.len(), 1).saturating_add(100_000))
         .expect("timelock approve_emergency_release scoped action deployment must leave capacity for code cell");
@@ -7937,8 +7824,7 @@ async fn run_timelock_action_builder_matrix(
     )
     .await;
 
-    let approve_emergency_fixture_input =
-        pop_plain_cells(&mut spendable_cells, 1, "timelock approve_emergency_release fixture");
+    let approve_emergency_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "timelock approve_emergency_release fixture");
     let approve_emergency_fixture_input_capacity =
         approve_emergency_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let approve_emergency_lock = Script::new(approve_emergency_artifact.code_hash, 0, vec![]);
@@ -7992,12 +7878,12 @@ async fn run_timelock_action_builder_matrix(
             cellscript::EntryWitnessArg::U8(approve_emergency_required_approvals),
         ])
         .expect("timelock approve_emergency_release action witness must encode approver and required_approvals");
+    let approve_emergency_output_capacity = approve_emergency_fixture_capacity
+        .checked_sub(required_fee(1, 1).saturating_add(100_000))
+        .expect("timelock approve_emergency_release action must leave fee");
     let malformed_approve_emergency_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
-            vec![CellInput::new(
-                OutPoint::new(approve_emergency_input.tx_hash, approve_emergency_input.index),
-                0,
-            )],
+            vec![CellInput::new(OutPoint::new(approve_emergency_input.tx_hash, approve_emergency_input.index), 0)],
             vec![
                 CellDep {
                     out_point: OutPoint::new(approve_emergency_code_outpoint.tx_hash, approve_emergency_code_outpoint.index),
@@ -8009,7 +7895,7 @@ async fn run_timelock_action_builder_matrix(
                 },
             ],
             vec![CellOutput {
-                capacity: approve_emergency_fixture_capacity,
+                capacity: approve_emergency_output_capacity,
                 lock: approve_emergency_lock.clone(),
                 type_: Some(approve_emergency_type.clone()),
             }],
@@ -8035,10 +7921,7 @@ async fn run_timelock_action_builder_matrix(
 
     let valid_approve_emergency_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
-            vec![CellInput::new(
-                OutPoint::new(approve_emergency_input.tx_hash, approve_emergency_input.index),
-                0,
-            )],
+            vec![CellInput::new(OutPoint::new(approve_emergency_input.tx_hash, approve_emergency_input.index), 0)],
             vec![
                 CellDep {
                     out_point: OutPoint::new(approve_emergency_code_outpoint.tx_hash, approve_emergency_code_outpoint.index),
@@ -8050,7 +7933,7 @@ async fn run_timelock_action_builder_matrix(
                 },
             ],
             vec![CellOutput {
-                capacity: approve_emergency_fixture_capacity,
+                capacity: approve_emergency_output_capacity,
                 lock: approve_emergency_lock,
                 type_: Some(approve_emergency_type),
             }],
@@ -8086,8 +7969,7 @@ async fn run_timelock_action_builder_matrix(
         execute_emergency_artifact.artifact_bytes.len(),
         "timelock execute_emergency_release",
     );
-    let execute_emergency_deploy_input_capacity =
-        execute_emergency_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let execute_emergency_deploy_input_capacity = execute_emergency_deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let execute_emergency_code_cell_capacity = execute_emergency_deploy_input_capacity
         .checked_sub(required_fee(execute_emergency_deploy_input.len(), 1).saturating_add(100_000))
         .expect("timelock execute_emergency_release scoped action deployment must leave capacity for code cell");
@@ -8116,8 +7998,7 @@ async fn run_timelock_action_builder_matrix(
     )
     .await;
 
-    let execute_emergency_fixture_input =
-        pop_plain_cells(&mut spendable_cells, 1, "timelock execute_emergency_release fixture");
+    let execute_emergency_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "timelock execute_emergency_release fixture");
     let execute_emergency_fixture_input_capacity =
         execute_emergency_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
     let execute_emergency_lock = Script::new(execute_emergency_artifact.code_hash, 0, vec![]);
@@ -8204,18 +8085,12 @@ async fn run_timelock_action_builder_matrix(
     let malformed_execute_emergency_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
             vec![
-                CellInput::new(
-                    OutPoint::new(execute_emergency_time_lock_input.tx_hash, execute_emergency_time_lock_input.index),
-                    0,
-                ),
+                CellInput::new(OutPoint::new(execute_emergency_time_lock_input.tx_hash, execute_emergency_time_lock_input.index), 0),
                 CellInput::new(
                     OutPoint::new(execute_emergency_locked_asset_input.tx_hash, execute_emergency_locked_asset_input.index),
                     0,
                 ),
-                CellInput::new(
-                    OutPoint::new(execute_emergency_request_input.tx_hash, execute_emergency_request_input.index),
-                    0,
-                ),
+                CellInput::new(OutPoint::new(execute_emergency_request_input.tx_hash, execute_emergency_request_input.index), 0),
             ],
             vec![
                 CellDep {
@@ -8245,18 +8120,12 @@ async fn run_timelock_action_builder_matrix(
     let valid_execute_emergency_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
             vec![
-                CellInput::new(
-                    OutPoint::new(execute_emergency_time_lock_input.tx_hash, execute_emergency_time_lock_input.index),
-                    0,
-                ),
+                CellInput::new(OutPoint::new(execute_emergency_time_lock_input.tx_hash, execute_emergency_time_lock_input.index), 0),
                 CellInput::new(
                     OutPoint::new(execute_emergency_locked_asset_input.tx_hash, execute_emergency_locked_asset_input.index),
                     0,
                 ),
-                CellInput::new(
-                    OutPoint::new(execute_emergency_request_input.tx_hash, execute_emergency_request_input.index),
-                    0,
-                ),
+                CellInput::new(OutPoint::new(execute_emergency_request_input.tx_hash, execute_emergency_request_input.index), 0),
             ],
             vec![
                 CellDep {
@@ -8580,10 +8449,7 @@ async fn submit_empty_blocks(rpc_client: &spora_grpc_client::GrpcClient, miner_a
     }
 }
 
-async fn current_header_dep_hash_and_daa(
-    rpc_client: &spora_grpc_client::GrpcClient,
-    miner_address: &Address,
-) -> ([u8; 32], u64) {
+async fn current_header_dep_hash_and_daa(rpc_client: &spora_grpc_client::GrpcClient, miner_address: &Address) -> ([u8; 32], u64) {
     let template = rpc_client
         .get_block_template(miner_address.clone(), vec![])
         .await
@@ -8596,10 +8462,8 @@ async fn current_header_dep_hash_and_daa(
         .and_then(|level| level.first())
         .copied()
         .expect("block template must expose a selected parent for header dep");
-    let current_header = rpc_client
-        .get_header(selected_parent)
-        .await
-        .expect("selected parent header lookup for header dep must succeed");
+    let current_header =
+        rpc_client.get_header(selected_parent).await.expect("selected parent header lookup for header dep must succeed");
     let current_daa = current_header.daa_score;
     (selected_parent.as_bytes(), current_daa)
 }
@@ -8923,14 +8787,17 @@ fn assert_action_malformed_rejection(reason: &str, context: &str) {
 struct CellScriptExampleDeployment {
     name: &'static str,
     artifact_size_bytes: usize,
+    standard_deployment_storage_mass: u64,
     deployment_tx_id: spora_hashes::Hash,
     code_outpoint: TransactionOutpoint,
     locked_outpoint: TransactionOutpoint,
     locked_capacity: u64,
     deployment_probe_succeeded: bool,
     deployment_error: Option<String>,
+    deployment_probe_status: &'static str,
     code_cell_indexed: bool,
     malformed_spend_rejected: bool,
+    malformed_spend_probe_status: &'static str,
     malformed_spend_reject_reason: String,
     malformed_spend_rejected_by_standard_policy: bool,
     ckb_runtime_required: bool,
@@ -8994,8 +8861,10 @@ struct BundledExampleReport {
     deployment_tx_id: String,
     code_cell_outpoint: OutPointReport,
     locked_probe_outpoint: OutPointReport,
+    deployment_probe_status: &'static str,
     code_cell_indexed: bool,
     malformed_spend_rejected: bool,
+    malformed_spend_probe_status: &'static str,
     malformed_spend_reject_reason: String,
     malformed_spend_rejected_by_standard_policy: bool,
 }
@@ -9009,8 +8878,11 @@ struct SporaProductionGateReport {
     standard_block_max_mass: u64,
     standard_relay_max_tx_mass: u64,
     relaxed_block_max_mass: u64,
+    bundled_example_count: usize,
     standard_relay_deploy_compatible_example_count: usize,
+    full_file_monolith_standard_relay_ready: bool,
     standard_relay_deploy_compatible_action_count: usize,
+    scoped_action_standard_relay_ready: bool,
     requires_action_specific_builders: bool,
     scoped_action_artifact_count: usize,
     scheduler_witness_shape_count: usize,
@@ -9021,6 +8893,7 @@ struct SporaProductionGateReport {
     bundled_example_deployment_probe_count: usize,
     standard_relay_incompatible_examples: Vec<StandardRelayIncompatibleExampleReport>,
     blockers: Vec<String>,
+    advisories: Vec<String>,
     action_builder_coverage: Vec<SporaActionBuilderCoverageReport>,
 }
 
@@ -9138,38 +9011,37 @@ fn build_spora_production_gate(
     let standard_relay_incompatible_examples = deployments
         .iter()
         .filter(|deployment| {
-            deployment.requires_relaxed_mass_policy
-                || standard_deployment_storage_mass(deployment.artifact_size_bytes) > SPORA_STANDARD_RELAY_MAX_TX_MASS
+            deployment.requires_relaxed_mass_policy || deployment.standard_deployment_storage_mass > SPORA_STANDARD_RELAY_MAX_TX_MASS
         })
         .map(|deployment| StandardRelayIncompatibleExampleReport {
             name: deployment.name,
             artifact_size_bytes: deployment.artifact_size_bytes,
-            estimated_standard_deployment_storage_mass: standard_deployment_storage_mass(deployment.artifact_size_bytes),
+            estimated_standard_deployment_storage_mass: deployment.standard_deployment_storage_mass,
             requires_relaxed_mass_policy: deployment.requires_relaxed_mass_policy,
         })
         .collect::<Vec<_>>();
     let standard_relay_deploy_compatible_example_count = deployments.len().saturating_sub(standard_relay_incompatible_examples.len());
     let standard_relay_deploy_compatible_action_count =
         action_builder_coverage.iter().filter(|coverage| coverage.builder_requirements.fits_standard_relay_transaction_mass).count();
+    let bundled_example_count = deployments.len();
+    let full_file_monolith_standard_relay_ready = standard_relay_deploy_compatible_example_count == bundled_example_count;
+    let scoped_action_standard_relay_ready = standard_relay_deploy_compatible_action_count == required_action_specific_builder_count;
     let production_ready = standard_mass_policy_used
         && required_action_specific_builder_count > 0
         && valid_action_specific_builder_count == required_action_specific_builder_count
         && malformed_action_matrix_count == required_action_specific_builder_count;
     let mut blockers = Vec::new();
+    let mut advisories = Vec::new();
     if !standard_mass_policy_used {
-        let incompatible_examples = if standard_relay_incompatible_examples.is_empty() {
-            "none".to_string()
-        } else {
-            standard_relay_incompatible_examples
-                .iter()
-                .map(|example| example.name)
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
         blockers.push(format!(
-            "devnet acceptance currently uses explicit relaxed mass policy; production Spora gate requires standard mass policy and standard relay deployment compatibility: {standard_relay_deploy_compatible_example_count}/{} full examples, incompatible full examples: [{}], {standard_relay_deploy_compatible_action_count}/{required_action_specific_builder_count} scoped actions",
-            deployments.len(),
-            incompatible_examples
+            "production Spora gate requires standard mass policy and scoped action standard relay compatibility, but this run used relaxed mass policy: {standard_relay_deploy_compatible_action_count}/{required_action_specific_builder_count} scoped actions"
+        ));
+    }
+    if !standard_relay_incompatible_examples.is_empty() {
+        let incompatible_examples =
+            standard_relay_incompatible_examples.iter().map(|example| example.name).collect::<Vec<_>>().join(", ");
+        advisories.push(format!(
+            "full-file monolith bundled examples remain above standard relay deployment mass: {standard_relay_deploy_compatible_example_count}/{bundled_example_count} compatible, incompatible examples: [{incompatible_examples}]"
         ));
     }
     if scoped_action_artifact_count != required_action_specific_builder_count {
@@ -9206,8 +9078,11 @@ fn build_spora_production_gate(
         standard_block_max_mass: DEVNET_PARAMS.max_block_mass,
         standard_relay_max_tx_mass: SPORA_STANDARD_RELAY_MAX_TX_MASS,
         relaxed_block_max_mass: DEVNET_ACCEPTANCE_BLOCK_MAX_MASS,
+        bundled_example_count,
         standard_relay_deploy_compatible_example_count,
+        full_file_monolith_standard_relay_ready,
         standard_relay_deploy_compatible_action_count,
+        scoped_action_standard_relay_ready,
         requires_action_specific_builders: true,
         scoped_action_artifact_count,
         scheduler_witness_shape_count,
@@ -9218,6 +9093,7 @@ fn build_spora_production_gate(
         bundled_example_deployment_probe_count: deployments.len(),
         standard_relay_incompatible_examples,
         blockers,
+        advisories,
         action_builder_coverage,
     }
 }

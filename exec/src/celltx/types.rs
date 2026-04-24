@@ -96,7 +96,7 @@ const CELL_ENTRY_OVERHEAD_EXCLUDING_OUTPUT_BODY: u64 = 32 + 4 + 8 + 1;
 ///
 /// This intentionally mirrors the consensus-side transient-byte policy until the
 /// Cell-native mass model is fully centralized.
-const TRANSIENT_BYTE_TO_MASS_FACTOR: u64 = 4;
+const TRANSIENT_BYTE_TO_MASS_FACTOR: u64 = 2;
 /// Mass coefficient for each serialized transaction byte.
 ///
 /// Kept in sync with the consensus-side default params so pre-VM estimates in the

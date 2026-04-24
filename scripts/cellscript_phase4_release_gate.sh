@@ -8,9 +8,11 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/tmp/spora-cellscript-release-gate-
 export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
 export CELLSCRIPT_BACKEND_SHAPE_REPORT="${CELLSCRIPT_BACKEND_SHAPE_REPORT:-$ROOT_DIR/target/cellscript-backend-shape/backend-shape-report-$MODE.json}"
+export CELLSCRIPT_MOLECULE_SCHEMA_MANIFEST_REPORT="${CELLSCRIPT_MOLECULE_SCHEMA_MANIFEST_REPORT:-$ROOT_DIR/target/cellscript-schema-manifest/schema-manifest-report-$MODE.json}"
 
 cd "$ROOT_DIR"
 mkdir -p "$(dirname "$CELLSCRIPT_BACKEND_SHAPE_REPORT")"
+mkdir -p "$(dirname "$CELLSCRIPT_MOLECULE_SCHEMA_MANIFEST_REPORT")"
 
 require_cmd() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -272,7 +274,7 @@ check_v1_code_boundaries() {
         'cellscript/src/codegen/mod.rs::const SPORA_LOAD_ECDSA_SIGNATURE_HASH_SYSCALL_NUMBER: u64 = 3004;'
         'cellscript/src/codegen/mod.rs::source_group_input: CKB_SOURCE_GROUP_FLAG | CKB_SOURCE_INPUT'
         'cellscript/src/codegen/mod.rs::source if source == (CKB_SOURCE_GROUP_FLAG | CKB_SOURCE_OUTPUT) => "GroupOutput"'
-        'cellscript/src/codegen/mod.rs::fn assembly_with_external_call_stubs'
+        'cellscript/src/codegen/mod.rs::fn reject_unresolved_calls'
         'cellscript/src/codegen/mod.rs::fn encode_large_li_sequence'
         'cellscript/src/codegen/mod.rs::fn emit_entry_direct_wrapper'
         'cellscript/src/codegen/mod.rs::struct MachineLayoutPlan'
@@ -304,7 +306,11 @@ check_v1_code_boundaries() {
         'cellscript/tests/examples.rs::fn bundled_examples_stay_within_backend_shape_budgets()'
         'cellscript/tests/examples.rs::struct BackendShapeReportRow'
         'cellscript/tests/examples.rs::fn bundled_examples_backend_shape_report_serializes()'
+        'cellscript/tests/examples.rs::fn bundled_examples_stay_near_backend_shape_release_baseline()'
+        'cellscript/tests/examples.rs::fn bundled_examples_emit_molecule_schema_manifest_report()'
         'cellscript/tests/examples.rs::CELLSCRIPT_BACKEND_SHAPE_REPORT'
+        'cellscript/tests/examples.rs::CELLSCRIPT_MOLECULE_SCHEMA_MANIFEST_REPORT'
+        'cellscript/tests/backend_shape_baseline.json::"example": "token.cell"'
         'cellscript/tests/examples.rs::analyze_backend_shape'
         'cellscript/tests/examples.rs::max_relaxed_branches'
         'cellscript/tests/examples.rs::max_cond_branch_abs_distance'
@@ -315,7 +321,11 @@ check_v1_code_boundaries() {
         'cellscript/tests/examples.rs::unreachable_machine_block_count'
         'cellscript/tests/examples.rs::max_fail_handlers'
         'scripts/cellscript_phase4_release_gate.sh::target/cellscript-backend-shape/backend-shape-report-$MODE.json'
+        'scripts/cellscript_phase4_release_gate.sh::target/cellscript-schema-manifest/schema-manifest-report-$MODE.json'
         'scripts/cellscript_phase4_release_gate.sh::CellScript backend shape report:'
+        'scripts/cellscript_phase4_release_gate.sh::CellScript Molecule schema manifest report:'
+        'scripts/cellscript_phase4_release_gate.sh::scripts/validate_cellscript_tooling_release.py'
+        'scripts/validate_cellscript_tooling_release.py::valid CellScript tooling release boundary'
         'scripts/cellscript_phase4_release_gate.sh::.github/workflows/spora-devnet-acceptance.yml'
         'scripts/cellscript_phase4_release_gate.sh::scripts/devnet_acceptance.sh'
         'scripts/cellscript_phase4_release_gate.sh::scripts/regenerate_snapshots.sh'
@@ -325,6 +335,10 @@ check_v1_code_boundaries() {
         'cellscript/src/lib.rs::const VM_ABI_TRAILER_MAGIC: &[u8; 8] = b"SPORABI\0";'
         'cellscript/src/lib.rs::scheduler_witness_borsh_hex is not public scheduler witness metadata'
         'cellscript/src/lib.rs::fn compile_rejects_spora_claim_signature_helpers_under_ckb_profile()'
+        'cellscript/src/lib.rs::pub molecule_schema_manifest: MoleculeSchemaManifestMetadata'
+        'cellscript/src/lib.rs::fn molecule_schema_manifest_metadata'
+        'cellscript/src/lib.rs::fn validate_molecule_schema_manifest_metadata'
+        'cellscript/src/lib.rs::fn compile_metadata_exposes_authoritative_molecule_schema_manifest()'
         'cellscript/src/lib.rs::fn compile_lowers_ckb_group_source_large_immediate_to_riscv_elf()'
         'cellscript/src/lib.rs::fn compile_prefers_no_arg_main_for_entry_wrapper()'
         'cellscript/src/cli/commands.rs::fn validate_expected_target_profile'
@@ -411,10 +425,12 @@ run_quick_gate() {
     run cargo test --locked -p spora-wallet-core cellscript -- --nocapture
     run cargo test --locked -p spora-wallet-core ckb_type_id -- --nocapture
     run cargo test --locked -p spora-wallet-core generator_settings_cell_and_header_deps_are_included_in_unsigned_transactions -- --nocapture
+    run python3 scripts/validate_cellscript_tooling_release.py
     run ./scripts/ckb_cellscript_acceptance.sh --compile-only
     run git diff --check
     check_trailing_whitespace
     printf '\nCellScript backend shape report: %s\n' "$CELLSCRIPT_BACKEND_SHAPE_REPORT"
+    printf 'CellScript Molecule schema manifest report: %s\n' "$CELLSCRIPT_MOLECULE_SCHEMA_MANIFEST_REPORT"
 }
 
 run_full_gate() {
@@ -433,10 +449,12 @@ run_full_gate() {
     run cargo test --locked -p spora-wallet-core generator_settings_cell_and_header_deps_are_included_in_unsigned_transactions -- --nocapture
     run cargo test --locked -p spora-wallet-core attach_cellscript_compiled_scheduler_witness -- --nocapture
     run cargo test --locked -p spora-mining scheduler -- --nocapture --test-threads=1
+    run python3 scripts/validate_cellscript_tooling_release.py
     run ./scripts/ckb_cellscript_acceptance.sh --compile-only
     run git diff --check
     check_trailing_whitespace
     printf '\nCellScript backend shape report: %s\n' "$CELLSCRIPT_BACKEND_SHAPE_REPORT"
+    printf 'CellScript Molecule schema manifest report: %s\n' "$CELLSCRIPT_MOLECULE_SCHEMA_MANIFEST_REPORT"
 }
 
 case "$MODE" in

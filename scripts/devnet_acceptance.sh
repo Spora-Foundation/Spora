@@ -55,6 +55,7 @@ BASE_REPORT_JSON="$RUN_DIR/base-report.json"
 CELLSCRIPT_REPORT_JSON="$RUN_DIR/cellscript-report.json"
 PROPAGATION_REPORT_JSON="$RUN_DIR/propagation-report.json"
 REPORT_JSON="$RUN_DIR/acceptance-report.json"
+PRODUCTION_EVIDENCE_JSON="$RUN_DIR/production-evidence.json"
 NODE_PID=""
 PREALLOC_ADDRESS=""
 BASE_STATUS="skipped"
@@ -156,7 +157,7 @@ if policy_mode == "relaxed":
 else:
     if mass_policy.get("relay_non_standard") is not False:
         raise SystemExit("standard base report must not enable non-standard relay")
-    if mass_policy.get("block_max_mass") != 500000:
+    if mass_policy.get("block_max_mass") != 2000000:
         raise SystemExit(f"unexpected standard base block_max_mass: {mass_policy.get('block_max_mass')}")
 if mass_policy.get("applies_to_all_networks_when_explicitly_enabled") is not True:
     raise SystemExit("base report did not record all-network explicit opt-in scope")
@@ -165,6 +166,10 @@ if mass_policy.get("standard_policy_preserved_by_default") is not True:
 
 for item in examples:
     name = item.get("name")
+    if item.get("deployment_probe_status") not in {"accepted-indexed", "standard-policy-rejected"}:
+        raise SystemExit(f"{name} recorded an unexpected deployment probe status: {item.get('deployment_probe_status')}")
+    if item.get("malformed_spend_probe_status") not in {"script-rejected", "skipped-deployment-not-indexed"}:
+        raise SystemExit(f"{name} recorded an unexpected malformed spend probe status: {item.get('malformed_spend_probe_status')}")
     if policy_mode == "relaxed":
         if not item.get("code_cell_indexed"):
             raise SystemExit(f"{name} code cell was not indexed according to base report")
@@ -177,6 +182,19 @@ for item in examples:
         forbidden = ["not standard", "storage mass", "compute mass", "transient", "cycles exceeded", "cycles limit"]
         if any(marker in lowered for marker in forbidden):
             raise SystemExit(f"{name} malformed spend did not fail fast in script/business validation: {reason}")
+    else:
+        if item.get("fits_standard_relay_transaction_mass"):
+            if item.get("deployment_probe_status") != "accepted-indexed":
+                raise SystemExit(f"{name} standard-compatible deployment was not indexed")
+            if item.get("malformed_spend_probe_status") != "script-rejected":
+                raise SystemExit(f"{name} standard-compatible malformed spend did not run script rejection probe")
+            if item.get("malformed_spend_rejected_by_standard_policy"):
+                raise SystemExit(f"{name} standard-compatible malformed spend was rejected by standard policy")
+        else:
+            if item.get("deployment_probe_status") != "standard-policy-rejected":
+                raise SystemExit(f"{name} standard-incompatible deployment was not recorded as standard-policy-rejected")
+            if item.get("malformed_spend_probe_status") != "skipped-deployment-not-indexed":
+                raise SystemExit(f"{name} standard-incompatible malformed spend probe was not explicitly skipped")
     if not item.get("artifact_size_bytes", 0) > 0:
         raise SystemExit(f"{name} artifact size was not recorded")
     if not item.get("action_count", 0) > 0:
@@ -211,14 +229,26 @@ if production_gate.get("scheduler_witness_shape_malformed_count", -1) < 0:
     raise SystemExit("Spora production gate did not record malformed scheduler witness shape coverage")
 if production_gate.get("standard_block_max_mass", 0) <= 0:
     raise SystemExit("Spora production gate did not record standard block max mass")
-if production_gate.get("standard_relay_max_tx_mass") != 100000:
+if production_gate.get("standard_relay_max_tx_mass") != 500000:
     raise SystemExit("Spora production gate did not record standard relay max transaction mass")
-if production_gate.get("relaxed_block_max_mass") != mass_policy.get("block_max_mass"):
+if production_gate.get("relaxed_block_max_mass") != 100000000:
+    raise SystemExit("Spora production gate did not record relaxed block max mass")
+if policy_mode == "relaxed" and production_gate.get("relaxed_block_max_mass") != mass_policy.get("block_max_mass"):
     raise SystemExit("Spora production gate relaxed block max mass does not match the acceptance mass policy")
 if production_gate.get("standard_relay_deploy_compatible_example_count", -1) < 0:
     raise SystemExit("Spora production gate did not record standard relay deployment compatibility")
 if production_gate.get("standard_relay_deploy_compatible_action_count", -1) < 0:
     raise SystemExit("Spora production gate did not record scoped standard relay deployment compatibility")
+if production_gate.get("bundled_example_count", -1) != len(expected_examples):
+    raise SystemExit("Spora production gate did not record bundled example count")
+if "full_file_monolith_standard_relay_ready" not in production_gate:
+    raise SystemExit("Spora production gate did not record full-file monolith standard relay readiness")
+if "scoped_action_standard_relay_ready" not in production_gate:
+    raise SystemExit("Spora production gate did not record scoped action standard relay readiness")
+if "standard_relay_incompatible_examples" not in production_gate:
+    raise SystemExit("Spora production gate did not record standard relay incompatible examples")
+if "advisories" not in production_gate:
+    raise SystemExit("Spora production gate did not record advisory diagnostics")
 for item in coverage:
     if "scoped_action_artifact_covered" not in item:
         raise SystemExit("Spora production gate action coverage is missing scoped action artifact coverage")
@@ -277,7 +307,11 @@ with open(sys.argv[1], "r", encoding="utf-8") as fh:
 gate = report.get("production_gate", {})
 if gate.get("production_ready") is not True:
     blockers = gate.get("blockers", [])
-    raise SystemExit("Spora production gate is not ready: " + "; ".join(blockers))
+    advisories = gate.get("advisories", [])
+    message = "Spora production gate is not ready: " + "; ".join(blockers)
+    if advisories:
+        message += " | advisories: " + "; ".join(advisories)
+    raise SystemExit(message)
 PY
 }
 
@@ -532,6 +566,98 @@ with open(sys.argv[1], "w", encoding="utf-8") as fh:
 PY
 }
 
+write_production_evidence_report() {
+  if [[ "$PROFILE" != "production" || "$RESULT" != "passed" ]]; then
+    return 0
+  fi
+  PROFILE="$PROFILE" \
+  RUN_ID="$RUN_ID" \
+  RUN_DIR="$RUN_DIR" \
+  STARTED_AT_UTC="$STARTED_AT_UTC" \
+  COMPLETED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  ACCEPTANCE_COMMAND="$ACCEPTANCE_COMMAND" \
+  GIT_REVISION="$GIT_REVISION" \
+  GIT_STATUS_COUNT="$GIT_STATUS_COUNT" \
+  BASE_REPORT_JSON="$BASE_REPORT_JSON" \
+  CELLSCRIPT_REPORT_JSON="$CELLSCRIPT_REPORT_JSON" \
+  PROPAGATION_REPORT_JSON="$PROPAGATION_REPORT_JSON" \
+  REPORT_JSON="$REPORT_JSON" \
+  SPORAD_LOG="$SPORAD_LOG" \
+  python3 - "$PRODUCTION_EVIDENCE_JSON" <<'PY'
+import json
+import os
+import sys
+
+
+def load(path):
+    with open(path, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def existing(env_name):
+    path = os.environ.get(env_name, "")
+    return path if path and os.path.exists(path) else None
+
+
+base_report_path = os.environ["BASE_REPORT_JSON"]
+base_report = load(base_report_path)
+gate = base_report.get("production_gate", {})
+
+required_checks = {
+    "production_gate_passed": gate.get("status") == "passed",
+    "production_ready": gate.get("production_ready") is True,
+    "standard_mass_policy_used": gate.get("standard_mass_policy_used") is True,
+    "scoped_action_standard_relay_ready": gate.get("scoped_action_standard_relay_ready") is True,
+    "full_file_monolith_standard_relay_ready": gate.get("full_file_monolith_standard_relay_ready") is True,
+    "no_standard_relay_incompatible_examples": gate.get("standard_relay_incompatible_examples") == [],
+}
+if not all(required_checks.values()):
+    failed = [name for name, passed in required_checks.items() if not passed]
+    raise SystemExit(f"refusing to write production evidence; failed checks: {failed}")
+
+evidence = {
+    "schema": "spora-devnet-production-evidence-v1",
+    "profile": os.environ["PROFILE"],
+    "status": "passed",
+    "run_id": os.environ["RUN_ID"],
+    "run_dir": os.environ["RUN_DIR"],
+    "generated_at_utc": os.environ["COMPLETED_AT_UTC"],
+    "command": os.environ["ACCEPTANCE_COMMAND"],
+    "git_revision": os.environ.get("GIT_REVISION") or None,
+    "git_dirty": os.environ.get("GIT_STATUS_COUNT", "0") != "0",
+    "artifacts": {
+        "acceptance_report": existing("REPORT_JSON"),
+        "base_report": existing("BASE_REPORT_JSON"),
+        "cellscript_report": existing("CELLSCRIPT_REPORT_JSON"),
+        "propagation_report": existing("PROPAGATION_REPORT_JSON"),
+        "sporad_log": existing("SPORAD_LOG"),
+    },
+    "production_gate": {
+        "status": gate.get("status"),
+        "production_ready": gate.get("production_ready"),
+        "standard_mass_policy_used": gate.get("standard_mass_policy_used"),
+        "standard_block_max_mass": gate.get("standard_block_max_mass"),
+        "standard_relay_max_tx_mass": gate.get("standard_relay_max_tx_mass"),
+        "scoped_action_artifact_count": gate.get("scoped_action_artifact_count"),
+        "valid_action_specific_builder_count": gate.get("valid_action_specific_builder_count"),
+        "malformed_action_matrix_count": gate.get("malformed_action_matrix_count"),
+        "standard_relay_deploy_compatible_example_count": gate.get("standard_relay_deploy_compatible_example_count"),
+        "bundled_example_count": gate.get("bundled_example_count"),
+        "scoped_action_standard_relay_ready": gate.get("scoped_action_standard_relay_ready"),
+        "full_file_monolith_standard_relay_ready": gate.get("full_file_monolith_standard_relay_ready"),
+        "standard_relay_incompatible_examples": gate.get("standard_relay_incompatible_examples", []),
+        "blockers": gate.get("blockers", []),
+        "advisories": gate.get("advisories", []),
+    },
+    "required_checks": required_checks,
+}
+
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    json.dump(evidence, fh, indent=2)
+    fh.write("\n")
+PY
+}
+
 on_error() {
   local exit_code="$?"
   local line_no="${1:-}"
@@ -576,7 +702,7 @@ case "$PROFILE" in
     ;;
   production)
     CURRENT_STEP="base"
-    run_base
+    run_base standard
     CURRENT_STEP="spora_production_gate"
     validate_spora_production_ready
     CURRENT_STEP="external_boot"
@@ -593,9 +719,17 @@ case "$PROFILE" in
 esac
 
 write_acceptance_report
+write_production_evidence_report
+if [[ -f "$PRODUCTION_EVIDENCE_JSON" ]]; then
+  CURRENT_STEP="spora_production_evidence_validation"
+  python3 "$REPO_ROOT/scripts/validate_spora_production_evidence.py" "$PRODUCTION_EVIDENCE_JSON"
+fi
 
 if [[ "$KEEP_ARTIFACTS" -eq 1 ]]; then
   echo "acceptance artifacts: $RUN_DIR"
 else
   echo "acceptance artifacts: $RUN_DIR"
+fi
+if [[ -f "$PRODUCTION_EVIDENCE_JSON" ]]; then
+  echo "production evidence: $PRODUCTION_EVIDENCE_JSON"
 fi

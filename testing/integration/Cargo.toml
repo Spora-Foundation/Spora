@@ -99,3 +99,4 @@ required-features = ["wrpc-probe"]
 [[bin]]
 name = "spora-standard-relay-probe"
 path = "src/bin/spora-standard-relay-probe.rs"
+required-features = ["integration-tests", "devnet-prealloc", "vm", "wrpc-probe"]

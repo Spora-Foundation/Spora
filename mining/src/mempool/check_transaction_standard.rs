@@ -16,7 +16,7 @@ const MAXIMUM_STANDARD_WITNESS_SIZE: u64 = 1650;
 
 /// MAXIMUM_STANDARD_TRANSACTION_MASS is the maximum mass allowed for transactions that
 /// are considered standard and will therefore be relayed and considered for mining.
-const MAXIMUM_STANDARD_TRANSACTION_MASS: u64 = 100_000;
+const MAXIMUM_STANDARD_TRANSACTION_MASS: u64 = 500_000;
 
 impl Mempool {
     pub(crate) fn check_transaction_standard_in_isolation(&self, transaction: &MutableTransaction) -> NonStandardResult<()> {
@@ -233,7 +233,7 @@ mod tests {
                 name: "max standard tx size with default minimum relay fee",
                 size: MAXIMUM_STANDARD_TRANSACTION_MASS,
                 minimum_relay_transaction_fee: DEFAULT_MINIMUM_RELAY_TRANSACTION_FEE,
-                want: 100000,
+                want: 500000,
             },
             Test { name: "1500 bytes with 5000 relay fee", size: 1500, minimum_relay_transaction_fee: 5000, want: 7500 },
             Test { name: "1500 bytes with 3000 relay fee", size: 1500, minimum_relay_transaction_fee: 3000, want: 4500 },

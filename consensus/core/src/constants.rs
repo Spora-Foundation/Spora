@@ -13,12 +13,12 @@ pub const LOCK_TIME_THRESHOLD: u64 = 500_000_000_000;
 pub const SAU_PER_SPORA: u64 = 100_000_000;
 
 /// The parameter for scaling inverse SPORA value to mass units (KIP-0009)
-pub const STORAGE_MASS_PARAMETER: u64 = SAU_PER_SPORA * 10_000;
+pub const STORAGE_MASS_PARAMETER: u64 = SAU_PER_SPORA * 3_000;
 
 /// The parameter defining how much mass per byte to charge for when calculating
-/// transient storage mass. Since normally the block mass limit is 500_000, this limits
-/// block body byte size to 125_000 (KIP-0013).
-pub const TRANSIENT_BYTE_TO_MASS_FACTOR: u64 = 4;
+/// transient storage mass. With the Phase 1 defaults (`max_block_mass = 2_000_000`),
+/// this limits block body byte size to 1_000_000 bytes (KIP-0013).
+pub const TRANSIENT_BYTE_TO_MASS_FACTOR: u64 = 2;
 
 /// MaxSau is the maximum transaction amount allowed in sau.
 pub const MAX_SAU: u64 = 29_000_000_000 * SAU_PER_SPORA;

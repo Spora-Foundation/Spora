@@ -292,7 +292,7 @@ pub const MAINNET_PARAMS: Params = Params {
     mass_per_tx_byte: 1,
     mass_per_script_pub_key_byte: 10,
     mass_per_sig_op: 1000,
-    max_block_mass: 500_000,
+    max_block_mass: 2_000_000,
 
     storage_mass_parameter: STORAGE_MASS_PARAMETER,
 
@@ -334,7 +334,7 @@ pub const TESTNET_PARAMS: Params = Params {
     mass_per_tx_byte: 1,
     mass_per_script_pub_key_byte: 10,
     mass_per_sig_op: 1000,
-    max_block_mass: 500_000,
+    max_block_mass: 2_000_000,
 
     storage_mass_parameter: STORAGE_MASS_PARAMETER,
     deflationary_phase_daa_score: OneBps::deflationary_phase_daa_score(),
@@ -385,7 +385,7 @@ pub const SIMNET_PARAMS: Params = Params {
     mass_per_tx_byte: 1,
     mass_per_script_pub_key_byte: 10,
     mass_per_sig_op: 1000,
-    max_block_mass: 500_000,
+    max_block_mass: 2_000_000,
 
     storage_mass_parameter: STORAGE_MASS_PARAMETER,
 
@@ -424,7 +424,7 @@ pub const DEVNET_PARAMS: Params = Params {
     mass_per_tx_byte: 1,
     mass_per_script_pub_key_byte: 10,
     mass_per_sig_op: 1000,
-    max_block_mass: 500_000,
+    max_block_mass: 2_000_000,
 
     storage_mass_parameter: STORAGE_MASS_PARAMETER,
 

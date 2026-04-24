@@ -336,6 +336,7 @@ workflow-websocket = { version = "0.18.0", default-features = false }
 # nw-sys = { path = "../nw-sys" }
 
 [patch.crates-io]
+workflow-node = { path = "vendor/workflow-node" }
 workflow-perf-monitor = { path = "vendor/workflow-perf-monitor" }
 
 [profile.release]

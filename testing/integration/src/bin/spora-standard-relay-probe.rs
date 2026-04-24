@@ -16,7 +16,7 @@ use spora_testing_integration::common::{
 };
 use std::{collections::VecDeque, fs, path::PathBuf};
 
-const SPORA_STANDARD_RELAY_MAX_TX_MASS: u64 = 100_000;
+const SPORA_STANDARD_RELAY_MAX_TX_MASS: u64 = 500_000;
 
 #[derive(Serialize)]
 struct ProbeReport {
@@ -40,15 +40,11 @@ struct ExampleProbeReport {
 }
 
 fn pay_to_acceptance_owner(address: &Address) -> Script {
-    Script::new(
-        *ALWAYS_SUCCESS_SCRIPT.code_hash(),
-        ALWAYS_SUCCESS_SCRIPT.version(),
-        pay_to_acceptance_owner_args(address),
-    )
+    Script::new(always_success_code_hash(), 0, pay_to_acceptance_owner_args(address))
 }
 
 fn pay_to_acceptance_owner_args(address: &Address) -> Vec<u8> {
-    address.payload.clone().try_into().expect("acceptance owner address payload must decode")
+    address.payload.to_vec()
 }
 
 fn hash_hex(bytes: &[u8; 32]) -> String {
@@ -132,11 +128,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for example in examples {
         let artifact_size_bytes = example.artifact_bytes.len();
         let estimated_standard_deployment_storage_mass = standard_deployment_storage_mass(artifact_size_bytes);
-        let fits_standard_relay_transaction_mass =
-            estimated_standard_deployment_storage_mass <= SPORA_STANDARD_RELAY_MAX_TX_MASS;
-        let deploy_input = spendable_cells
-            .pop_front()
-            .ok_or_else(|| format!("ran out of matured prealloc cells while probing {}", example.name))?;
+        let fits_standard_relay_transaction_mass = estimated_standard_deployment_storage_mass <= SPORA_STANDARD_RELAY_MAX_TX_MASS;
+        let deploy_input =
+            spendable_cells.pop_front().ok_or_else(|| format!("ran out of matured prealloc cells while probing {}", example.name))?;
         let deploy_input = vec![deploy_input];
         let deploy_input_capacity = deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
         let code_cell_capacity = deploy_input_capacity
@@ -199,7 +193,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             deployment_accepted,
             deployment_error,
             code_cell_indexed,
-            deployment_tx_id: deployment_accepted.then(|| hash_hex(deploy_tx_id.as_bytes())),
+            deployment_tx_id: deployment_accepted.then(|| hash_hex(&deploy_tx_id.as_bytes())),
         });
 
         let _ = code_outpoint;
@@ -224,4 +218,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-use spora_exec::scripts::ALWAYS_SUCCESS_SCRIPT;
+use spora_exec::scripts::always_success_code_hash;

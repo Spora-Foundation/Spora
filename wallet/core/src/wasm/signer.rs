@@ -11,7 +11,7 @@ use spora_wasm_core::types::HexString;
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(extends = js_sys::Array, is_type_of = Array::is_array, typescript_type = "(PrivateKey | HexString | Uint8Array)[]")]
-    #[derive(Clone, Debug, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq)]
     pub type PrivateKeyArrayT;
 }
 

@@ -748,12 +748,12 @@ mod tests {
         let mut tx = generate_tx_from_amounts(&[base_value, base_value, base_value * 2], &[base_value; 4]);
         let storage_mass_parameter = STORAGE_MASS_PARAMETER;
         let storage_mass = MassCalculator::new(0, 0, 0, storage_mass_parameter).calc_contextual_masses(&tx.as_verifiable()).unwrap();
-        assert_eq!(storage_mass, 10); // With p=2: harmonic_outs=16, arithmetic_ins=6
+        assert_eq!(storage_mass, 4); // With the 2M block mass limit, plurality scaling lowers this balanced split cost.
 
         let mut tx2 = tx.clone();
         tx2.tx.outputs[0].capacity = 10 * SAU_PER_SPORA;
         let storage_mass = MassCalculator::new(0, 0, 0, storage_mass_parameter).calc_contextual_masses(&tx2.as_verifiable()).unwrap();
-        assert_eq!(storage_mass, 4006);
+        assert_eq!(storage_mass, 1203);
 
         // Increase values over the lim
         for out in tx.tx.outputs.iter_mut() {
@@ -761,7 +761,7 @@ mod tests {
         }
         tx.entries[0].as_mut().unwrap().capacity += tx.tx.outputs.len() as u64;
         let storage_mass = MassCalculator::new(0, 0, 0, storage_mass_parameter).calc_contextual_masses(&tx.as_verifiable()).unwrap();
-        assert_eq!(storage_mass, 6); // With p=2 the threshold shifts, so slightly-above-C values still produce non-zero mass
+        assert_eq!(storage_mass, 4); // With p=2 the threshold shifts, so slightly-above-C values still produce non-zero mass
 
         // Now create 2:2 transaction
         // Assert the formula: max( 0 , C·( |O|/H(O) - |I|/H(I) ) )

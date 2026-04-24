@@ -8605,8 +8605,6 @@ dependencies = [
 [[package]]
 name = "workflow-node"
 version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b85c9add43b5da3bed3d0d6d92eb3a2c5986c0ae65c7c3f5189876c19648154"
 dependencies = [
  "borsh",
  "futures",

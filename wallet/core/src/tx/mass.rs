@@ -31,7 +31,7 @@ pub(crate) const MINIMUM_RELAY_TRANSACTION_FEE: u64 = 1000;
 
 /// MAXIMUM_STANDARD_TRANSACTION_MASS is the maximum mass allowed for transactions that
 /// are considered standard and will therefore be relayed and considered for mining.
-pub const MAXIMUM_STANDARD_TRANSACTION_MASS: u64 = 100_000;
+pub const MAXIMUM_STANDARD_TRANSACTION_MASS: u64 = 500_000;
 
 /// minimum_required_transaction_relay_fee returns the minimum transaction fee required
 /// for a transaction with the passed mass to be accepted into the mempool and relayed.
