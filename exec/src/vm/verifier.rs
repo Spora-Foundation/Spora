@@ -37,7 +37,7 @@ pub struct TransactionState {
     pub state: Option<FullSuspendedState>,
     /// Total cycles completed before the current group fully finishes.
     pub current_cycles: u64,
-    /// The cycle budget used for the current suspended step.
+    /// The total transaction-level VM budget reached by the current suspended step.
     pub limit_cycles: u64,
 }
 
@@ -49,12 +49,11 @@ impl TransactionState {
 
     /// Return the next cycle budget from an incremental step size and a maximum bound.
     pub fn next_limit_cycles(&self, step_cycles: u64, max_cycles: u64) -> (u64, bool) {
-        let remain = max_cycles.saturating_sub(self.current_cycles);
-        let next_limit = self.limit_cycles.saturating_add(step_cycles);
-        if next_limit < remain {
+        let next_limit = self.limit_cycles.saturating_add(step_cycles).max(self.current_cycles);
+        if next_limit < max_cycles {
             (next_limit, false)
         } else {
-            (remain, true)
+            (max_cycles, true)
         }
     }
 }
@@ -443,17 +442,20 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
         let mut current_consumed_cycles = 0u64;
 
         for (idx, group) in script_groups.iter().enumerate() {
-            let remain_cycles = limit_cycles.checked_sub(current_consumed_cycles).ok_or_else(|| {
-                ScriptError::VM(super::error::VMError::CyclesExceeded { limit: limit_cycles, actual: current_consumed_cycles })
-            })?;
+            let Some(remain_cycles) = limit_cycles.checked_sub(current_consumed_cycles) else {
+                return Ok(VerifyResult::Suspended(TransactionState::new(None, idx, total_cycles, limit_cycles)));
+            };
 
             match self.verify_script_group_chunk(group, remain_cycles, None)? {
                 GroupRunResult::Completed(group_cycles) => {
                     current_consumed_cycles = current_consumed_cycles.saturating_add(group_cycles);
                     total_cycles = total_cycles.saturating_add(group_cycles);
+                    if idx + 1 < script_groups.len() && current_consumed_cycles >= limit_cycles {
+                        return Ok(VerifyResult::Suspended(TransactionState::new(None, idx + 1, total_cycles, limit_cycles)));
+                    }
                 }
                 GroupRunResult::Suspended(state) => {
-                    return Ok(VerifyResult::Suspended(TransactionState::new(Some(state), idx, total_cycles, remain_cycles)));
+                    return Ok(VerifyResult::Suspended(TransactionState::new(Some(state), idx, total_cycles, limit_cycles)));
                 }
             }
         }
@@ -468,12 +470,13 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
             ScriptError::VM(super::error::VMError::ExecutionError(format!("snapshot group missing {}", state.current)))
         })?;
 
-        let mut current_used = 0u64;
         let mut total_cycles = state.current_cycles;
+        let Some(current_group_limit) = limit_cycles.checked_sub(total_cycles) else {
+            return Ok(VerifyResult::Suspended(TransactionState::new(state.state.clone(), state.current, total_cycles, limit_cycles)));
+        };
 
-        match self.verify_script_group_chunk(current_group, limit_cycles, state.state.as_ref())? {
+        match self.verify_script_group_chunk(current_group, current_group_limit, state.state.as_ref())? {
             GroupRunResult::Completed(group_cycles) => {
-                current_used = current_used.saturating_add(group_cycles);
                 total_cycles = total_cycles.saturating_add(group_cycles);
             }
             GroupRunResult::Suspended(next_state) => {
@@ -487,17 +490,19 @@ impl<D: CellDataProvider> TransactionScriptVerifier<D> {
         }
 
         for (idx, group) in script_groups.iter().enumerate().skip(state.current + 1) {
-            let remain_cycles = limit_cycles
-                .checked_sub(current_used)
-                .ok_or_else(|| ScriptError::VM(super::error::VMError::CyclesExceeded { limit: limit_cycles, actual: current_used }))?;
+            let Some(remain_cycles) = limit_cycles.checked_sub(total_cycles) else {
+                return Ok(VerifyResult::Suspended(TransactionState::new(None, idx, total_cycles, limit_cycles)));
+            };
 
             match self.verify_script_group_chunk(group, remain_cycles, None)? {
                 GroupRunResult::Completed(group_cycles) => {
-                    current_used = current_used.saturating_add(group_cycles);
                     total_cycles = total_cycles.saturating_add(group_cycles);
+                    if idx + 1 < script_groups.len() && total_cycles >= limit_cycles {
+                        return Ok(VerifyResult::Suspended(TransactionState::new(None, idx + 1, total_cycles, limit_cycles)));
+                    }
                 }
                 GroupRunResult::Suspended(next_state) => {
-                    return Ok(VerifyResult::Suspended(TransactionState::new(Some(next_state), idx, total_cycles, remain_cycles)));
+                    return Ok(VerifyResult::Suspended(TransactionState::new(Some(next_state), idx, total_cycles, limit_cycles)));
                 }
             }
         }
@@ -1251,7 +1256,12 @@ mod tests {
         let state = TransactionState::new(None, 0, 80, 10);
 
         let (next_limit, last) = state.next_limit_cycles(15, 100);
-        assert_eq!(next_limit, 20);
+        assert_eq!(next_limit, 80);
+        assert!(!last);
+
+        let state = TransactionState::new(None, 0, 80, 90);
+        let (next_limit, last) = state.next_limit_cycles(15, 100);
+        assert_eq!(next_limit, 100);
         assert!(last);
     }
 }

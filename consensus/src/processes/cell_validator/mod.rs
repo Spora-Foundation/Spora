@@ -396,7 +396,7 @@ impl<P: CellStateProvider> CellValidator<P> {
             if plan.should_verify_native_standard_locks() { plan.verify_native_standard_locks(tx)? } else { 0 };
 
         if plan.native_only() {
-            ensure_total_cycles_within_limit(verified_native_cycles, effective_limit)?;
+            ensure_total_cycles_within_limit(verified_native_cycles, plan.per_tx_cycles_limit)?;
             return Ok(CellScriptVerifyResult::Completed(verified_native_cycles));
         }
 
@@ -405,7 +405,7 @@ impl<P: CellStateProvider> CellValidator<P> {
         match verifier.resumable_verify(vm_limit).map_err(|err| map_vm_script_error(err, verified_native_cycles, effective_limit))? {
             VerifyResult::Completed(vm_cycles) => {
                 let total_cycles = verified_native_cycles.saturating_add(vm_cycles);
-                ensure_total_cycles_within_limit(total_cycles, effective_limit)?;
+                ensure_total_cycles_within_limit(total_cycles, plan.per_tx_cycles_limit)?;
                 Ok(CellScriptVerifyResult::Completed(total_cycles))
             }
             VerifyResult::Suspended(vm_state) => Ok(CellScriptVerifyResult::Suspended(CellScriptVerificationState::vm(
@@ -452,7 +452,7 @@ impl<P: CellStateProvider> CellValidator<P> {
                     if plan.should_verify_native_standard_locks() { plan.verify_native_standard_locks(tx)? } else { 0 };
 
                 if plan.native_only() {
-                    ensure_total_cycles_within_limit(verified_native_cycles, effective_limit)?;
+                    ensure_total_cycles_within_limit(verified_native_cycles, plan.per_tx_cycles_limit)?;
                     return Ok(CellScriptVerifyResult::Completed(verified_native_cycles));
                 }
 
@@ -464,7 +464,7 @@ impl<P: CellStateProvider> CellValidator<P> {
                 {
                     VerifyResult::Completed(vm_cycles) => {
                         let total_cycles = verified_native_cycles.saturating_add(vm_cycles);
-                        ensure_total_cycles_within_limit(total_cycles, effective_limit)?;
+                        ensure_total_cycles_within_limit(total_cycles, plan.per_tx_cycles_limit)?;
                         Ok(CellScriptVerifyResult::Completed(total_cycles))
                     }
                     VerifyResult::Suspended(vm_state) => Ok(CellScriptVerifyResult::Suspended(CellScriptVerificationState::vm(
@@ -490,7 +490,7 @@ impl<P: CellStateProvider> CellValidator<P> {
                 {
                     VerifyResult::Completed(vm_cycles) => {
                         let total_cycles = native_cycles.saturating_add(vm_cycles);
-                        ensure_total_cycles_within_limit(total_cycles, effective_limit)?;
+                        ensure_total_cycles_within_limit(total_cycles, plan.per_tx_cycles_limit)?;
                         Ok(CellScriptVerifyResult::Completed(total_cycles))
                     }
                     VerifyResult::Suspended(next_vm_state) => Ok(CellScriptVerifyResult::Suspended(CellScriptVerificationState::vm(

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-PROFILE="smoke"
+PROFILE="base"
 KEEP_ARTIFACTS=0
 ACCEPTANCE_COMMAND="$0 $*"
 
@@ -25,14 +25,15 @@ while [[ $# -gt 0 ]]; do
       ;;
     -h|--help)
       cat <<'USAGE'
-Usage: scripts/devnet_acceptance.sh [--profile smoke|external-boot|cellscript|propagation|full] [--keep-artifacts]
+Usage: scripts/devnet_acceptance.sh [--profile base|external-boot|cellscript|propagation|full|production] [--keep-artifacts]
 
 Profiles:
-  smoke          Run the in-process devnet acceptance smoke test, including VM code-cell and CellScript ELF deploy/spend.
+  base           Run the in-process devnet base probe, including VM code-cell and CellScript ELF deploy/spend.
   external-boot  Generate a devnet wallet manifest and boot a real sporad process with explicit relaxed mass policy.
   cellscript     Run focused CellScript examples and package-manager acceptance tests.
   propagation    Run the two-node block/transaction propagation acceptance test.
-  full           Run smoke, external-boot, propagation, and the focused CellScript tool/package suite.
+  full           Run base, external-boot, propagation, and the focused CellScript tool/package suite.
+  production     Run full acceptance and fail unless the Spora production gate reports production_ready=true.
 USAGE
       exit 0
       ;;
@@ -50,13 +51,13 @@ RUN_DIR="$REPO_ROOT/target/devnet-acceptance/$RUN_ID"
 BOOTSTRAP_JSON="$RUN_DIR/bootstrap.json"
 SPORAD_LOG="$RUN_DIR/sporad.log"
 PROBE_JSON="$RUN_DIR/probe-report.json"
-SMOKE_REPORT_JSON="$RUN_DIR/smoke-report.json"
+BASE_REPORT_JSON="$RUN_DIR/base-report.json"
 CELLSCRIPT_REPORT_JSON="$RUN_DIR/cellscript-report.json"
 PROPAGATION_REPORT_JSON="$RUN_DIR/propagation-report.json"
 REPORT_JSON="$RUN_DIR/acceptance-report.json"
 NODE_PID=""
 PREALLOC_ADDRESS=""
-SMOKE_STATUS="skipped"
+BASE_STATUS="skipped"
 EXTERNAL_BOOT_STATUS="skipped"
 CELLSCRIPT_STATUS="skipped"
 PROPAGATION_STATUS="skipped"
@@ -82,22 +83,31 @@ cleanup() {
 }
 trap cleanup EXIT
 
-run_smoke() {
+run_base() {
+  local mass_policy_mode="${1:-relaxed}"
+  local standard_mass_policy=0
+  if [[ "$mass_policy_mode" == "standard" ]]; then
+    standard_mass_policy=1
+  elif [[ "$mass_policy_mode" != "relaxed" ]]; then
+    echo "unsupported base mass policy mode: $mass_policy_mode" >&2
+    exit 2
+  fi
   (
     cd "$REPO_ROOT"
-    DEVNET_ACCEPTANCE_SMOKE_REPORT_JSON="$SMOKE_REPORT_JSON" \
+    DEVNET_ACCEPTANCE_BASE_REPORT_JSON="$BASE_REPORT_JSON" \
+    DEVNET_ACCEPTANCE_STANDARD_MASS_POLICY="$standard_mass_policy" \
     cargo test --locked -p spora-testing-integration --lib \
       --features "integration-tests devnet-prealloc vm" \
-      devnet_acceptance_tests::devnet_acceptance_smoke \
+      devnet_acceptance_tests::devnet_acceptance_base \
       -- --nocapture --test-threads=1
   )
-  validate_smoke_report
-  mark_json_status "$SMOKE_REPORT_JSON" "passed"
-  SMOKE_STATUS="passed"
+  validate_base_report
+  mark_json_status "$BASE_REPORT_JSON" "passed"
+  BASE_STATUS="passed"
 }
 
-validate_smoke_report() {
-  python3 - "$SMOKE_REPORT_JSON" <<'PY'
+validate_base_report() {
+  python3 - "$BASE_REPORT_JSON" <<'PY'
 import json
 import sys
 
@@ -119,6 +129,10 @@ names = [item.get("name") for item in examples]
 if names != expected_examples:
     raise SystemExit(f"unexpected bundled example deployment list: {names}")
 
+mass_policy = report.get("relaxed_mass_policy", {})
+policy_mode = mass_policy.get("mode", "relaxed")
+if policy_mode not in {"relaxed", "standard"}:
+    raise SystemExit(f"unexpected base mass policy mode: {policy_mode}")
 required_true_fields = [
     "signed_transfer_confirmed",
     "multi_input_multi_output_confirmed",
@@ -127,37 +141,143 @@ required_true_fields = [
     "always_success_vm_spend_confirmed",
     "noop_cellscript_spend_confirmed",
     "cellscript_schema_output_spend_confirmed",
-    "cellscript_parameterized_amount_spend_confirmed",
 ]
+if policy_mode == "relaxed":
+    required_true_fields.append("cellscript_parameterized_amount_spend_confirmed")
 for field in required_true_fields:
     if report.get(field) is not True:
-        raise SystemExit(f"smoke report field {field} was not true")
+        raise SystemExit(f"base report field {field} was not true")
 
-mass_policy = report.get("relaxed_mass_policy", {})
-if mass_policy.get("relay_non_standard") is not True:
-    raise SystemExit("smoke report did not record relaxed non-standard relay")
-if mass_policy.get("block_max_mass") != 100000000:
-    raise SystemExit(f"unexpected smoke block_max_mass: {mass_policy.get('block_max_mass')}")
+if policy_mode == "relaxed":
+    if mass_policy.get("relay_non_standard") is not True:
+        raise SystemExit("base report did not record relaxed non-standard relay")
+    if mass_policy.get("block_max_mass") != 100000000:
+        raise SystemExit(f"unexpected relaxed base block_max_mass: {mass_policy.get('block_max_mass')}")
+else:
+    if mass_policy.get("relay_non_standard") is not False:
+        raise SystemExit("standard base report must not enable non-standard relay")
+    if mass_policy.get("block_max_mass") != 500000:
+        raise SystemExit(f"unexpected standard base block_max_mass: {mass_policy.get('block_max_mass')}")
 if mass_policy.get("applies_to_all_networks_when_explicitly_enabled") is not True:
-    raise SystemExit("smoke report did not record all-network explicit opt-in scope")
+    raise SystemExit("base report did not record all-network explicit opt-in scope")
 if mass_policy.get("standard_policy_preserved_by_default") is not True:
-    raise SystemExit("smoke report did not record default standard policy preservation")
+    raise SystemExit("base report did not record default standard policy preservation")
 
 for item in examples:
     name = item.get("name")
-    if not item.get("code_cell_indexed"):
-        raise SystemExit(f"{name} code cell was not indexed according to smoke report")
-    if not item.get("malformed_spend_rejected"):
-        raise SystemExit(f"{name} malformed spend was not rejected according to smoke report")
-    if item.get("malformed_spend_rejected_by_standard_policy"):
-        raise SystemExit(f"{name} malformed spend was rejected by standard policy")
-    reason = item.get("malformed_spend_reject_reason", "")
-    lowered = reason.lower()
-    forbidden = ["not standard", "storage mass", "compute mass", "transient", "cycles exceeded", "cycles limit"]
-    if any(marker in lowered for marker in forbidden):
-        raise SystemExit(f"{name} malformed spend did not fail fast in script/business validation: {reason}")
+    if policy_mode == "relaxed":
+        if not item.get("code_cell_indexed"):
+            raise SystemExit(f"{name} code cell was not indexed according to base report")
+        if not item.get("malformed_spend_rejected"):
+            raise SystemExit(f"{name} malformed spend was not rejected according to base report")
+        if item.get("malformed_spend_rejected_by_standard_policy"):
+            raise SystemExit(f"{name} malformed spend was rejected by standard policy")
+        reason = item.get("malformed_spend_reject_reason", "")
+        lowered = reason.lower()
+        forbidden = ["not standard", "storage mass", "compute mass", "transient", "cycles exceeded", "cycles limit"]
+        if any(marker in lowered for marker in forbidden):
+            raise SystemExit(f"{name} malformed spend did not fail fast in script/business validation: {reason}")
     if not item.get("artifact_size_bytes", 0) > 0:
         raise SystemExit(f"{name} artifact size was not recorded")
+    if not item.get("action_count", 0) > 0:
+        raise SystemExit(f"{name} action coverage was not recorded")
+    if len(item.get("action_names", [])) != item.get("action_count"):
+        raise SystemExit(f"{name} action_names/action_count mismatch")
+    for mass_field in [
+        "estimated_storage_mass",
+        "estimated_code_deployment_mass",
+        "estimated_standard_deployment_storage_mass",
+    ]:
+        if not item.get(mass_field, 0) > 0:
+            raise SystemExit(f"{name} {mass_field} was not recorded")
+    if "fits_standard_relay_transaction_mass" not in item:
+        raise SystemExit(f"{name} standard relay transaction compatibility was not recorded")
+
+production_gate = report.get("production_gate", {})
+if production_gate.get("status") not in {"blocked", "passed"}:
+    raise SystemExit(f"unexpected Spora production gate status: {production_gate.get('status')}")
+if production_gate.get("bundled_example_deployment_probe_count") != len(expected_examples):
+    raise SystemExit("Spora production gate did not record one deployment probe per bundled example")
+if production_gate.get("required_action_specific_builder_count", 0) <= 0:
+    raise SystemExit("Spora production gate did not record required action-specific builder count")
+coverage = production_gate.get("action_builder_coverage", [])
+if len(coverage) != production_gate.get("required_action_specific_builder_count"):
+    raise SystemExit("Spora production gate action coverage count mismatch")
+if production_gate.get("scoped_action_artifact_count", -1) < 0:
+    raise SystemExit("Spora production gate did not record scoped action artifact coverage")
+if production_gate.get("scheduler_witness_shape_count", -1) < 0:
+    raise SystemExit("Spora production gate did not record scheduler witness shape coverage")
+if production_gate.get("scheduler_witness_shape_malformed_count", -1) < 0:
+    raise SystemExit("Spora production gate did not record malformed scheduler witness shape coverage")
+if production_gate.get("standard_block_max_mass", 0) <= 0:
+    raise SystemExit("Spora production gate did not record standard block max mass")
+if production_gate.get("standard_relay_max_tx_mass") != 100000:
+    raise SystemExit("Spora production gate did not record standard relay max transaction mass")
+if production_gate.get("relaxed_block_max_mass") != mass_policy.get("block_max_mass"):
+    raise SystemExit("Spora production gate relaxed block max mass does not match the acceptance mass policy")
+if production_gate.get("standard_relay_deploy_compatible_example_count", -1) < 0:
+    raise SystemExit("Spora production gate did not record standard relay deployment compatibility")
+if production_gate.get("standard_relay_deploy_compatible_action_count", -1) < 0:
+    raise SystemExit("Spora production gate did not record scoped standard relay deployment compatibility")
+for item in coverage:
+    if "scoped_action_artifact_covered" not in item:
+        raise SystemExit("Spora production gate action coverage is missing scoped action artifact coverage")
+    if item.get("scoped_action_artifact_covered") and not item.get("scoped_action_artifact_bytes", 0) > 0:
+        raise SystemExit("Spora production gate scoped action artifact did not record a positive artifact size")
+    if item.get("scoped_action_artifact_covered") and not item.get("scoped_action_artifact_hash"):
+        raise SystemExit("Spora production gate scoped action artifact did not record an artifact hash")
+    if "scheduler_witness_shape_covered" not in item:
+        raise SystemExit("Spora production gate action coverage is missing scheduler witness shape coverage")
+    if "scheduler_witness_shape_malformed_covered" not in item:
+        raise SystemExit("Spora production gate action coverage is missing malformed scheduler witness shape coverage")
+    requirements = item.get("builder_requirements")
+    if not isinstance(requirements, dict):
+        raise SystemExit("Spora production gate action coverage is missing builder requirements")
+    for requirement_field in [
+        "entry_param_count",
+        "scheduler_witness_bytes",
+        "scheduler_access_count",
+        "min_input_count",
+        "min_cell_dep_count",
+        "min_output_count",
+        "consume_count",
+        "read_ref_count",
+        "create_count",
+        "mutate_count",
+        "transaction_runtime_input_requirement_count",
+        "checked_runtime_obligation_count",
+        "fail_closed_runtime_feature_count",
+        "estimated_cycles",
+        "estimated_standard_deployment_storage_mass",
+    ]:
+        if requirement_field not in requirements:
+            raise SystemExit(f"Spora production gate builder requirements are missing {requirement_field}")
+        if not isinstance(requirements[requirement_field], int) or requirements[requirement_field] < 0:
+            raise SystemExit(f"Spora production gate builder requirement {requirement_field} must be a non-negative integer")
+    if item.get("scheduler_witness_shape_covered") and requirements["scheduler_witness_bytes"] <= 0:
+        raise SystemExit("Spora production gate builder requirements did not record scheduler witness bytes")
+    if "fits_standard_relay_transaction_mass" not in requirements:
+        raise SystemExit("Spora production gate builder requirements did not record standard relay transaction compatibility")
+    if requirements.get("requires_action_specific_transaction_builder") is not True:
+        raise SystemExit("Spora production gate builder requirements must require action-specific transaction builders")
+if production_gate.get("production_ready") is True and production_gate.get("status") != "passed":
+    raise SystemExit("Spora production gate cannot be production_ready without passed status")
+if production_gate.get("production_ready") is False and not production_gate.get("blockers"):
+    raise SystemExit("Spora production gate must explain blockers when not production-ready")
+PY
+}
+
+validate_spora_production_ready() {
+  python3 - "$BASE_REPORT_JSON" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as fh:
+    report = json.load(fh)
+gate = report.get("production_gate", {})
+if gate.get("production_ready") is not True:
+    blockers = gate.get("blockers", [])
+    raise SystemExit("Spora production gate is not ready: " + "; ".join(blockers))
 PY
 }
 
@@ -301,7 +421,7 @@ run_external_boot() {
   local started=0
   for _ in $(seq 1 600); do
     if ! kill -0 "$NODE_PID" >/dev/null 2>&1; then
-      echo "sporad exited during external boot smoke; see $SPORAD_LOG" >&2
+      echo "sporad exited during external boot probe; see $SPORAD_LOG" >&2
       tail -n 80 "$SPORAD_LOG" >&2 || true
       exit 1
     fi
@@ -312,14 +432,14 @@ run_external_boot() {
     sleep 1
   done
   if [[ "$started" -ne 1 ]]; then
-    echo "sporad did not reach RPC startup during external boot smoke; see $SPORAD_LOG" >&2
+    echo "sporad did not reach RPC startup during external boot probe; see $SPORAD_LOG" >&2
     tail -n 80 "$SPORAD_LOG" >&2 || true
     exit 1
   fi
 
   (
     cd "$REPO_ROOT"
-    cargo run --locked -p spora-testing-integration --bin spora-devnet-probe -- \
+    cargo run --locked -p spora-testing-integration --features wrpc-probe --bin spora-devnet-probe -- \
       --grpc grpc://127.0.0.1:16610 \
       --wrpc-borsh ws://127.0.0.1:17610 \
       --wrpc-json ws://127.0.0.1:18610 \
@@ -344,12 +464,12 @@ write_acceptance_report() {
   GIT_STATUS_COUNT="$GIT_STATUS_COUNT" \
   BOOTSTRAP_JSON="$BOOTSTRAP_JSON" \
   PROBE_JSON="$PROBE_JSON" \
-  SMOKE_REPORT_JSON="$SMOKE_REPORT_JSON" \
+  BASE_REPORT_JSON="$BASE_REPORT_JSON" \
   CELLSCRIPT_REPORT_JSON="$CELLSCRIPT_REPORT_JSON" \
   PROPAGATION_REPORT_JSON="$PROPAGATION_REPORT_JSON" \
   SPORAD_LOG="$SPORAD_LOG" \
   PREALLOC_ADDRESS="$PREALLOC_ADDRESS" \
-  SMOKE_STATUS="$SMOKE_STATUS" \
+  BASE_STATUS="$BASE_STATUS" \
   EXTERNAL_BOOT_STATUS="$EXTERNAL_BOOT_STATUS" \
   CELLSCRIPT_STATUS="$CELLSCRIPT_STATUS" \
   PROPAGATION_STATUS="$PROPAGATION_STATUS" \
@@ -385,17 +505,17 @@ report = {
     "git_dirty": os.environ.get("GIT_STATUS_COUNT", "0") != "0",
     "bootstrap": existing("BOOTSTRAP_JSON"),
     "probe": existing("PROBE_JSON"),
-    "smoke_report": existing("SMOKE_REPORT_JSON"),
+    "base_report": existing("BASE_REPORT_JSON"),
     "cellscript_report": existing("CELLSCRIPT_REPORT_JSON"),
     "propagation_report": existing("PROPAGATION_REPORT_JSON"),
     "sporad_log": existing("SPORAD_LOG"),
     "prealloc_address": os.environ.get("PREALLOC_ADDRESS") or None,
-    "smoke": os.environ["SMOKE_STATUS"],
+    "base": os.environ["BASE_STATUS"],
     "external_boot": os.environ["EXTERNAL_BOOT_STATUS"],
     "cellscript": os.environ["CELLSCRIPT_STATUS"],
     "propagation": os.environ["PROPAGATION_STATUS"],
     "profiles": {
-        "smoke": os.environ["SMOKE_STATUS"],
+        "base": os.environ["BASE_STATUS"],
         "external_boot": os.environ["EXTERNAL_BOOT_STATUS"],
         "propagation": os.environ["PROPAGATION_STATUS"],
         "cellscript": os.environ["CELLSCRIPT_STATUS"],
@@ -428,9 +548,9 @@ on_error() {
 trap 'on_error $LINENO' ERR
 
 case "$PROFILE" in
-  smoke)
-    CURRENT_STEP="smoke"
-    run_smoke
+  base)
+    CURRENT_STEP="base"
+    run_base
     ;;
   external-boot)
     CURRENT_STEP="external_boot"
@@ -445,8 +565,20 @@ case "$PROFILE" in
     run_propagation_suite
     ;;
   full)
-    CURRENT_STEP="smoke"
-    run_smoke
+    CURRENT_STEP="base"
+    run_base
+    CURRENT_STEP="external_boot"
+    run_external_boot
+    CURRENT_STEP="propagation"
+    run_propagation_suite
+    CURRENT_STEP="cellscript"
+    run_cellscript_suite
+    ;;
+  production)
+    CURRENT_STEP="base"
+    run_base
+    CURRENT_STEP="spora_production_gate"
+    validate_spora_production_ready
     CURRENT_STEP="external_boot"
     run_external_boot
     CURRENT_STEP="propagation"

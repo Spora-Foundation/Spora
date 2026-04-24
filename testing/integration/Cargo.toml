@@ -36,10 +36,9 @@ spora-pow.workspace = true
 spora-rpc-core.workspace = true
 spora-rpc-service.workspace = true
 spora-utils.workspace = true
-spora-wrpc-client.workspace = true
-spora-wrpc-server.workspace = true
-spora-wallet-core.workspace = true
 sporad.workspace = true
+spora-wallet-core = { workspace = true, optional = true }
+spora-wrpc-client = { workspace = true, optional = true }
 
 async-channel.workspace = true
 async-trait.workspace = true
@@ -84,5 +83,19 @@ integration-tests = []
 vm = ["spora-consensus/vm"]
 mempool-benchmarks = []
 subscribe-benchmarks = []
-wallet-account-variant-tests = []
+wallet-account-variant-tests = ["dep:spora-wallet-core"]
 consensus-mempool-template-matrix-tests = []
+wrpc-probe = ["dep:spora-wrpc-client"]
+
+[[bin]]
+name = "spora-devnet-bootstrap"
+path = "src/bin/spora-devnet-bootstrap.rs"
+
+[[bin]]
+name = "spora-devnet-probe"
+path = "src/bin/spora-devnet-probe.rs"
+required-features = ["wrpc-probe"]
+
+[[bin]]
+name = "spora-standard-relay-probe"
+path = "src/bin/spora-standard-relay-probe.rs"

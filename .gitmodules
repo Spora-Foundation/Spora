@@ -1,3 +1,7 @@
 [submodule "cellscript"]
 	path = cellscript
 	url = https://github.com/tsukifune-kosei/CellScript.git
+[submodule "research"]
+	path = research
+	url = https://github.com/Spora-Foundation/Research.git
+	branch = main

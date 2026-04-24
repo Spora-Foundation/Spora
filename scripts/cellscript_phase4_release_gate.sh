@@ -32,8 +32,8 @@ check_trailing_whitespace() {
         ".github/workflows/spora-devnet-acceptance.yml"
         "cellscript/CHANGELOG.md"
         "cellscript/README.md"
-        "cellscript/README_CN.md"
-        "docs/CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md"
+        "cellscript/README_CH.md"
+        "cellscript/docs/CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md"
         "scripts/cellscript_phase4_release_gate.sh"
         "scripts/ckb_cellscript_acceptance.sh"
         "scripts/devnet_acceptance.sh"
@@ -65,7 +65,7 @@ check_trailing_whitespace() {
 }
 
 check_dual_chain_production_plan() {
-    local doc="docs/CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md"
+    local doc="cellscript/docs/CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md"
     local required=(
         "**Status**: Canonical production roadmap"
         "This document replaces the older CellScript v1 scope"
@@ -86,7 +86,7 @@ check_dual_chain_production_plan() {
         '`vesting.cell`'
         '`amm_pool.cell`'
         '`launch.cell`'
-        "Smoke artifacts remain useful only as VM-plumbing regression tests."
+        "Base devnet probes remain useful only as regression tests."
         "Do not claim full CKB production support until all original bundled examples"
         "Do not let Spora support regress while closing CKB support."
         "Do not reintroduce public Borsh CellScript/CKB wire formats."
@@ -128,8 +128,8 @@ check_v1_public_docs_boundaries() {
     local required=(
         "cellscript/README.md::The \`ckb\` profile is intentionally bounded in v1."
         "cellscript/README.md::Bounded ckb-vm artifact profile for the admitted Cell subset"
-        "cellscript/README_CN.md::v1 的 \`ckb\` profile 是有边界的 artifact profile。"
-        "cellscript/README_CN.md::对受支持 Cell 子集提供有边界的 ckb-vm artifact profile"
+        "cellscript/README_CH.md::v1 的 \`ckb\` profile 是有边界的 artifact profile。"
+        "cellscript/README_CH.md::对受支持 Cell 子集提供有边界的 ckb-vm artifact profile"
         "README.md::CKB strict profile 使用 CKB syscall/source/hash/header/Molecule 规则。"
         "README.md::采用 Molecule 作为 VM/CellScript 公共 ABI"
         "README.md::CKB strict profile 不接受 Borsh 作为公开 wire format"
@@ -148,7 +148,7 @@ check_v1_public_docs_boundaries() {
     local public_docs=(
         "README.md"
         "cellscript/README.md"
-        "cellscript/README_CN.md"
+        "cellscript/README_CH.md"
     )
 
     local item file pattern
@@ -244,8 +244,9 @@ check_v1_ci_workflow() {
         "if-no-files-found: error"
         '"cellscript"'
         '"cellscript/**"'
-        "spora-devnet-smoke-acceptance"
+        "spora-devnet-base-acceptance"
         "spora-devnet-full-acceptance"
+        "spora-devnet-production-gate"
         'spora-devnet-${{ inputs.profile }}-acceptance'
         "target/devnet-acceptance/"
     )
@@ -319,15 +320,12 @@ check_v1_code_boundaries() {
         'scripts/cellscript_phase4_release_gate.sh::scripts/devnet_acceptance.sh'
         'scripts/cellscript_phase4_release_gate.sh::scripts/regenerate_snapshots.sh'
         'scripts/cellscript_phase4_release_gate.sh::scripts/regenerate_test_data.sh'
-        'scripts/devnet_acceptance.sh::mark_json_status "$SMOKE_REPORT_JSON" "passed"'
+        'scripts/devnet_acceptance.sh::mark_json_status "$BASE_REPORT_JSON" "passed"'
         'scripts/devnet_acceptance.sh::"status": os.environ["RESULT"]'
         'cellscript/src/lib.rs::const VM_ABI_TRAILER_MAGIC: &[u8; 8] = b"SPORABI\0";'
-        'cellscript/src/lib.rs::const CKB_ACCEPTANCE_SMOKE_POLICY_BYPASS_ENV'
-        'cellscript/src/lib.rs::fn ckb_acceptance_smoke_policy_bypass_allowed_for_env'
         'cellscript/src/lib.rs::scheduler_witness_borsh_hex is not public scheduler witness metadata'
         'cellscript/src/lib.rs::fn compile_rejects_spora_claim_signature_helpers_under_ckb_profile()'
         'cellscript/src/lib.rs::fn compile_lowers_ckb_group_source_large_immediate_to_riscv_elf()'
-        'cellscript/src/lib.rs::fn ckb_acceptance_smoke_policy_bypass_requires_explicit_env_and_no_arg_u64_main()'
         'cellscript/src/lib.rs::fn compile_prefers_no_arg_main_for_entry_wrapper()'
         'cellscript/src/cli/commands.rs::fn validate_expected_target_profile'
         'cellscript/src/cli/commands.rs::expect_target_profile: m.get_one::<String>("expect-target-profile").cloned(),'
@@ -351,7 +349,6 @@ check_v1_code_boundaries() {
         'scripts/ckb_cellscript_acceptance.sh::bundled_examples_exact_order'
         'scripts/ckb_cellscript_acceptance.sh::strict_original_ckb_compile_policy_fail_closed'
         'scripts/ckb_cellscript_acceptance.sh::strict_original_ckb_compile_unexpected_failures'
-        'scripts/ckb_cellscript_acceptance.sh::acceptance_smoke_policy_bypass'
         'scripts/ckb_cellscript_acceptance.sh::all_artifacts_deployed_and_spent'
         'scripts/ckb_cellscript_acceptance.sh::all_token_actions_exercised'
         'scripts/ckb_cellscript_acceptance.sh::all_nft_actions_exercised'

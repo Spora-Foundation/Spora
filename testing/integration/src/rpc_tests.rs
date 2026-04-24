@@ -826,10 +826,10 @@ async fn sanity_test() {
     daemon.shutdown();
 }
 
-/// `cargo test --package spora-testing-integration --lib --features vm -- rpc_tests::resumable_virtual_state_smoke_test --exact --nocapture --test-threads=1`
+/// `cargo test --package spora-testing-integration --lib --features vm -- rpc_tests::resumable_virtual_state_base_test --exact --nocapture --test-threads=1`
 #[cfg(feature = "vm")]
 #[tokio::test]
-async fn resumable_virtual_state_smoke_test() {
+async fn resumable_virtual_state_base_test() {
     spora_core::log::try_init_logger("info");
     spora_core::panic::configure_panic();
 

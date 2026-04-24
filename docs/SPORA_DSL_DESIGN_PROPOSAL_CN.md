@@ -6,7 +6,7 @@
 **类别**: 语言设计 / 协议工程  
 **依赖**: ckbvm (RISC-V), CellTx 信封, GhostDAG 共识  
 
-**当前生产计划**: [CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md](./CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md)
+**当前生产计划**: [CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md](../cellscript/docs/CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md)
 
 ---
 
@@ -14,7 +14,7 @@
 
 > ⚠️ **重要提示**: 本文档是设计提案，描述的是**设计意图**而非**实现真相**。
 > 
-> 若需要了解当前代码的实际状态和下一步推进，请优先查看 **[CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md](./CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md)**。
+> 若需要了解当前代码的实际状态和下一步推进，请优先查看 **[CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md](../cellscript/docs/CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md)**。
 > 
 > 以下表格已按当前代码状态收紧，但可能仍有滞后。
 
@@ -1890,7 +1890,7 @@ let tokens = claim vesting_receipt
 
 本节用更具观点性的执行计划取代通用编译器路线图。
 
-实际执行时，阶段状态以 [`CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md`](./CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md) 为准。该文件维护当前双链生产级目标、退出门槛、剩余收尾项和下一步推进顺序。
+实际执行时，阶段状态以 [`CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md`](../cellscript/docs/CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md) 为准。该文件维护当前双链生产级目标、退出门槛、剩余收尾项和下一步推进顺序。
 
 关键决策是：
 
