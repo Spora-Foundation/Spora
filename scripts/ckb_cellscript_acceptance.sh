@@ -1513,6 +1513,7 @@ baseline = compile_artifact(
 artifacts.append(baseline)
 
 bundled_examples = []
+bundled_example_deployment_artifacts = []
 for name in EXAMPLES:
     strict = strict_original_compile(name)
     if strict["unexpected_failure"]:
@@ -1526,6 +1527,13 @@ for name in EXAMPLES:
         "strict_original_ckb_compile": strict,
     }
     bundled_examples.append(record)
+    if strict["status"] == "passed":
+        bundled_example_deployment_artifacts.append({
+            "name": name,
+            "kind": "bundled-example-strict-original",
+            "source": str(examples_dir / name),
+            "artifact": strict["artifact"],
+        })
 
 token_action_artifacts = []
 for action in TOKEN_ACTION_SOURCES:
@@ -1825,6 +1833,7 @@ report = {
     "strict_original_ckb_compile_unexpected_failures": strict_original_unexpected_failures,
     "pure_baseline": baseline,
     "bundled_examples": bundled_examples,
+    "bundled_example_deployment_artifacts": bundled_example_deployment_artifacts,
     "token_action_artifacts": token_action_artifacts,
     "nft_action_artifacts": nft_action_artifacts,
     "timelock_action_artifacts": timelock_action_artifacts,
@@ -1997,6 +2006,7 @@ report = json.loads(report_path.read_text(encoding="utf-8"))
 artifacts = report.get("artifacts", [])
 if not artifacts:
     raise RuntimeError("acceptance report does not contain artifacts")
+bundled_example_deployment_artifacts = report.get("bundled_example_deployment_artifacts", [])
 token_action_artifacts = report.get("token_action_artifacts", [])
 nft_action_artifacts = report.get("nft_action_artifacts", [])
 timelock_action_artifacts = report.get("timelock_action_artifacts", [])
@@ -2021,6 +2031,7 @@ report.update({
         "chain_template": "ckb/test/template integration devnet",
         "always_success_system_cell_index": ALWAYS_SUCCESS_INDEX,
         "artifact_runs": [],
+        "bundled_example_deployment_runs": [],
         "token_action_runs": [],
         "nft_action_runs": [],
         "timelock_action_runs": [],
@@ -2821,6 +2832,53 @@ def run_artifact(artifact_record, always_success_dep):
         "measured_constraints": measure_release_constraints(spend_tx, valid_spend_dry_run),
         "locked_cell_spend": spend_result,
         "spend_recipient_live": spend_live.get("status") == "live",
+        "status": "passed",
+    })
+    return result
+
+def run_bundled_example_deployment(artifact_record, always_success_dep):
+    name = artifact_record["name"]
+    artifact_path = pathlib.Path(artifact_record["artifact"])
+    artifact = artifact_path.read_bytes()
+    artifact_ckb_data_hash = data_hash(artifact)
+
+    result = {
+        "name": name,
+        "kind": artifact_record["kind"],
+        "source": artifact_record["source"],
+        "artifact": str(artifact_path),
+        "artifact_size_bytes": len(artifact),
+        "artifact_ckb_data_hash_blake2b": artifact_ckb_data_hash,
+        "artifact_has_sporabi_trailer": b"SPORABI" in artifact[-64:],
+    }
+    if result["artifact_has_sporabi_trailer"]:
+        raise RuntimeError(f"{name} CKB artifact still contains a SPORABI trailer")
+
+    deploy_min_capacity = (len(artifact) + 1_000) * 100_000_000
+    deploy_input = collect_spendable_cellbases(deploy_min_capacity)
+    deploy_tx = transaction(
+        deploy_input,
+        [
+            {
+                "capacity": hex_u64(deploy_input["total_capacity"]),
+                "lock": always_success_lock(),
+                "type": None,
+            }
+        ],
+        ["0x" + artifact.hex()],
+        [always_success_dep],
+    )
+    valid_deploy_dry_run = rpc("dry_run_transaction", [deploy_tx])
+    deploy_result = submit_and_commit(deploy_tx, f"{name} bundled-example code-cell deploy")
+    deploy_live = assert_live(deploy_result["tx_hash"], 0, f"{name} bundled-example code cell")
+    result.update({
+        "deploy_input": deploy_input,
+        "valid_deploy_dry_run": valid_deploy_dry_run,
+        "measured_constraints": measure_release_constraints(deploy_tx, valid_deploy_dry_run),
+        "code_cell_deploy": deploy_result,
+        "code_cell_live": deploy_live.get("status") == "live",
+        "code_cell_dep": {"out_point": out_point(deploy_result["tx_hash"], 0), "dep_type": "code"},
+        "status": "passed",
     })
     return result
 
@@ -4450,6 +4508,14 @@ try:
     })
     write_report()
 
+    for artifact_record in bundled_example_deployment_artifacts:
+        deployment_result = run_bundled_example_deployment(artifact_record, always_success_dep)
+        report["onchain"]["bundled_example_deployment_runs"].append(deployment_result)
+        report["onchain"]["completed_bundled_example_deployments"] = len(
+            report["onchain"]["bundled_example_deployment_runs"]
+        )
+        write_report()
+
     for artifact_record in artifacts:
         artifact_result = run_artifact(artifact_record, always_success_dep)
         report["onchain"]["artifact_runs"].append(artifact_result)
@@ -4500,10 +4566,31 @@ try:
 
     tip_after = rpc("get_tip_header")
     report["onchain"]["tip_after"] = tip_after
-    report["onchain"]["all_artifacts_deployed_and_spent"] = True
+    expected_artifact_count = len(artifacts)
+    completed_artifact_names = [
+        run["name"]
+        for run in report["onchain"]["artifact_runs"]
+        if run.get("status") == "passed"
+        and run.get("code_cell_live") is True
+        and run.get("locked_cell_live") is True
+        and run.get("locked_cell_live_after_malformed_spend") is True
+        and run.get("spend_recipient_live") is True
+    ]
     report["onchain"]["bundled_examples_deployed_and_spent"] = [
         run["name"] for run in report["onchain"]["artifact_runs"] if run["kind"].startswith("bundled-example-")
     ]
+    report["onchain"]["bundled_examples_deployed"] = [
+        run["name"]
+        for run in report["onchain"]["bundled_example_deployment_runs"]
+        if run.get("status") == "passed" and run.get("code_cell_live") is True
+    ]
+    report["onchain"]["all_bundled_examples_deployed"] = (
+        report["onchain"]["bundled_examples_deployed"] == report["bundled_examples_exact_order"]
+    )
+    report["onchain"]["all_artifacts_deployed_and_spent"] = (
+        len(completed_artifact_names) == expected_artifact_count
+        and len(report["onchain"]["artifact_runs"]) == expected_artifact_count
+    )
     report["onchain"]["token_actions_exercised"] = [run["action"] for run in report["onchain"]["token_action_runs"]]
     report["onchain"]["all_token_actions_exercised"] = sorted(report["onchain"]["token_actions_exercised"]) == [
         "burn",
@@ -4645,8 +4732,18 @@ try:
         "amm_pool.cell": report["onchain"]["amm_actions_exercised"],
         "launch.cell": report["onchain"]["launch_actions_exercised"],
     })
+    if not report["onchain"]["all_bundled_examples_deployed"]:
+        raise RuntimeError(
+            "not all strict original bundled examples deployed: "
+            f"deployed={report['onchain']['bundled_examples_deployed']}, "
+            f"expected={report['bundled_examples_exact_order']}"
+        )
     if not report["onchain"]["all_artifacts_deployed_and_spent"]:
-        raise RuntimeError("not all CKB artifacts deployed and spent")
+        raise RuntimeError(
+            "not all CKB artifacts deployed and spent: "
+            f"completed={completed_artifact_names}, "
+            f"expected_artifact_count={expected_artifact_count}"
+        )
     if not report["onchain"]["all_token_actions_exercised"]:
         raise RuntimeError(f"incomplete token action coverage: {report['onchain']['token_actions_exercised']}")
     if not report["onchain"]["all_nft_actions_exercised"]:

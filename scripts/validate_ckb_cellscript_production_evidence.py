@@ -177,6 +177,8 @@ def validate_onchain_gate(report: dict[str, Any]) -> None:
     require(isinstance(onchain, dict), "onchain section must be present")
     require_field(onchain, "status", EXPECTED_STATUS, "onchain")
     require_field(onchain, "all_artifacts_deployed_and_spent", True, "onchain")
+    require_field(onchain, "all_bundled_examples_deployed", True, "onchain")
+    require_field(onchain, "bundled_examples_deployed", EXPECTED_EXAMPLES, "onchain")
     require_field(onchain, "all_token_actions_exercised", True, "onchain")
     require_field(onchain, "all_nft_actions_exercised", True, "onchain")
     require_field(onchain, "all_timelock_actions_exercised", True, "onchain")
@@ -189,6 +191,32 @@ def validate_onchain_gate(report: dict[str, Any]) -> None:
     require_field(onchain, "measured_cycles_action_count", EXPECTED_ACTION_COUNT, "onchain")
     require_field(onchain, "tx_size_measured_action_count", EXPECTED_ACTION_COUNT, "onchain")
     require_field(onchain, "occupied_capacity_measured_action_count", EXPECTED_ACTION_COUNT, "onchain")
+
+    deployment_runs = onchain.get("bundled_example_deployment_runs")
+    require(isinstance(deployment_runs, list), "onchain.bundled_example_deployment_runs must be a list")
+    require(
+        len(deployment_runs) == len(EXPECTED_EXAMPLES),
+        f"expected {len(EXPECTED_EXAMPLES)} bundled example deployment runs, got {len(deployment_runs)}",
+    )
+    deployment_names = [run.get("name") for run in deployment_runs if isinstance(run, dict)]
+    require(
+        deployment_names == EXPECTED_EXAMPLES,
+        f"bundled example deployment order must be {EXPECTED_EXAMPLES!r}, got {deployment_names!r}",
+    )
+    for run in deployment_runs:
+        require(isinstance(run, dict), "bundled example deployment run entries must be objects")
+        name = run.get("name")
+        require(isinstance(name, str) and name, "bundled example deployment run is missing name")
+        require_field(run, "status", EXPECTED_STATUS, name)
+        require_field(run, "kind", "bundled-example-strict-original", name)
+        require_bool(run.get("code_cell_live"), f"{name}.code_cell_live")
+        require_positive_int(run.get("artifact_size_bytes"), f"{name}.artifact_size_bytes")
+        valid_deploy_dry_run = run.get("valid_deploy_dry_run")
+        require(isinstance(valid_deploy_dry_run, dict), f"{name} missing valid_deploy_dry_run")
+        require(
+            isinstance(valid_deploy_dry_run.get("cycles"), str) and valid_deploy_dry_run["cycles"].startswith("0x"),
+            f"{name} missing hex deploy dry-run cycles",
+        )
 
     final_gate = report.get("final_production_hardening_gate")
     require(isinstance(final_gate, dict), "final_production_hardening_gate must be an object")
