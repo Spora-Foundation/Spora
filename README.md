@@ -8,6 +8,17 @@ The project is currently in an active architecture transition from legacy
 transaction outputs to a Cell model inspired by CKB's cell semantics and VM
 interaction style. APIs and internal module boundaries may still change.
 
+## Branch Scope
+
+This branch is the **Spora GhostDAG** line. It keeps the current DAG-oriented
+consensus architecture, GHOSTDAG virtual-state processing, PoW/difficulty
+assumptions, and Cell-based execution model as the main design context.
+
+A separate `spora-BFT` branch is reserved for future research into a consortium
+chain / BFT-oriented version of Spora. Work on that branch should not be read as
+a replacement for this GhostDAG branch; it is a separate consensus direction
+with different validator, finality, governance, and deployment assumptions.
+
 ## Highlights
 
 - GHOSTDAG-based DAG consensus and virtual state processing.
