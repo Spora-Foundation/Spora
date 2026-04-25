@@ -258,10 +258,20 @@ EXAMPLES = [
     "token.cell",
     "vesting.cell",
 ]
+NON_PRODUCTION_EXAMPLES = [
+    # 0.13 bounded collection helper coverage. This is intentionally exercised
+    # by CellScript tests and Spora tooling acceptance, not by the CKB
+    # production bundled-contract matrix.
+    "registry.cell",
+]
 TRUNCATE = 12000
 
 examples_dir = repo_root / "cellscript" / "examples"
-actual_examples = sorted(path.name for path in examples_dir.glob("*.cell") if path.is_file())
+actual_examples = sorted(
+    path.name
+    for path in examples_dir.glob("*.cell")
+    if path.is_file() and path.name not in NON_PRODUCTION_EXAMPLES
+)
 if actual_examples != sorted(EXAMPLES):
     raise SystemExit(f"bundled examples changed: expected {sorted(EXAMPLES)}, found {actual_examples}")
 
@@ -1805,6 +1815,7 @@ report = {
     "cellc": str(cellc),
     "bundled_examples_exact_order": EXAMPLES,
     "bundled_examples_count": len(EXAMPLES),
+    "non_production_examples": NON_PRODUCTION_EXAMPLES,
     "bundled_examples_strict_admitted": [
         record["name"]
         for record in bundled_examples
