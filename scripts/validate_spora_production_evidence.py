@@ -160,7 +160,7 @@ def validate_acceptance_report(acceptance_report_path: Path, evidence: dict[str,
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Validate Spora production evidence emitted by scripts/devnet_acceptance.sh --profile production.",
+        description="Validate Spora production evidence emitted by scripts/spora_cellscript_acceptance.sh --profile production.",
     )
     parser.add_argument("evidence", type=Path, help="Path to production-evidence.json")
     parser.add_argument(

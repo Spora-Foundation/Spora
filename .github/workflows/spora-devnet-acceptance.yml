@@ -18,7 +18,7 @@ on:
       - "notify/**"
       - "protocol/**"
       - "rpc/**"
-      - "scripts/devnet_acceptance.sh"
+      - "scripts/spora_cellscript_acceptance.sh"
       - "simpa/**"
       - "sporad/**"
       - "state/**"
@@ -46,7 +46,7 @@ on:
       - "notify/**"
       - "protocol/**"
       - "rpc/**"
-      - "scripts/devnet_acceptance.sh"
+      - "scripts/spora_cellscript_acceptance.sh"
       - "simpa/**"
       - "sporad/**"
       - "state/**"
@@ -116,7 +116,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Run devnet base acceptance
-        run: ./scripts/devnet_acceptance.sh --profile base
+        run: ./scripts/spora_cellscript_acceptance.sh --profile base
 
       - name: Upload devnet base acceptance reports
         if: always()
@@ -167,7 +167,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Run full devnet acceptance
-        run: ./scripts/devnet_acceptance.sh --profile full --keep-artifacts
+        run: ./scripts/spora_cellscript_acceptance.sh --profile full --keep-artifacts
 
       - name: Upload full devnet acceptance reports
         if: always()
@@ -218,7 +218,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Run devnet production gate
-        run: ./scripts/devnet_acceptance.sh --profile production
+        run: ./scripts/spora_cellscript_acceptance.sh --profile production
 
       - name: Upload devnet production gate reports
         if: always()
@@ -269,7 +269,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Run focused devnet acceptance
-        run: ./scripts/devnet_acceptance.sh --profile "${{ inputs.profile }}" --keep-artifacts
+        run: ./scripts/spora_cellscript_acceptance.sh --profile "${{ inputs.profile }}" --keep-artifacts
 
       - name: Upload focused devnet acceptance reports
         if: always()

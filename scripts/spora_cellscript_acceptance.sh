@@ -25,7 +25,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -h|--help)
       cat <<'USAGE'
-Usage: scripts/devnet_acceptance.sh [--profile base|external-boot|cellscript|propagation|full|production] [--keep-artifacts]
+Usage: scripts/spora_cellscript_acceptance.sh [--profile base|external-boot|cellscript|propagation|full|production] [--keep-artifacts]
 
 Profiles:
   base           Run the in-process devnet base probe, including VM code-cell and CellScript ELF deploy/spend.

@@ -36,9 +36,9 @@ check_trailing_whitespace() {
         "cellscript/README.md"
         "cellscript/README_CH.md"
         "cellscript/docs/CELLSCRIPT_DUAL_CHAIN_PRODUCTION_PLAN.md"
-        "scripts/cellscript_phase4_release_gate.sh"
+        "scripts/cellscript_dual_chain_release_gate.sh"
         "scripts/ckb_cellscript_acceptance.sh"
-        "scripts/devnet_acceptance.sh"
+        "scripts/spora_cellscript_acceptance.sh"
         "scripts/regenerate_snapshots.sh"
         "scripts/regenerate_test_data.sh"
         "cellscript/src/docgen/mod.rs"
@@ -185,15 +185,15 @@ check_v1_ci_workflow() {
         "CELLSCRIPT_BACKEND_SHAPE_REPORT:"
         '"cellscript"'
         '"cellscript/**"'
-        "./scripts/cellscript_phase4_release_gate.sh v1"
+        "./scripts/cellscript_dual_chain_release_gate.sh v1"
         "actions/upload-artifact@v4"
         "if-no-files-found: error"
         "target/cellscript-backend-shape/"
         "target/ckb-cellscript-acceptance/"
     )
     local forbidden=(
-        "./scripts/cellscript_phase4_release_gate.sh quick"
-        "./scripts/cellscript_phase4_release_gate.sh full"
+        "./scripts/cellscript_dual_chain_release_gate.sh quick"
+        "./scripts/cellscript_dual_chain_release_gate.sh full"
     )
 
     if [[ ! -f "$workflow" ]]; then
@@ -320,18 +320,18 @@ check_v1_code_boundaries() {
         'cellscript/tests/examples.rs::max_unreachable_machine_blocks'
         'cellscript/tests/examples.rs::unreachable_machine_block_count'
         'cellscript/tests/examples.rs::max_fail_handlers'
-        'scripts/cellscript_phase4_release_gate.sh::target/cellscript-backend-shape/backend-shape-report-$MODE.json'
-        'scripts/cellscript_phase4_release_gate.sh::target/cellscript-schema-manifest/schema-manifest-report-$MODE.json'
-        'scripts/cellscript_phase4_release_gate.sh::CellScript backend shape report:'
-        'scripts/cellscript_phase4_release_gate.sh::CellScript Molecule schema manifest report:'
-        'scripts/cellscript_phase4_release_gate.sh::scripts/validate_cellscript_tooling_release.py'
+        'scripts/cellscript_dual_chain_release_gate.sh::target/cellscript-backend-shape/backend-shape-report-$MODE.json'
+        'scripts/cellscript_dual_chain_release_gate.sh::target/cellscript-schema-manifest/schema-manifest-report-$MODE.json'
+        'scripts/cellscript_dual_chain_release_gate.sh::CellScript backend shape report:'
+        'scripts/cellscript_dual_chain_release_gate.sh::CellScript Molecule schema manifest report:'
+        'scripts/cellscript_dual_chain_release_gate.sh::scripts/validate_cellscript_tooling_release.py'
         'scripts/validate_cellscript_tooling_release.py::valid CellScript tooling release boundary'
-        'scripts/cellscript_phase4_release_gate.sh::.github/workflows/spora-devnet-acceptance.yml'
-        'scripts/cellscript_phase4_release_gate.sh::scripts/devnet_acceptance.sh'
-        'scripts/cellscript_phase4_release_gate.sh::scripts/regenerate_snapshots.sh'
-        'scripts/cellscript_phase4_release_gate.sh::scripts/regenerate_test_data.sh'
-        'scripts/devnet_acceptance.sh::mark_json_status "$BASE_REPORT_JSON" "passed"'
-        'scripts/devnet_acceptance.sh::"status": os.environ["RESULT"]'
+        'scripts/cellscript_dual_chain_release_gate.sh::.github/workflows/spora-devnet-acceptance.yml'
+        'scripts/cellscript_dual_chain_release_gate.sh::scripts/spora_cellscript_acceptance.sh'
+        'scripts/cellscript_dual_chain_release_gate.sh::scripts/regenerate_snapshots.sh'
+        'scripts/cellscript_dual_chain_release_gate.sh::scripts/regenerate_test_data.sh'
+        'scripts/spora_cellscript_acceptance.sh::mark_json_status "$BASE_REPORT_JSON" "passed"'
+        'scripts/spora_cellscript_acceptance.sh::"status": os.environ["RESULT"]'
         'cellscript/src/lib.rs::const VM_ABI_TRAILER_MAGIC: &[u8; 8] = b"SPORABI\0";'
         'cellscript/src/lib.rs::scheduler_witness_borsh_hex is not public scheduler witness metadata'
         'cellscript/src/lib.rs::fn compile_rejects_spora_claim_signature_helpers_under_ckb_profile()'
