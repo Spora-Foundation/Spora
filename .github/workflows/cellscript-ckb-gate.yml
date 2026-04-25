@@ -1,64 +1,39 @@
-name: CellScript Dual-Chain Gate
+name: CellScript CKB Gate
 
 on:
   pull_request:
     paths:
-      - ".github/workflows/cellscript-dual-chain.yml"
+      - ".github/workflows/cellscript-ckb-gate.yml"
       - ".gitmodules"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "README.md"
       - "cellscript"
       - "cellscript/**"
-      - "consensus/**"
-      - "docs/CELLSCRIPT_*.md"
-      - "docs/SERIALIZATION_LAYER_GOVERNANCE_MIGRATION_PLAN.md"
-      - "docs/SPORA_DSL_DESIGN_PROPOSAL*.md"
-      - "exec/**"
-      - "mining/**"
-      - "scripts/cellscript_phase4_release_gate.sh"
-      - "scripts/ckb_cellscript_acceptance.sh"
-      - "sdk/adaptor/**"
-      - "wallet/**"
   push:
     branches:
       - main
       - master
       - spora
     paths:
-      - ".github/workflows/cellscript-dual-chain.yml"
+      - ".github/workflows/cellscript-ckb-gate.yml"
       - ".gitmodules"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "README.md"
       - "cellscript"
       - "cellscript/**"
-      - "consensus/**"
-      - "docs/CELLSCRIPT_*.md"
-      - "docs/SERIALIZATION_LAYER_GOVERNANCE_MIGRATION_PLAN.md"
-      - "docs/SPORA_DSL_DESIGN_PROPOSAL*.md"
-      - "exec/**"
-      - "mining/**"
-      - "scripts/cellscript_phase4_release_gate.sh"
-      - "scripts/ckb_cellscript_acceptance.sh"
-      - "sdk/adaptor/**"
-      - "wallet/**"
   workflow_dispatch:
 
 concurrency:
-  group: cellscript-dual-chain-${{ github.ref }}
+  group: cellscript-ckb-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  dual-chain-release-gate:
-    name: Dual-Chain Release Gate
+  ckb-release-gate:
+    name: CKB Release Gate
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
       CARGO_BUILD_JOBS: "1"
       CARGO_INCREMENTAL: "0"
-      CARGO_TARGET_DIR: /tmp/spora-dual-chain-release-gate-target
-      CELLSCRIPT_BACKEND_SHAPE_REPORT: ${{ github.workspace }}/target/cellscript-backend-shape/backend-shape-report-v1.json
+      CARGO_TARGET_DIR: /tmp/cellscript-ckb-release-gate-target
+      CELLSCRIPT_BACKEND_SHAPE_REPORT: ${{ github.workspace }}/cellscript/target/cellscript-backend-shape/backend-shape-report-v1.json
+      CELLSCRIPT_MOLECULE_SCHEMA_MANIFEST_REPORT: ${{ github.workspace }}/cellscript/target/cellscript-schema-manifest/schema-manifest-report-v1.json
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -89,15 +64,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Run CellScript v1 release gate
-        run: ./scripts/cellscript_phase4_release_gate.sh v1
+      - name: Run CellScript CKB release gate
+        run: ./cellscript/scripts/cellscript_ckb_release_gate.sh quick
 
       - name: Upload CellScript release reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cellscript-dual-chain-reports
+          name: cellscript-ckb-reports
           if-no-files-found: error
           path: |
-            target/cellscript-backend-shape/
-            target/ckb-cellscript-acceptance/
+            cellscript/target/cellscript-backend-shape/
+            cellscript/target/cellscript-schema-manifest/
+            cellscript/target/ckb-cellscript-acceptance/
