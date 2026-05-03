@@ -743,3 +743,26 @@ Layer B（CellScript Spora profile 的代码生成）属于 Phase 2+，当前分
 
 当 CellScript Spora profile 实现时，它输出的 TypedCellDecl 必须与此 runtime 的 Rust definition
 在 wire format 上兼容——Layer A 是 canonical contract。
+
+---
+
+## 12. Scope 收尾
+
+**当前 `spora-typed` 只完成 typed-cell execution core；Spora、Hypha、Axone 是同一 typed-cell stack 的未来部署方向，不进入当前 runtime core scope。**
+
+具体边界：
+
+```text
+当前 scope:     typed-cell execution core
+                = conflict_hash + typed_data_hash + CellDAG scheduling
+                + TypedCellDecl schema + validation
+                + scheduler witness envelope
+
+不在 scope:     CellScript Spora profile 代码生成 (Phase 2+)
+                Spora/Hypha/Axone 部署后端差异
+                BFT / settlement / checkpoint / exit
+                ProofPlan / artifact_set / audit layer
+                VM typed-cell semantic awareness
+```
+
+TypedCellDecl 在当前 scope 内是 normalized metadata——不是 VM primitive，不是独立语义权威，不是用户 API。

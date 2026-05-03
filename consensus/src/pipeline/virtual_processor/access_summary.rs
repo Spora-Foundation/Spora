@@ -164,8 +164,6 @@ impl BlockAccessSummary {
     fn merge_cellscript_scheduler_witness(&mut self, tx: &CellTx, witness: &CellScriptSchedulerWitness) {
         // Derive conflict domain membership from access records.
         // Each access carries conflict_hash, classified as READ or WRITE by its operation.
-        // This replaces the former touches_shared field which used a coarser
-        // effect_class-based classification that was incorrect for mixed read/write actions.
         for access in &witness.accesses {
             let conflict_hash = Hash::from_bytes(access.conflict_hash);
             // Defensive: zero conflict_hash should have been rejected by
