@@ -159,41 +159,74 @@ pub enum ConflictKeySpec {
     None,
 }
 
-/// Normalized typed-cell semantic metadata.
+/// Runtime-scheduling semantics — directly consumed by CellDAG.
 ///
-/// Six dimensions with two enforcement tiers:
+/// These two axes determine conflict detection and parallel execution safety.
+/// They are the **only** typed-cell metadata the runtime scheduler consumes.
 ///
-/// **Runtime-critical axes** (directly affect CellDAG scheduling):
-/// - `ownership` — determines write/read eligibility and shared conflict handling
-/// - `conflict_key` — directly derives `conflict_hash` for conflict detection
+/// Rule: VM never consumes typed-cell semantic axes; runtime consumes only
+/// scheduling-critical metadata (ownership + conflict_key + witness envelope).
 ///
-/// **Advisory / future-consumed axes** (validated for contradictions but
-/// not consumed by the scheduler in Phase 1):
-/// - `mutability` — future compiler/ProofPlan semantics, current cross-axis checks only
-/// - `accounting` — future accounting/ProofPlan checks, current label exclusivity only
-/// - `identity` — future update pairing / settlement / exit / artifact metadata
-/// - `settlement` — future checkpoint/exit/bridge layer, current manifest tag
+/// See `docs/TYPED_CELL_CLASSIFICATION_GOVERNANCE.md` §9.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub struct RuntimeCellSemantics {
+    /// Ownership class — determines parallel execution and access rules
+    pub ownership: CellOwnership,
+    /// Conflict key specification — directly derives `conflict_hash` for conflict detection.
+    /// `conflict_hash = blake3(domain || full_script_id || conflict_key_value)`
+    pub conflict_key: ConflictKeySpec,
+}
+
+/// Semantic metadata — not consumed by the runtime scheduler in Phase 1.
 ///
-/// Runtime uses `conflict_key` to derive conflict_hash for CellDAG scheduling.
-/// Other axes are validated for obvious contradictions, but are primarily
-/// consumed by future compiler, ProofPlan, settlement, and audit layers.
+/// These axes are validated for contradictions but are primarily consumed
+/// by future compiler, ProofPlan, settlement, and audit layers.
+///
+/// Rule: CellScript/ProofPlan are the semantic source of truth;
+/// TypedCellDecl is generated/normalised metadata, not an independent language.
+///
+/// See `docs/TYPED_CELL_CLASSIFICATION_GOVERNANCE.md` §9.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub struct TypedCellSemanticMetadata {
+    /// Mutability class — future compiler/ProofPlan semantics, current cross-axis checks only
+    pub mutability: CellMutability,
+    /// Accounting labels — future accounting/ProofPlan checks, current label exclusivity only
+    pub accounting: Vec<CellAccounting>,
+    /// Identity class — future update pairing / settlement / exit / artifact metadata
+    pub identity: CellIdentity,
+    /// Settlement class — future checkpoint/exit/bridge layer, current manifest tag
+    pub settlement: CellSettlement,
+}
+
+/// Normalized typed-cell metadata.
+///
+/// Split into two enforcement tiers via sub-structs:
+///
+/// - **`runtime`** (`RuntimeCellSemantics`): scheduling-critical axes directly
+///   consumed by CellDAG for conflict detection and parallel execution.
+/// - **`semantic`** (`TypedCellSemanticMetadata`): advisory axes validated for
+///   contradictions but not consumed by the scheduler in Phase 1.
+///
+/// Three hard rules prevent TypedCellDecl from becoming a second semantic
+/// authority that conflicts with VM, CellScript, or ProofPlan:
+///
+/// 1. VM never consumes typed-cell semantic axes. VM only executes.
+/// 2. Runtime consumes only scheduling-critical metadata:
+///    ownership + conflict_key + witness envelope.
+/// 3. CellScript/ProofPlan are the semantic source of truth.
+///    TypedCellDecl is generated/normalised metadata, not an independent language.
+///
+/// Anti-override rule:
+/// TypedCellDecl must not introduce verifier semantics that are not derivable
+/// from CellScript source, ProofPlan obligations, or runtime scheduler requirements.
 ///
 /// See `docs/TYPED_CELL_CLASSIFICATION_GOVERNANCE.md` for full governance.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct TypedCellDecl {
-    /// Ownership class (runtime-critical)
-    pub ownership: CellOwnership,
-    /// Mutability class (advisory — future compiler/ProofPlan)
-    pub mutability: CellMutability,
-    /// Accounting labels (advisory — future accounting/ProofPlan)
-    pub accounting: Vec<CellAccounting>,
-    /// Identity class (advisory — future update pairing/settlement)
-    pub identity: CellIdentity,
-    /// Settlement class (advisory — future checkpoint/exit/bridge)
-    pub settlement: CellSettlement,
-    /// Conflict key specification (runtime-critical).
-    /// `conflict_hash = blake3(domain || full_script_id || conflict_key_value)`
-    pub conflict_key: ConflictKeySpec,
+    /// Runtime-scheduling semantics (ownership + conflict_key)
+    pub runtime: RuntimeCellSemantics,
+    /// Semantic metadata (mutability, accounting, identity, settlement)
+    pub semantic: TypedCellSemanticMetadata,
 }
 
 /// Canonical script identity for typed cell registry key.
@@ -325,10 +358,12 @@ pub fn validate_typed_cell_decl(decl: &TypedCellDecl) -> Result<(), TypedCellDec
 ///
 /// These directly affect CellDAG conflict detection correctness.
 /// Violations here can cause missed conflicts or phantom dependencies.
+///
+/// Only examines `decl.runtime` (ownership + conflict_key).
 fn check_runtime_scheduling_rules(decl: &TypedCellDecl) -> Result<(), TypedCellDeclError> {
     // Write-capable cells need a conflict key (conflict_hash must be non-zero)
-    let can_write = !matches!(decl.ownership, CellOwnership::Immutable | CellOwnership::Ephemeral);
-    if can_write && matches!(decl.conflict_key, ConflictKeySpec::None) {
+    let can_write = !matches!(decl.runtime.ownership, CellOwnership::Immutable | CellOwnership::Ephemeral);
+    if can_write && matches!(decl.runtime.conflict_key, ConflictKeySpec::None) {
         return Err(TypedCellDeclError::MutableCellWithNoneConflictKey);
     }
     Ok(())
@@ -340,26 +375,28 @@ fn check_runtime_scheduling_rules(decl: &TypedCellDecl) -> Result<(), TypedCellD
 /// affect CellDAG scheduling directly. They are enforced at validation time
 /// to catch errors early; the scheduler would produce correct results
 /// even without these checks.
+///
+/// Examines both `decl.runtime` and `decl.semantic` for cross-axis violations.
 fn check_semantic_consistency_rules(decl: &TypedCellDecl) -> Result<(), TypedCellDeclError> {
     // Immutable ownership cannot pair with mutable mutability
-    if matches!(decl.ownership, CellOwnership::Immutable) {
-        if !matches!(decl.mutability, CellMutability::Linear) {
+    if matches!(decl.runtime.ownership, CellOwnership::Immutable) {
+        if !matches!(decl.semantic.mutability, CellMutability::Linear) {
             return Err(TypedCellDeclError::ImmutableWithMutableMutability {
-                mutability: decl.mutability,
+                mutability: decl.semantic.mutability,
             });
         }
     }
 
     // Fungible and NonFungible are mutually exclusive
-    let has_fungible = decl.accounting.contains(&CellAccounting::Fungible);
-    let has_nonfungible = decl.accounting.contains(&CellAccounting::NonFungible);
+    let has_fungible = decl.semantic.accounting.contains(&CellAccounting::Fungible);
+    let has_nonfungible = decl.semantic.accounting.contains(&CellAccounting::NonFungible);
     if has_fungible && has_nonfungible {
         return Err(TypedCellDeclError::ConflictingAccountingLabels);
     }
 
     // Ephemeral cells must not have non-local settlement
-    if matches!(decl.ownership, CellOwnership::Ephemeral)
-        && !matches!(decl.settlement, CellSettlement::Local)
+    if matches!(decl.runtime.ownership, CellOwnership::Ephemeral)
+        && !matches!(decl.semantic.settlement, CellSettlement::Local)
     {
         return Err(TypedCellDeclError::EphemeralWithNonLocalSettlement);
     }
@@ -2834,12 +2871,16 @@ mod tests {
     #[test]
     fn test_validate_typed_cell_decl_rejects_mutable_with_none() {
         let decl = TypedCellDecl {
-            ownership: CellOwnership::Owned,
-            mutability: CellMutability::Linear,
-            accounting: vec![CellAccounting::Fungible],
-            identity: CellIdentity::OutPoint,
-            settlement: CellSettlement::Local,
-            conflict_key: ConflictKeySpec::None,
+            runtime: RuntimeCellSemantics {
+                ownership: CellOwnership::Owned,
+                conflict_key: ConflictKeySpec::None,
+            },
+            semantic: TypedCellSemanticMetadata {
+                mutability: CellMutability::Linear,
+                accounting: vec![CellAccounting::Fungible],
+                identity: CellIdentity::OutPoint,
+                settlement: CellSettlement::Local,
+            },
         };
         assert_eq!(
             validate_typed_cell_decl(&decl),
@@ -2851,12 +2892,16 @@ mod tests {
     #[test]
     fn test_validate_typed_cell_decl_rejects_shared_mutable_with_none() {
         let decl = TypedCellDecl {
-            ownership: CellOwnership::Shared,
-            mutability: CellMutability::Versioned,
-            accounting: vec![CellAccounting::NonFungible],
-            identity: CellIdentity::Singleton,
-            settlement: CellSettlement::Pending,
-            conflict_key: ConflictKeySpec::None,
+            runtime: RuntimeCellSemantics {
+                ownership: CellOwnership::Shared,
+                conflict_key: ConflictKeySpec::None,
+            },
+            semantic: TypedCellSemanticMetadata {
+                mutability: CellMutability::Versioned,
+                accounting: vec![CellAccounting::NonFungible],
+                identity: CellIdentity::Singleton,
+                settlement: CellSettlement::Pending,
+            },
         };
         assert_eq!(
             validate_typed_cell_decl(&decl),
@@ -2868,12 +2913,16 @@ mod tests {
     #[test]
     fn test_validate_typed_cell_decl_accepts_immutable_with_none() {
         let decl = TypedCellDecl {
-            ownership: CellOwnership::Immutable,
-            mutability: CellMutability::Linear,
-            accounting: vec![CellAccounting::Receipt],
-            identity: CellIdentity::TypeId,
-            settlement: CellSettlement::Local,
-            conflict_key: ConflictKeySpec::None,
+            runtime: RuntimeCellSemantics {
+                ownership: CellOwnership::Immutable,
+                conflict_key: ConflictKeySpec::None,
+            },
+            semantic: TypedCellSemanticMetadata {
+                mutability: CellMutability::Linear,
+                accounting: vec![CellAccounting::Receipt],
+                identity: CellIdentity::TypeId,
+                settlement: CellSettlement::Local,
+            },
         };
         assert!(
             validate_typed_cell_decl(&decl).is_ok(),
@@ -2884,12 +2933,16 @@ mod tests {
     #[test]
     fn test_validate_typed_cell_decl_accepts_ephemeral_with_none() {
         let decl = TypedCellDecl {
-            ownership: CellOwnership::Ephemeral,
-            mutability: CellMutability::Linear,
-            accounting: vec![],
-            identity: CellIdentity::OutPoint,
-            settlement: CellSettlement::Local,
-            conflict_key: ConflictKeySpec::None,
+            runtime: RuntimeCellSemantics {
+                ownership: CellOwnership::Ephemeral,
+                conflict_key: ConflictKeySpec::None,
+            },
+            semantic: TypedCellSemanticMetadata {
+                mutability: CellMutability::Linear,
+                accounting: vec![],
+                identity: CellIdentity::OutPoint,
+                settlement: CellSettlement::Local,
+            },
         };
         assert!(
             validate_typed_cell_decl(&decl).is_ok(),
@@ -2900,12 +2953,16 @@ mod tests {
     #[test]
     fn test_validate_typed_cell_decl_accepts_owned_with_cell_id() {
         let decl = TypedCellDecl {
-            ownership: CellOwnership::Owned,
-            mutability: CellMutability::Linear,
-            accounting: vec![CellAccounting::Fungible],
-            identity: CellIdentity::OutPoint,
-            settlement: CellSettlement::Local,
-            conflict_key: ConflictKeySpec::CellId,
+            runtime: RuntimeCellSemantics {
+                ownership: CellOwnership::Owned,
+                conflict_key: ConflictKeySpec::CellId,
+            },
+            semantic: TypedCellSemanticMetadata {
+                mutability: CellMutability::Linear,
+                accounting: vec![CellAccounting::Fungible],
+                identity: CellIdentity::OutPoint,
+                settlement: CellSettlement::Local,
+            },
         };
         assert!(validate_typed_cell_decl(&decl).is_ok());
     }
@@ -2913,12 +2970,16 @@ mod tests {
     #[test]
     fn test_validate_rejects_immutable_with_versioned() {
         let decl = TypedCellDecl {
-            ownership: CellOwnership::Immutable,
-            mutability: CellMutability::Versioned,
-            accounting: vec![],
-            identity: CellIdentity::Singleton,
-            settlement: CellSettlement::Local,
-            conflict_key: ConflictKeySpec::None,
+            runtime: RuntimeCellSemantics {
+                ownership: CellOwnership::Immutable,
+                conflict_key: ConflictKeySpec::None,
+            },
+            semantic: TypedCellSemanticMetadata {
+                mutability: CellMutability::Versioned,
+                accounting: vec![],
+                identity: CellIdentity::Singleton,
+                settlement: CellSettlement::Local,
+            },
         };
         assert_eq!(
             validate_typed_cell_decl(&decl),
@@ -2931,12 +2992,16 @@ mod tests {
     #[test]
     fn test_validate_rejects_immutable_with_append_only() {
         let decl = TypedCellDecl {
-            ownership: CellOwnership::Immutable,
-            mutability: CellMutability::AppendOnly,
-            accounting: vec![],
-            identity: CellIdentity::Singleton,
-            settlement: CellSettlement::Local,
-            conflict_key: ConflictKeySpec::None,
+            runtime: RuntimeCellSemantics {
+                ownership: CellOwnership::Immutable,
+                conflict_key: ConflictKeySpec::None,
+            },
+            semantic: TypedCellSemanticMetadata {
+                mutability: CellMutability::AppendOnly,
+                accounting: vec![],
+                identity: CellIdentity::Singleton,
+                settlement: CellSettlement::Local,
+            },
         };
         assert_eq!(
             validate_typed_cell_decl(&decl),
@@ -2949,12 +3014,16 @@ mod tests {
     #[test]
     fn test_validate_rejects_fungible_plus_nonfungible() {
         let decl = TypedCellDecl {
-            ownership: CellOwnership::Owned,
-            mutability: CellMutability::Linear,
-            accounting: vec![CellAccounting::Fungible, CellAccounting::NonFungible],
-            identity: CellIdentity::OutPoint,
-            settlement: CellSettlement::Local,
-            conflict_key: ConflictKeySpec::CellId,
+            runtime: RuntimeCellSemantics {
+                ownership: CellOwnership::Owned,
+                conflict_key: ConflictKeySpec::CellId,
+            },
+            semantic: TypedCellSemanticMetadata {
+                mutability: CellMutability::Linear,
+                accounting: vec![CellAccounting::Fungible, CellAccounting::NonFungible],
+                identity: CellIdentity::OutPoint,
+                settlement: CellSettlement::Local,
+            },
         };
         assert_eq!(
             validate_typed_cell_decl(&decl),
@@ -2965,12 +3034,16 @@ mod tests {
     #[test]
     fn test_validate_rejects_ephemeral_with_committed_settlement() {
         let decl = TypedCellDecl {
-            ownership: CellOwnership::Ephemeral,
-            mutability: CellMutability::Linear,
-            accounting: vec![],
-            identity: CellIdentity::OutPoint,
-            settlement: CellSettlement::Committed,
-            conflict_key: ConflictKeySpec::None,
+            runtime: RuntimeCellSemantics {
+                ownership: CellOwnership::Ephemeral,
+                conflict_key: ConflictKeySpec::None,
+            },
+            semantic: TypedCellSemanticMetadata {
+                mutability: CellMutability::Linear,
+                accounting: vec![],
+                identity: CellIdentity::OutPoint,
+                settlement: CellSettlement::Committed,
+            },
         };
         assert_eq!(
             validate_typed_cell_decl(&decl),
@@ -2981,12 +3054,16 @@ mod tests {
     #[test]
     fn test_validate_rejects_ephemeral_with_pending_settlement() {
         let decl = TypedCellDecl {
-            ownership: CellOwnership::Ephemeral,
-            mutability: CellMutability::Linear,
-            accounting: vec![],
-            identity: CellIdentity::OutPoint,
-            settlement: CellSettlement::Pending,
-            conflict_key: ConflictKeySpec::None,
+            runtime: RuntimeCellSemantics {
+                ownership: CellOwnership::Ephemeral,
+                conflict_key: ConflictKeySpec::None,
+            },
+            semantic: TypedCellSemanticMetadata {
+                mutability: CellMutability::Linear,
+                accounting: vec![],
+                identity: CellIdentity::OutPoint,
+                settlement: CellSettlement::Pending,
+            },
         };
         assert_eq!(
             validate_typed_cell_decl(&decl),
@@ -2997,12 +3074,16 @@ mod tests {
     #[test]
     fn test_typed_cell_decl_serialization_roundtrip() {
         let decl = TypedCellDecl {
-            ownership: CellOwnership::Shared,
-            mutability: CellMutability::Versioned,
-            accounting: vec![CellAccounting::NonFungible, CellAccounting::Receipt],
-            identity: CellIdentity::Field("pool_id".to_string()),
-            settlement: CellSettlement::Committed,
-            conflict_key: ConflictKeySpec::Composite(vec!["asset_id".to_string(), "owner".to_string()]),
+            runtime: RuntimeCellSemantics {
+                ownership: CellOwnership::Shared,
+                conflict_key: ConflictKeySpec::Composite(vec!["asset_id".to_string(), "owner".to_string()]),
+            },
+            semantic: TypedCellSemanticMetadata {
+                mutability: CellMutability::Versioned,
+                accounting: vec![CellAccounting::NonFungible, CellAccounting::Receipt],
+                identity: CellIdentity::Field("pool_id".to_string()),
+                settlement: CellSettlement::Committed,
+            },
         };
 
         let bytes = borsh::to_vec(&decl).expect("borsh serialize");
@@ -3036,12 +3117,16 @@ mod tests {
         let mut store = InMemoryTypedCellStore::new();
         let script = test_script(0xAA, 1, 4);
         let decl = TypedCellDecl {
-            ownership: CellOwnership::Shared,
-            mutability: CellMutability::Versioned,
-            accounting: vec![CellAccounting::NonFungible],
-            identity: CellIdentity::Field("pool_id".to_string()),
-            settlement: CellSettlement::Pending,
-            conflict_key: ConflictKeySpec::Field("pool_id".to_string()),
+            runtime: RuntimeCellSemantics {
+                ownership: CellOwnership::Shared,
+                conflict_key: ConflictKeySpec::Field("pool_id".to_string()),
+            },
+            semantic: TypedCellSemanticMetadata {
+                mutability: CellMutability::Versioned,
+                accounting: vec![CellAccounting::NonFungible],
+                identity: CellIdentity::Field("pool_id".to_string()),
+                settlement: CellSettlement::Pending,
+            },
         };
 
         assert!(store.get_decl(&script).is_none());
@@ -3199,22 +3284,30 @@ mod tests {
         // Shared mutable cell without explicit conflict_key (using CellId) is valid
         // but Shared + None is not
         let shared_cellid = TypedCellDecl {
-            ownership: CellOwnership::Shared,
-            mutability: CellMutability::Versioned,
-            accounting: vec![CellAccounting::NonFungible],
-            identity: CellIdentity::Singleton,
-            settlement: CellSettlement::Pending,
-            conflict_key: ConflictKeySpec::Field("pool_id".to_string()),
+            runtime: RuntimeCellSemantics {
+                ownership: CellOwnership::Shared,
+                conflict_key: ConflictKeySpec::Field("pool_id".to_string()),
+            },
+            semantic: TypedCellSemanticMetadata {
+                mutability: CellMutability::Versioned,
+                accounting: vec![CellAccounting::NonFungible],
+                identity: CellIdentity::Singleton,
+                settlement: CellSettlement::Pending,
+            },
         };
         assert!(validate_typed_cell_decl(&shared_cellid).is_ok());
 
         let shared_none = TypedCellDecl {
-            ownership: CellOwnership::Shared,
-            mutability: CellMutability::Versioned,
-            accounting: vec![CellAccounting::NonFungible],
-            identity: CellIdentity::Singleton,
-            settlement: CellSettlement::Pending,
-            conflict_key: ConflictKeySpec::None,
+            runtime: RuntimeCellSemantics {
+                ownership: CellOwnership::Shared,
+                conflict_key: ConflictKeySpec::None,
+            },
+            semantic: TypedCellSemanticMetadata {
+                mutability: CellMutability::Versioned,
+                accounting: vec![CellAccounting::NonFungible],
+                identity: CellIdentity::Singleton,
+                settlement: CellSettlement::Pending,
+            },
         };
         assert_eq!(
             validate_typed_cell_decl(&shared_none),

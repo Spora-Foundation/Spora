@@ -78,8 +78,9 @@ pub use celltx::{
     compute_conflict_hash, compute_typed_data_hash, encode_ckb_dep_group_data, encode_dep_group_data,
     encode_dep_group_data_for_abi, parse_ckb_dep_group_data, parse_dep_group_data, parse_dep_group_data_for_abi,
     CapacityError, CellAccounting, CellDep, CellIdentity, CellInput, CellMutability, CellOutput, CellOwnership, CellTx,
-    ConflictKeySpec, DepGroupDataAbi, DepType, InMemoryTypedCellStore, OutPoint, Script, ScriptHashVersion, ScriptId,
-    TypedCellDecl, TypedCellDeclError, TypedCellStore, CELLTX_SCHEMA_VERSION,
+    ConflictKeySpec, DepGroupDataAbi, DepType, InMemoryTypedCellStore, OutPoint, RuntimeCellSemantics, Script,
+    ScriptHashVersion, ScriptId, TypedCellDecl, TypedCellDeclError, TypedCellSemanticMetadata, TypedCellStore,
+    CELLTX_SCHEMA_VERSION,
 };
 
 // Re-export serialization framework

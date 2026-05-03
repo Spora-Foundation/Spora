@@ -107,6 +107,8 @@ settlement 层处理外部终局性。
 
 `Immutable` ownership 不得搭配 `Versioned` / `AppendOnly` / `Migratable`。仅 `Linear` 合法（且不进入 Write path）。
 
+对 Immutable cell，`Linear` 只表示创建时物化（creation-time materialisation）；创建后它是只读对象，不得出现在 Write-classified access 中。
+
 ### 4.3 `Ephemeral` 不得参与外部/根承诺结算
 
 `Ephemeral` ownership 必须使用 `Local` settlement。批内临时状态不应进入长期 root、bridge、checkpoint 或 exit 语义。
@@ -151,7 +153,7 @@ Phase 1 只做明显非法组合验证。未来可考虑为 Immutable 新增 `Ce
 | 值 | 语义 |
 |----|------|
 | `Local` | 在当前执行环境内完成，不声明外部结算 |
-| `Committed` | 参与 root commitment / historical proof / optional anchoring |
+| `Committed` | 参与 root commitment / historical proof / optional anchoring。不等于已外部终局化，只表示该 cell 进入承诺根；外部终局性由 Axone/Hypha settlement 层处理 |
 | `Pending` | 等待后续 claim / exit / bridge / settlement finalisation |
 
 不要过早引入 `CkbSettled` / `BridgeSettled` / `ConsortiumSettled` / `ValiditySettled`——这些属于 Axone / Hypha / settlement backend 层。
@@ -190,16 +192,30 @@ Phase 2 可增加 `cell_state_hash = hash(domain || capacity || lock_hash || typ
 
 暂不新增 archetype 枚举。archetype 更适合未来 CellScript sugar / docs / audit UI，不应进入 runtime core。
 
-### 7.2 不拆分 `TypedCellDecl` struct
+### 7.2 TypedCellDecl struct 已拆分
 
-`TypedCellDecl` 在 struct 形状上六维同级并列，但语义上不是同权。当前最小改动是：
+`TypedCellDecl` 已拆分为两个子 struct：
 
-```text
-加 enforcement level 注释
-validator 内部分层
+```rust
+pub struct RuntimeCellSemantics {
+    pub ownership: CellOwnership,
+    pub conflict_key: ConflictKeySpec,
+}
+
+pub struct TypedCellSemanticMetadata {
+    pub mutability: CellMutability,
+    pub accounting: Vec<CellAccounting>,
+    pub identity: CellIdentity,
+    pub settlement: CellSettlement,
+}
+
+pub struct TypedCellDecl {
+    pub runtime: RuntimeCellSemantics,
+    pub semantic: TypedCellSemanticMetadata,
+}
 ```
 
-如果未来误解问题持续，可考虑拆为 `RuntimeCellSemantics { ownership, conflict_key }` + `TypedCellSemanticMetadata { mutability, accounting, identity, settlement }`。但当前不扩大变更面。
+这使两个 enforcement tier 在类型层面就物理隔离，防止 runtime 层意外消费 advisory 维度。
 
 ---
 
@@ -215,3 +231,515 @@ validator 内部分层
 | `CELLSCRIPT_SCHEDULER_OP_SETTLE` | 未发布，Phase 1 不需要 |
 | `CELLSCRIPT_SCHEDULER_OP_MUTATE_INPUT` | 未发布，Phase 1 不需要 |
 | `CELLSCRIPT_SCHEDULER_OP_MUTATE_OUTPUT` | 未发布，Phase 1 不需要 |
+
+---
+
+## 9. VM / CellScript / ProofPlan 边界规则
+
+`TypedCellDecl` 是 runtime/compiler 之间的 normalized metadata，不是独立语义权威。
+为防止它越权与 VM、CellScript、ProofPlan 冲突，定义三条硬规则和一条 anti-override 规则。
+
+### 9.1 三条硬规则
+
+```text
+Rule 1: VM never consumes typed-cell semantic axes.
+        VM only executes.
+
+Rule 2: Runtime consumes only scheduling-critical metadata:
+        ownership + conflict_key + witness envelope.
+
+Rule 3: CellScript/ProofPlan are the semantic source of truth.
+        TypedCellDecl is generated/normalised metadata,
+        not an independent language.
+```
+
+中文：
+
+```text
+VM 只执行，scheduler 才调度，CellScript 才声明，ProofPlan 才解释。
+```
+
+#### Rule 1: VM 边界
+
+VM 层只知道：
+
+```text
+load cell
+load witness
+run script
+return success/failure
+consume cycles
+```
+
+VM 不应该理解 `Ownership`、`Mutability`、`Accounting`、`Identity`、`Settlement`、`ConflictKeySpec`。
+这些属于 execution scheduler / metadata / compiler semantic layer，不是 VM opcode 或 syscall 语义。
+
+如果 VM 开始理解 `Fungible`、`Receipt`、`Settlement`，那就越权了。
+
+#### Rule 2: Runtime 边界
+
+Runtime 直接消费的只有 `RuntimeCellSemantics`：
+
+```text
+ownership  → conflict_hash → CellDAG
+conflict_key → conflict_hash → CellDAG
+witness envelope → access records → BlockAccessSummary
+```
+
+`TypedCellSemanticMetadata` 中的四个 advisory 维度（mutability, accounting, identity, settlement）在 Phase 1
+只做交叉约束验证，不被 runtime scheduler 消费。
+
+#### Rule 3: CellScript / ProofPlan 边界
+
+`TypedCellDecl` 不应成为和 CellScript 平级的第二套语义系统。正确路径：
+
+```text
+CellScript source
+    ↓
+semantic checker
+    ↓
+ProofPlan
+    ↓
+TypedCellDecl / scheduler witness / manifest
+    ↓
+runtime validation
+```
+
+错误路径：
+
+```text
+CellScript source
+TypedCellDecl hand-written config
+runtime tries to reconcile both
+```
+
+CellScript 是 source of intent；TypedCellDecl 是 lowered metadata。
+用户不应该手写两套互相可能矛盾的东西。
+
+### 9.2 Anti-override 规则
+
+```text
+TypedCellDecl must not introduce verifier semantics
+that are not derivable from CellScript source,
+ProofPlan obligations, or runtime scheduler requirements.
+```
+
+中文：
+
+**TypedCellDecl 不得发明 CellScript 源码、ProofPlan 或 runtime scheduler 要求之外的新验证语义。**
+
+这条规则防止 TypedCellDecl 越权。例如：
+
+- TypedCellDecl 不能自己发明新的 accounting 约束（如守恒规则）——守恒由 ProofPlan 表达
+- TypedCellDecl 不能自己发明新的 settlement 终局性——终局性由 Axone/Hypha 层处理
+- TypedCellDecl 不能自己发明新的 ownership 语义——ownership 由 CellScript 声明 + runtime 调度消费
+
+### 9.3 最容易越权的维度
+
+| 维度 | 风险 | 制约
+|------|------|------|
+| `Mutability` | 容易和 CellScript 的 `action input → output`、`move`、`consume/create` 冲突 | 只能是 "expected transition pattern"，真正证明来自 action signature
+| `Accounting` | 容易和 `receipt`、`claim`、`settle` 冲突 | 只能是 tag，不能自动生成会计规则；守恒、claim、redeem 必须由 ProofPlan/CellScript 约束
+| `Settlement` | 最容易和 Axone/CKB 语义冲突 | Phase 1 只做 metadata，不 runtime enforce；真正 settlement 由 Axone checkpoint/exit/CKB scripts 处理
+
+### 9.4 CellScript 未来接入方式
+
+CellScript 未来不要直接暴露六维全量配置。
+它应该从现有语言概念推导：
+
+```cellscript
+#[conflict_key(pool_id)]
+#[identity(field(pool_id))]
+#[settlement(committed)]
+shared Pool has store {
+    pool_id: Hash
+    reserve_a: u128
+    reserve_b: u128
+}
+```
+
+然后编译器生成：
+
+```text
+ownership = Shared
+conflict_key = Field(pool_id)
+identity = Field(pool_id)
+settlement = Committed
+mutability = Versioned / Linear, inferred or explicit
+accounting = inferred/tagged
+```
+
+这样 `TypedCellDecl` 是 **CellScript lowering artifact**，不是和 CellScript 平级的第二套语言。
+
+---
+
+## 10. Runtime Scheduling Metadata vs TypedCellDecl
+
+### 10.1 精确定义
+
+```text
+Runtime scheduling metadata 是调度器消费的最小交易级信息：
+operation、source、index、conflict_hash、typed_data_hash 和 read/write access mode。
+
+TypedCellDecl 是每类 typed cell 的归一化语义声明，
+用来推导 runtime scheduling metadata，并支持 manifest 校验。
+Phase 1 中，只有 ownership 和 conflict_key 是 runtime 调度关键轴；
+mutability、accounting、identity、settlement 作为 compiler、
+ProofPlan、audit 和未来 settlement 层的语义元数据保留。
+```
+
+一句话：
+
+**Runtime scheduling metadata 是“这笔交易怎么排队”；TypedCellDecl 是“这种 Cell 应该怎么被理解”。**
+
+前者是执行调度输入，后者是语义声明和编译产物。
+
+### 10.2 推导链
+
+```text
+TypedCellDecl (per-cell-type semantic declaration)
+    ↓ derive / validate / lower
+Runtime scheduling metadata (per-transaction access witness)
+    ↓ consume
+CellDAG / scheduler / BlockAccessSummary
+```
+
+**TypedCellDecl 是完整说明书；runtime scheduling metadata 是从说明书里抽出来的调度卡片。**
+
+### 10.3 Runtime scheduling metadata 回答的问题
+
+```text
+这笔交易读写了哪些 typed cell？
+哪些读写会冲突？
+哪些可以并行？
+哪些必须排序？
+```
+
+它不关心：
+
+```text
+这个 cell 是不是 receipt？
+是不是 debt？
+是不是以后要 bridge settlement？
+是不是有商业含义？
+是不是 invoice？
+```
+
+它只关心：
+
+```text
+这个 access 的 conflict_hash 是什么？
+是 Read 还是 Write？
+operation/source 合不合法？
+witness 是否和 trusted summary 匹配？
+```
+
+### 10.4 Runtime scheduling metadata 的职责边界
+
+**应该做：**
+
+```text
+1. 检查 witness 结构合法
+2. 检查 operation/source 合法
+3. 检查 conflict_hash 是否匹配 trusted summary
+4. 构造 read/write access set
+5. 构造 CellDAG dependency edge
+6. 生成 BlockAccessSummary
+```
+
+**不应该做：**
+
+```text
+1. 解释 invoice_id 是什么
+2. 判断 AMM pool 公式是否正确
+3. 判断 ReceiptCell 是否可 claim
+4. 判断 StorageClaim 是否满足 CKB occupied capacity
+5. 判断 settlement 是否真的完成
+6. 替代 CellScript / ProofPlan 做业务验证
+```
+
+**Runtime scheduling metadata 是调度索引，不是业务规则。**
+
+### 10.5 实例：AMM Pool
+
+CellScript 声明：
+
+```cellscript
+#[conflict_key(pool_id)]
+#[identity(field(pool_id))]
+#[settlement(committed)]
+shared Pool has store {
+    pool_id: Hash
+    version: u64
+    reserve_a: u128
+    reserve_b: u128
+}
+```
+
+编译器归一化为 TypedCellDecl：
+
+```rust
+TypedCellDecl {
+    runtime: RuntimeCellSemantics {
+        ownership: Shared,
+        conflict_key: Field("pool_id"),
+    },
+    semantic: TypedCellSemanticMetadata {
+        mutability: Versioned,
+        accounting: vec![],
+        identity: Field("pool_id"),
+        settlement: Committed,
+    },
+}
+```
+
+某笔 swap 交易访问 Pool A 时的 runtime scheduling metadata：
+
+```rust
+CellScriptSchedulerAccessWitness {
+    operation: Consume,       // write-classified operation
+    source: Input,
+    index: 0,
+    conflict_hash: H(Pool type_script || pool_id=A),
+    typed_data_hash: H(Pool type_script || data_before),
+}
+```
+
+Scheduler 只看：
+
+```text
+operation = Write
+conflict_hash = X
+```
+
+调度结果：
+
+```text
+Tx1 swap Pool A, Tx2 swap Pool A
+=> same conflict_hash, Write+Write, dependency edge
+
+Tx1 swap Pool A, Tx2 swap Pool B
+=> different conflict_hash, parallel
+```
+
+**Scheduler 不需要知道它是 AMM、reserve、fee、pricing curve。**
+
+### 10.6 实例：Invoice Receipt
+
+CellScript 声明：
+
+```cellscript
+receipt FinancingReceipt has store {
+    receipt_id: Hash
+    invoice_id: Hash
+    funder: Address
+    amount: u128
+}
+```
+
+TypedCellDecl：
+
+```rust
+TypedCellDecl {
+    runtime: RuntimeCellSemantics {
+        ownership: Owned,
+        conflict_key: Field("receipt_id"),
+    },
+    semantic: TypedCellSemanticMetadata {
+        mutability: Linear,
+        accounting: vec![Receipt],
+        identity: Field("receipt_id"),
+        settlement: Committed,
+    },
+}
+```
+
+Runtime scheduling metadata 只关心：
+
+```text
+receipt_id 对应 conflict_hash
+CREATE receipt 是 Write
+```
+
+ProofPlan 会关心：
+
+```text
+invoice 是否重复融资？
+funder 是否签名？
+amount 是否匹配？
+oracle proof 是否存在？
+```
+
+```text
+TypedCellDecl 告诉系统这是什么类型的 cell；
+ProofPlan 告诉系统这笔 action 应该检查什么；
+runtime metadata 告诉 scheduler 怎么调度。
+```
+
+### 10.7 Validator 分层实现
+
+`validate_typed_cell_decl` 已拆为两层：
+
+```rust
+pub fn validate_typed_cell_decl(decl: &TypedCellDecl) -> Result<(), TypedCellDeclError> {
+    check_runtime_scheduling_rules(decl)?;    // 只检查 decl.runtime.*
+    check_semantic_consistency_rules(decl)?;  // 检查 decl.runtime.* + decl.semantic.* 交叉约束
+    Ok(())
+}
+```
+
+```rust
+fn check_runtime_scheduling_rules(decl: &TypedCellDecl) {
+    // 可写 cell 不得使用 ConflictKeySpec::None
+    // 只访问 decl.runtime.ownership 和 decl.runtime.conflict_key
+}
+
+fn check_semantic_consistency_rules(decl: &TypedCellDecl) {
+    // Immutable + mutable mutability 拒绝
+    // Fungible + NonFungible 互斥
+    // Ephemeral + non-Local settlement 拒绝
+    // 访问 decl.runtime.* 和 decl.semantic.*
+}
+```
+
+这样不会让人以为六维同级 runtime enforced。
+
+---
+
+## 11. TypedCellDecl 所有权与生成链
+
+### 11.1 核心原则
+
+```text
+TypedCellDecl 的“语义来源”在 CellScript 端；
+它的“执行格式”在 Spora runtime 端。
+```
+
+**TypedCellDecl 是 Spora protocol 的 metadata contract；CellScript 是它的 authoring frontend。**
+
+### 11.2 三层架构
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│  Layer A: Spora protocol crate / runtime crate                  │
+│  - canonical TypedCellDecl schema (Rust definition)             │
+│  - compute_conflict_hash / compute_typed_data_hash              │
+│  - validate_typed_cell_decl                                      │
+│  - encode_typed_cell_manifest                                    │
+│  = truth of wire / manifest format                               │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer B: CellScript Spora / TypedCell profile                   │
+│  - parse attributes (#[conflict_key], #[identity], #[settlement])│
+│  - infer ownership from resource/shared/receipt                  │
+│  - check conflict_key field exists                               │
+│  - canonical encode composite conflict keys                      │
+│  - emit TypedCellDecl manifest                                   │
+│  - emit scheduler witness template                               │
+│  - emit ProofPlan / artifact_set metadata                        │
+│  = truth of source semantics                                     │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer C: Runtime scheduler                                      │
+│  - consumes: operation, source, index, conflict_hash,            │
+│    typed_data_hash, AccessMode                                    │
+│  - does NOT re-interpret: Fungible, Receipt, Migratable,         │
+│    Pending, Settlement, Identity                                  │
+│  - does NOT persist settlement/finality decisions from metadata  │
+│  (may carry fields through manifests/receipts, but must not make │
+│   external finality or business-validity decisions from them)    │
+│  = truth of execution ordering                                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+流程：
+
+```text
+CellScript declares.
+Compiler normalises.
+Runtime verifies.
+Scheduler executes.
+```
+
+### 11.3 为什么 TypedCellDecl 不能只放在 CellScript repo
+
+Spora runtime 必须有一份自己的 Rust definition，因为 runtime 要：
+
+```text
+验证 manifest / trusted summary / scheduler witness
+推导 conflict_hash
+校验交叉约束
+构造 CellDAG
+```
+
+spora-typed 已经在 runtime 里落地了 TypedCellDecl、conflict_hash、typed_data_hash、
+TypedCellStore、BlockAccessSummary 和 CellDAG 调度，明确 runtime-first、不依赖 CellScript。
+
+正确结构：
+
+```text
+TypedCellDecl schema/spec lives in Spora protocol.
+CellScript Spora profile emits it.
+Runtime consumes and validates it.
+```
+
+**类型定义属于协议边界；生成逻辑属于 CellScript；校验逻辑属于 runtime。**
+
+### 11.4 CellScript profile 架构
+
+CellScript core 不应该内置太多 Spora-specific 东西。Core 只保留：
+
+```text
+resource
+shared
+receipt
+action
+where
+require
+preserve
+consume
+create
+move
+flow
+```
+
+Spora profile 才启用：
+
+```cellscript
+#[conflict_key(...)]
+#[identity(...)]
+#[settlement(...)]
+#[cell_class(...)]
+```
+
+这样 CKB L1 profile 不会被污染。
+
+### 11.5 Profile 家族
+
+TypedCellDecl 是共同中间层；Spora / Hypha / Axone 只是不同部署后端：
+
+```text
+TypedCell profile family
+    ├── Spora: open chain header roots
+    ├── Hypha: federation/audit roots
+    └── Axone: CKB checkpoint cell roots
+```
+
+CellScript may eventually expose deployment profiles：
+
+```text
+Ckb
+TypedCell(Spora)
+TypedCell(Hypha)
+TypedCell(Axone)
+```
+
+CellScript core remains profile-gated。第一个 typed-cell profile应该是共享的，
+Spora / Hypha / Axone 作为不同部署后端，共享同一个 typed-cell lowering backend。
+
+### 11.6 当前 spora-typed 的定位
+
+spora-typed 分支实现的是 Layer A（protocol schema + validation）和 Layer C（scheduler consumption）。
+
+Layer B（CellScript Spora profile 的代码生成）属于 Phase 2+，当前分支不依赖 CellScript。
+
+当 CellScript Spora profile 实现时，它输出的 TypedCellDecl 必须与此 runtime 的 Rust definition
+在 wire format 上兼容——Layer A 是 canonical contract。
