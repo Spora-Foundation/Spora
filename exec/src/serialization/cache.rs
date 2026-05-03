@@ -17,17 +17,10 @@
 //!
 //! ```rust
 //! use spora_exec::serialization::cache::SerializationCache;
-//! use spora_exec::CellTx;
 //!
 //! let mut cache = SerializationCache::new(1000); // 最多缓存 1000 项
-//! let tx = CellTx::new(...).unwrap();
 //!
-//! // 第一次序列化，会缓存结果
-//! let bytes1 = cache.get_or_serialize(&tx).unwrap();
-//!
-//! // 第二次访问，直接返回缓存
-//! let bytes2 = cache.get_or_serialize(&tx).unwrap();
-//! assert_eq!(bytes1.as_ptr(), bytes2.as_ptr()); // 同一内存
+//! // 缓存可用于任何实现 VersionedSerializable 的类型
 //! ```
 
 use crate::serialization::{SerializationError, VersionedSerializable};

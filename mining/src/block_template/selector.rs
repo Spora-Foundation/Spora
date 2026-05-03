@@ -360,7 +360,8 @@ mod tests {
             operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
             source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
             index: 0,
-            binding_hash: [marker; 32],
+            conflict_hash: [marker; 32],
+            typed_data_hash: [0x00; 32],
         }])
     }
 
@@ -370,8 +371,6 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
             estimated_cycles: 64,
             access_count: accesses.len() as u32,
             accesses,

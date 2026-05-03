@@ -482,8 +482,6 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
             estimated_cycles,
             access_count: 0,
             accesses: vec![],

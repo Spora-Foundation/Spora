@@ -75,9 +75,11 @@ pub mod vm;
 pub use vm::{ResolvedCell, ResolvedHeader};
 
 pub use celltx::{
-    encode_ckb_dep_group_data, encode_dep_group_data, encode_dep_group_data_for_abi, parse_ckb_dep_group_data, parse_dep_group_data,
-    parse_dep_group_data_for_abi, CapacityError, CellDep, CellInput, CellOutput, CellTx, DepGroupDataAbi, DepType, OutPoint, Script,
-    ScriptHashVersion, CELLTX_SCHEMA_VERSION,
+    compute_conflict_hash, compute_typed_data_hash, encode_ckb_dep_group_data, encode_dep_group_data,
+    encode_dep_group_data_for_abi, parse_ckb_dep_group_data, parse_dep_group_data, parse_dep_group_data_for_abi,
+    CapacityError, CellAccounting, CellDep, CellIdentity, CellInput, CellMutability, CellOutput, CellOwnership, CellTx,
+    ConflictKeySpec, DepGroupDataAbi, DepType, InMemoryTypedCellStore, OutPoint, Script, ScriptHashVersion, ScriptId,
+    TypedCellDecl, TypedCellDeclError, TypedCellStore, CELLTX_SCHEMA_VERSION,
 };
 
 // Re-export serialization framework

@@ -49,11 +49,267 @@ mod outpoint_serde {
 /// Cell transaction version: 0xC001
 pub const CELL_TX_VERSION: u32 = 0xC001;
 /// Little-endian bytes for the CellScript scheduler witness magic `0xCE11`.
+// ─── Typed Cell Classification ──────────────────────────────────────────────
+
+/// Ownership class — determines parallel execution and access rules
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub enum CellOwnership {
+    /// One owner, easy to parallelise
+    Owned,
+    /// Public mutable cell (AMM pool, oracle)
+    Shared,
+    /// Bounded multi-party session
+    Party,
+    /// Read-only after creation
+    Immutable,
+    /// Batch-local intermediate, not admitted to scheduler
+    Ephemeral,
+}
+
+/// Mutability class — determines state transition pattern
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub enum CellMutability {
+    /// Consume + create
+    Linear,
+    /// Consume + create with version field
+    Versioned,
+    /// Successor output, data only appends
+    AppendOnly,
+    /// Explicit data layout migration
+    Migratable,
+}
+
+/// Accounting class — domain constraint on data layout
+///
+/// Multi-label: `Vec<CellAccounting>` in `TypedCellDecl`.
+/// E.g. a bridge-claim cell can be both `Receipt` + `StorageClaim`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub enum CellAccounting {
+    /// Fungible token-like accounting
+    Fungible,
+    /// Non-fungible unique asset
+    NonFungible,
+    /// Receipt / proof-of-event
+    Receipt,
+    /// Claim over occupied-capacity-backed L1 storage space (not a token class)
+    StorageClaim,
+}
+
+/// Identity class — how identity is preserved across updates
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub enum CellIdentity {
+    /// Natural OutPoint identity
+    OutPoint,
+    /// TYPE_ID pattern
+    TypeId,
+    /// One-of-a-kind, identified by type_script alone
+    Singleton,
+    /// Named field as identity key
+    Field(String),
+    /// Composite key from multiple fields
+    Composite(Vec<String>),
+}
+
+/// Settlement class — determines how this cell's state is committed
+///
+/// Naming is deployment-agnostic: does not presuppose L2, consortium, or standalone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub enum CellSettlement {
+    /// Settled on this chain
+    LocalSettled,
+    /// Settled across chains (bridge / rollup)
+    BridgeSettled,
+    /// Awaiting settlement
+    PendingSettlement,
+}
+
+/// Conflict key specification — determines how conflict_hash is derived
+///
+/// Rule: mutable cells must not use `ConflictKeySpec::None`.
+/// `None` is only valid for Pure / ReadOnly / Ephemeral cells.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub enum ConflictKeySpec {
+    /// Concrete cell identity — default for owned mutable cells
+    CellId,
+    /// Single field name (e.g. "pool_id")
+    Field(String),
+    /// Composite key from multiple fields (e.g. ["asset_id", "owner", "shard_id"])
+    Composite(Vec<String>),
+    /// Owner-level serialisation (explicit coarse opt-in)
+    Owner,
+    /// No conflict key — only valid for Pure / ReadOnly / Ephemeral
+    None,
+}
+
+/// Typed cell declaration
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub struct TypedCellDecl {
+    /// Ownership class
+    pub ownership: CellOwnership,
+    /// Mutability class
+    pub mutability: CellMutability,
+    /// Accounting labels (multi-label)
+    pub accounting: Vec<CellAccounting>,
+    /// Identity class
+    pub identity: CellIdentity,
+    /// Settlement class
+    pub settlement: CellSettlement,
+    /// Conflict key specification.
+    /// `conflict_hash = blake3(domain || full_script_id || conflict_key_value)`
+    pub conflict_key: ConflictKeySpec,
+}
+
+/// Canonical script identity for typed cell registry key.
+///
+/// Keyed by full script identity (not just code_hash), because the same
+/// `code_hash` with different `args` represents different type instances.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Ord, PartialOrd, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+pub struct ScriptId {
+    /// Script code hash
+    pub code_hash: [u8; 32],
+    /// Script hash type
+    pub hash_type: u8,
+    /// Hash of script args (blake3)
+    pub args_hash: [u8; 32],
+}
+
+impl ScriptId {
+    /// Derive ScriptId from a Script reference
+    pub fn from_script(script: &Script) -> Self {
+        let args_hash = *blake3::hash(&script.args).as_bytes();
+        Self { code_hash: script.code_hash, hash_type: script.hash_type, args_hash }
+    }
+}
+
+/// Registry of typed cell declarations keyed by full script identity.
+pub trait TypedCellStore {
+    /// Look up a typed cell declaration by its type script
+    fn get_decl(&self, type_script: &Script) -> Option<&TypedCellDecl>;
+    /// Insert a typed cell declaration
+    fn insert_decl(&mut self, type_script: Script, decl: TypedCellDecl);
+}
+
+/// In-memory typed cell store.
+pub struct InMemoryTypedCellStore {
+    decls: BTreeMap<ScriptId, TypedCellDecl>,
+}
+
+impl InMemoryTypedCellStore {
+    /// Create an empty typed cell store
+    pub fn new() -> Self {
+        Self { decls: BTreeMap::new() }
+    }
+}
+
+impl Default for InMemoryTypedCellStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TypedCellStore for InMemoryTypedCellStore {
+    fn get_decl(&self, type_script: &Script) -> Option<&TypedCellDecl> {
+        let id = ScriptId::from_script(type_script);
+        self.decls.get(&id)
+    }
+
+    fn insert_decl(&mut self, type_script: Script, decl: TypedCellDecl) {
+        let id = ScriptId::from_script(&type_script);
+        self.decls.insert(id, decl);
+    }
+}
+
+// ─── Typed Cell Hash Functions ────────────────────────────────────────────────
+
+/// Compute stable conflict hash.
+///
+/// `blake3(domain || code_hash || hash_type || args || conflict_key_value)`
+///
+/// Does NOT change when cell data is updated.
+/// Used by CellDAG conflict detection.
+pub fn compute_conflict_hash(type_script: &Script, conflict_key_value: &[u8]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"spora-typed-cell/conflict-hash/v1");
+    hasher.update(&type_script.code_hash);
+    hasher.update(&[type_script.hash_type]);
+    hasher.update(&type_script.args);
+    hasher.update(conflict_key_value);
+    *hasher.finalize().as_bytes()
+}
+
+/// Compute typed data hash.
+///
+/// `blake3(domain || code_hash || hash_type || args || data)`
+///
+/// Changes with every data update.
+/// Named `typed_data_hash` (not `cell_state_hash`) because it does NOT
+/// include lock/capacity — only type script identity + data.
+pub fn compute_typed_data_hash(type_script: &Script, data: &[u8]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"spora-typed-cell/typed-data-hash/v1");
+    hasher.update(&type_script.code_hash);
+    hasher.update(&[type_script.hash_type]);
+    hasher.update(&type_script.args);
+    hasher.update(data);
+    *hasher.finalize().as_bytes()
+}
+
+/// Encode composite conflict key values in canonical length-delimited format.
+///
+/// `conflict_key_value = len(field1_le_u32) || field1 || len(field2_le_u32) || field2 || ...`
+///
+/// Composite keys must NOT use raw concatenation
+/// (avoids `["ab", "c"]` vs `["a", "bc"]` ambiguity).
+pub fn encode_conflict_key_value_composite(fields: &[&[u8]]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for field in fields {
+        out.extend_from_slice(&(field.len() as u32).to_le_bytes());
+        out.extend_from_slice(field);
+    }
+    out
+}
+
+/// Validate that a `TypedCellDecl` satisfies Phase 1 constraints.
+///
+/// Returns an error if any non-ephemeral access that can produce Write mode
+/// uses `ConflictKeySpec::None`. This is more precise than checking
+/// `CellMutability` alone: even a Linear burn is mutable and needs a
+/// conflict key.
+///
+/// Rule: `Immutable` and `Ephemeral` are the only ownership classes that
+/// cannot produce Write mode. All others must declare a non-None conflict key.
+pub fn validate_typed_cell_decl(decl: &TypedCellDecl) -> Result<(), TypedCellDeclError> {
+    let can_write = !matches!(decl.ownership, CellOwnership::Immutable | CellOwnership::Ephemeral);
+    if can_write && matches!(decl.conflict_key, ConflictKeySpec::None) {
+        return Err(TypedCellDeclError::MutableCellWithNoneConflictKey);
+    }
+    Ok(())
+}
+
+/// Typed cell declaration validation errors
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum TypedCellDeclError {
+    /// Any non-ephemeral access that can produce Write mode must not use ConflictKeySpec::None
+    #[error("non-ephemeral write-capable cell must not use ConflictKeySpec::None")]
+    MutableCellWithNoneConflictKey,
+}
+
+// ─── Scheduler Witness Constants ─────────────────────────────────────────────
+
+/// Little-endian bytes for the CellScript scheduler witness magic `0xCE11`.
 pub const CELLSCRIPT_SCHEDULER_WITNESS_MAGIC: [u8; 2] = [0x11, 0xCE];
 /// CellScript scheduler witness format version accepted for transaction placement.
-pub const CELLSCRIPT_SCHEDULER_WITNESS_VERSION: u8 = 1;
-const CELLSCRIPT_SCHEDULER_WITNESS_MOLECULE_FIELDS: usize = 9;
-const CELLSCRIPT_SCHEDULER_ACCESS_MOLECULE_SIZE: usize = 38;
+/// Typed cell scheduler witness version
+pub const TYPED_CELL_SCHEDULER_WITNESS_VERSION: u8 = 1;
+
+/// CellScript scheduler witness version (legacy, not used on this branch)
+pub const CELLSCRIPT_SCHEDULER_WITNESS_VERSION: u8 = TYPED_CELL_SCHEDULER_WITNESS_VERSION;
+const CELLSCRIPT_SCHEDULER_WITNESS_MOLECULE_FIELDS: usize = 7;
+/// Access record size: operation(1) + source(1) + index(4) + conflict_hash(32) + typed_data_hash(32) = 70 bytes
+const TYPED_CELL_ACCESS_MOLECULE_SIZE: usize = 70;
+/// Maximum number of access records per scheduler witness.
+/// Prevents memory-exhaustion attacks from malicious oversized witnesses.
+pub const MAX_CELLSCRIPT_ACCESS_COUNT: u32 = 256;
 /// Scheduler effect class id for pure actions.
 pub const CELLSCRIPT_SCHEDULER_EFFECT_PURE: u8 = 0;
 /// Scheduler effect class id for read-only actions.
@@ -70,18 +326,10 @@ pub const CELLSCRIPT_SCHEDULER_OP_CONSUME: u8 = 1;
 pub const CELLSCRIPT_SCHEDULER_OP_TRANSFER: u8 = 2;
 /// Scheduler operation id for `destroy`.
 pub const CELLSCRIPT_SCHEDULER_OP_DESTROY: u8 = 3;
-/// Scheduler operation id for `claim`.
-pub const CELLSCRIPT_SCHEDULER_OP_CLAIM: u8 = 4;
-/// Scheduler operation id for `settle`.
-pub const CELLSCRIPT_SCHEDULER_OP_SETTLE: u8 = 5;
 /// Scheduler operation id for `read_ref`.
 pub const CELLSCRIPT_SCHEDULER_OP_READ_REF: u8 = 6;
 /// Scheduler operation id for `create`.
 pub const CELLSCRIPT_SCHEDULER_OP_CREATE: u8 = 7;
-/// Scheduler operation id for mutable input replacement checks.
-pub const CELLSCRIPT_SCHEDULER_OP_MUTATE_INPUT: u8 = 8;
-/// Scheduler operation id for mutable output replacement checks.
-pub const CELLSCRIPT_SCHEDULER_OP_MUTATE_OUTPUT: u8 = 9;
 /// Scheduler source id for transaction inputs.
 pub const CELLSCRIPT_SCHEDULER_SOURCE_INPUT: u8 = 1;
 /// Scheduler source id for cell dependencies.
@@ -161,11 +409,19 @@ pub fn cell_tx_estimated_serialized_size(tx: &CellTx) -> u64 {
 
 /// Returns true when bytes look like a CellScript scheduler witness.
 ///
-/// This is an admission guard for transaction witness placement only. The
-/// scheduler consumer must still decode and validate the full payload
-/// before using it for conflict or admission decisions.
+/// This is an admission guard for transaction witness placement only.
+/// Only structural and header validity (magic, version, counts) is checked.
+/// Operation/source semantic constraints are enforced later by the scheduler
+/// consumer when decoding the full payload for conflict or admission decisions.
 pub fn is_cellscript_scheduler_witness_bytes(witness: &[u8]) -> bool {
-    decode_cellscript_scheduler_witness_molecule(witness).is_ok()
+    decode_cellscript_scheduler_witness_molecule_unchecked(witness)
+        .ok()
+        .map_or(false, |w| {
+            w.magic == 0xCE11
+                && w.version == CELLSCRIPT_SCHEDULER_WITNESS_VERSION
+                && w.access_count <= MAX_CELLSCRIPT_ACCESS_COUNT
+                && w.access_count as usize == w.accesses.len()
+        })
 }
 
 fn is_cellscript_scheduler_witness_candidate_bytes(witness: &[u8]) -> bool {
@@ -181,20 +437,33 @@ fn has_legacy_borsh_scheduler_witness_marker(witness: &[u8]) -> bool {
         && witness[2] == CELLSCRIPT_SCHEDULER_WITNESS_VERSION
 }
 
-/// CellScript scheduler witness access record.
+/// Typed cell scheduler witness access record.
+///
+/// Clean break from the old `binding_hash` model.
+/// `conflict_hash` is stable across data updates (used for conflict detection).
+/// `typed_data_hash` changes with data (used for audit/commitment).
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct CellScriptSchedulerAccessWitness {
-    /// Operation id generated by CellScript (`consume`, `create`, `mutate-input`, etc.).
+    /// Operation id: CONSUME, CREATE, DESTROY, TRANSFER, READ_REF
     pub operation: u8,
-    /// Source id generated by CellScript (`Input`, `CellDep`, `Output`).
+    /// Source id: INPUT, CELL_DEP, OUTPUT
     pub source: u8,
-    /// Source index.
+    /// Source index
     pub index: u32,
-    /// Domain hash of the source-level binding.
-    pub binding_hash: [u8; 32],
+    /// Stable conflict domain hash (from type_script + conflict_key_value, blake3)
+    pub conflict_hash: [u8; 32],
+    /// Mutable typed-data commitment (from type_script + data, blake3)
+    pub typed_data_hash: [u8; 32],
 }
 
 /// CellScript scheduler witness payload as emitted by `cellscript`.
+///
+/// Conflict domain membership is derived from access records: each access carries
+/// `conflict_hash`, classified as READ or WRITE by its operation. The former
+/// `touches_shared` field has been removed because (1) it was redundant with
+/// access-level conflict_hash, (2) its effect_class-based READ/WRITE classification
+/// was too coarse for typed-cell actions that mix reads and writes, and (3) no
+/// published version constrains this change.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct CellScriptSchedulerWitness {
     /// Magic marker; must be `0xCE11`.
@@ -205,15 +474,11 @@ pub struct CellScriptSchedulerWitness {
     pub effect_class: u8,
     /// Whether the action is marked parallelizable by the compiler.
     pub parallelizable: bool,
-    /// Redundant count for admission hardening.
-    pub touches_shared_count: u32,
-    /// Shared type hashes touched by the action.
-    pub touches_shared: Vec<[u8; 32]>,
     /// Compiler-estimated cycles.
     pub estimated_cycles: u64,
     /// Redundant count for admission hardening.
     pub access_count: u32,
-    /// Operation/source/index access records.
+    /// Operation/source/index access records with conflict_hash + typed_data_hash.
     pub accesses: Vec<CellScriptSchedulerAccessWitness>,
 }
 
@@ -268,7 +533,7 @@ pub enum CellScriptSchedulerWitnessError {
     },
     /// Decoded witness access set does not match a trusted access summary.
     #[error(
-        "CellScript scheduler access set mismatch for operation {operation} source {source_id} index {index} binding {binding_hash:?}: expected {expected_count}, actual {actual_count}"
+        "CellScript scheduler access set mismatch for operation {operation} source {source_id} index {index} conflict_hash {conflict_hash:?}: expected {expected_count}, actual {actual_count}"
     )]
     AccessSetMismatch {
         /// Operation id.
@@ -277,8 +542,8 @@ pub enum CellScriptSchedulerWitnessError {
         source_id: u8,
         /// Source index.
         index: u32,
-        /// Binding hash.
-        binding_hash: [u8; 32],
+        /// Conflict hash.
+        conflict_hash: [u8; 32],
         /// Expected multiset count from trusted metadata or builder summary.
         expected_count: usize,
         /// Actual multiset count in the decoded witness.
@@ -296,6 +561,17 @@ pub enum CellScriptSchedulerWitnessError {
         /// Number of scheduler witness slots discovered.
         count: usize,
     },
+    /// Access count exceeds the protocol maximum.
+    #[error("CellScript scheduler witness access count exceeds max: declared {declared}, max {max}")]
+    AccessCountExceedsMax {
+        /// Declared access count.
+        declared: u32,
+        /// Maximum allowed access count.
+        max: u32,
+    },
+    /// All-zero conflict_hash is illegal in typed-cell mode.
+    #[error("all-zero conflict_hash is illegal in typed-cell mode")]
+    ZeroConflictHash,
 }
 
 /// Decode and admit self-contained Molecule CellScript scheduler witness bytes.
@@ -327,8 +603,6 @@ pub fn encode_cellscript_scheduler_witness_molecule(witness: &CellScriptSchedule
         vec![witness.version],
         vec![witness.effect_class],
         vec![u8::from(witness.parallelizable)],
-        witness.touches_shared_count.to_le_bytes().to_vec(),
-        scheduler_molecule_encode_fixvec_byte32(&witness.touches_shared),
         witness.estimated_cycles.to_le_bytes().to_vec(),
         witness.access_count.to_le_bytes().to_vec(),
         scheduler_molecule_encode_accesses(&witness.accesses),
@@ -357,15 +631,11 @@ fn decode_cellscript_scheduler_witness_molecule_unchecked(
             .map_err(CellScriptSchedulerWitnessError::Decode)?,
         parallelizable: scheduler_molecule_decode_bool(fields[3], "CellScriptSchedulerWitness.parallelizable")
             .map_err(CellScriptSchedulerWitnessError::Decode)?,
-        touches_shared_count: scheduler_molecule_decode_u32(fields[4], "CellScriptSchedulerWitness.touches_shared_count")
+        estimated_cycles: scheduler_molecule_decode_u64(fields[4], "CellScriptSchedulerWitness.estimated_cycles")
             .map_err(CellScriptSchedulerWitnessError::Decode)?,
-        touches_shared: scheduler_molecule_decode_fixvec_byte32(fields[5], "CellScriptSchedulerWitness.touches_shared")
+        access_count: scheduler_molecule_decode_u32(fields[5], "CellScriptSchedulerWitness.access_count")
             .map_err(CellScriptSchedulerWitnessError::Decode)?,
-        estimated_cycles: scheduler_molecule_decode_u64(fields[6], "CellScriptSchedulerWitness.estimated_cycles")
-            .map_err(CellScriptSchedulerWitnessError::Decode)?,
-        access_count: scheduler_molecule_decode_u32(fields[7], "CellScriptSchedulerWitness.access_count")
-            .map_err(CellScriptSchedulerWitnessError::Decode)?,
-        accesses: scheduler_molecule_decode_accesses(fields[8]).map_err(CellScriptSchedulerWitnessError::Decode)?,
+        accesses: scheduler_molecule_decode_accesses(fields[6]).map_err(CellScriptSchedulerWitnessError::Decode)?,
     })
 }
 
@@ -446,59 +716,38 @@ fn scheduler_molecule_decode_table<'a>(bytes: &'a [u8], expected_fields: usize, 
     Ok(offsets.windows(2).map(|pair| &bytes[pair[0]..pair[1]]).collect())
 }
 
-fn scheduler_molecule_encode_fixvec_byte32(values: &[[u8; 32]]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(4 + values.len() * 32);
-    out.extend_from_slice(&scheduler_molecule_pack_number(values.len()));
-    for value in values {
-        out.extend_from_slice(value);
-    }
-    out
-}
-
-fn scheduler_molecule_decode_fixvec_byte32(bytes: &[u8], ty: &'static str) -> Result<Vec<[u8; 32]>, String> {
-    let count = scheduler_molecule_unpack_number(bytes, ty)?;
-    let expected = 4 + count * 32;
-    if bytes.len() != expected {
-        return Err(format!("{ty}: expected {expected} bytes for {count} hashes, got {}", bytes.len()));
-    }
-    bytes[4..]
-        .chunks_exact(32)
-        .map(|chunk| {
-            let mut hash = [0u8; 32];
-            hash.copy_from_slice(chunk);
-            Ok(hash)
-        })
-        .collect()
-}
-
 fn scheduler_molecule_encode_accesses(accesses: &[CellScriptSchedulerAccessWitness]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(4 + accesses.len() * CELLSCRIPT_SCHEDULER_ACCESS_MOLECULE_SIZE);
+    let mut out = Vec::with_capacity(4 + accesses.len() * TYPED_CELL_ACCESS_MOLECULE_SIZE);
     out.extend_from_slice(&scheduler_molecule_pack_number(accesses.len()));
     for access in accesses {
         out.push(access.operation);
         out.push(access.source);
         out.extend_from_slice(&access.index.to_le_bytes());
-        out.extend_from_slice(&access.binding_hash);
+        out.extend_from_slice(&access.conflict_hash);
+        out.extend_from_slice(&access.typed_data_hash);
     }
     out
 }
 
 fn scheduler_molecule_decode_accesses(bytes: &[u8]) -> Result<Vec<CellScriptSchedulerAccessWitness>, String> {
-    let count = scheduler_molecule_unpack_number(bytes, "CellScriptSchedulerAccessVec")?;
-    let expected = 4 + count * CELLSCRIPT_SCHEDULER_ACCESS_MOLECULE_SIZE;
+    let count = scheduler_molecule_unpack_number(bytes, "TypedCellAccessVec")?;
+    let expected = 4 + count * TYPED_CELL_ACCESS_MOLECULE_SIZE;
     if bytes.len() != expected {
-        return Err(format!("CellScriptSchedulerAccessVec: expected {expected} bytes for {count} accesses, got {}", bytes.len()));
+        return Err(format!("TypedCellAccessVec: expected {expected} bytes for {count} accesses, got {}", bytes.len()));
     }
     bytes[4..]
-        .chunks_exact(CELLSCRIPT_SCHEDULER_ACCESS_MOLECULE_SIZE)
+        .chunks_exact(TYPED_CELL_ACCESS_MOLECULE_SIZE)
         .map(|chunk| {
-            let mut binding_hash = [0u8; 32];
-            binding_hash.copy_from_slice(&chunk[6..38]);
+            let mut conflict_hash = [0u8; 32];
+            conflict_hash.copy_from_slice(&chunk[6..38]);
+            let mut typed_data_hash = [0u8; 32];
+            typed_data_hash.copy_from_slice(&chunk[38..70]);
             Ok(CellScriptSchedulerAccessWitness {
                 operation: chunk[0],
                 source: chunk[1],
                 index: u32::from_le_bytes([chunk[2], chunk[3], chunk[4], chunk[5]]),
-                binding_hash,
+                conflict_hash,
+                typed_data_hash,
             })
         })
         .collect()
@@ -555,7 +804,7 @@ pub fn decode_cellscript_scheduler_witness_for_tx(
 /// The `compiled_scheduler_witness` bytes must come from a trusted CellScript
 /// compile artifact or transaction-builder input, not from an untrusted
 /// transaction witness. The helper admits the bytes against the concrete
-/// transaction shape and returns the operation/source/index/binding_hash
+/// transaction shape and returns the operation/source/index/conflict_hash
 /// multiset that consensus policy can compare against the transaction witness.
 pub fn cellscript_compiled_scheduler_accesses_for_tx(
     tx: &CellTx,
@@ -632,7 +881,7 @@ pub fn validate_cellscript_scheduler_witness_access_set(
                 operation: key.operation,
                 source_id: key.source,
                 index: key.index,
-                binding_hash: key.binding_hash,
+                conflict_hash: key.conflict_hash,
                 expected_count,
                 actual_count,
             });
@@ -670,9 +919,6 @@ pub fn validate_cellscript_scheduler_witness_summary(
     if witness.estimated_cycles != expected.estimated_cycles {
         return Err(CellScriptSchedulerWitnessError::TrustedSummaryMismatch { field: "estimated_cycles" });
     }
-    if counted_hashes(&witness.touches_shared) != counted_hashes(&expected.touches_shared) {
-        return Err(CellScriptSchedulerWitnessError::TrustedSummaryMismatch { field: "touches_shared" });
-    }
     validate_cellscript_scheduler_witness_access_set(witness, &expected.accesses)
 }
 
@@ -701,12 +947,12 @@ struct SchedulerAccessKey {
     operation: u8,
     source: u8,
     index: u32,
-    binding_hash: [u8; 32],
+    conflict_hash: [u8; 32],
 }
 
 impl From<&CellScriptSchedulerAccessWitness> for SchedulerAccessKey {
     fn from(access: &CellScriptSchedulerAccessWitness) -> Self {
-        Self { operation: access.operation, source: access.source, index: access.index, binding_hash: access.binding_hash }
+        Self { operation: access.operation, source: access.source, index: access.index, conflict_hash: access.conflict_hash }
     }
 }
 
@@ -730,11 +976,10 @@ fn validate_cellscript_scheduler_witness_envelope(
 }
 
 fn validate_cellscript_scheduler_witness_counts(witness: &CellScriptSchedulerWitness) -> Result<(), CellScriptSchedulerWitnessError> {
-    if witness.touches_shared_count as usize != witness.touches_shared.len() {
-        return Err(CellScriptSchedulerWitnessError::CountMismatch {
-            field: "touches_shared",
-            declared: witness.touches_shared_count,
-            actual: witness.touches_shared.len(),
+    if witness.access_count > MAX_CELLSCRIPT_ACCESS_COUNT {
+        return Err(CellScriptSchedulerWitnessError::AccessCountExceedsMax {
+            declared: witness.access_count,
+            max: MAX_CELLSCRIPT_ACCESS_COUNT,
         });
     }
     if witness.access_count as usize != witness.accesses.len() {
@@ -747,14 +992,6 @@ fn validate_cellscript_scheduler_witness_counts(witness: &CellScriptSchedulerWit
     Ok(())
 }
 
-fn counted_hashes(hashes: &[[u8; 32]]) -> BTreeMap<[u8; 32], usize> {
-    let mut counts = BTreeMap::new();
-    for hash in hashes {
-        *counts.entry(*hash).or_default() += 1;
-    }
-    counts
-}
-
 fn validate_cellscript_scheduler_access_envelope(
     access: &CellScriptSchedulerAccessWitness,
 ) -> Result<(), CellScriptSchedulerWitnessError> {
@@ -763,12 +1000,8 @@ fn validate_cellscript_scheduler_access_envelope(
         CELLSCRIPT_SCHEDULER_OP_CONSUME
             | CELLSCRIPT_SCHEDULER_OP_TRANSFER
             | CELLSCRIPT_SCHEDULER_OP_DESTROY
-            | CELLSCRIPT_SCHEDULER_OP_CLAIM
-            | CELLSCRIPT_SCHEDULER_OP_SETTLE
             | CELLSCRIPT_SCHEDULER_OP_READ_REF
             | CELLSCRIPT_SCHEDULER_OP_CREATE
-            | CELLSCRIPT_SCHEDULER_OP_MUTATE_INPUT
-            | CELLSCRIPT_SCHEDULER_OP_MUTATE_OUTPUT
     ) {
         return Err(CellScriptSchedulerWitnessError::InvalidOperation(access.operation));
     }
@@ -784,17 +1017,26 @@ fn validate_cellscript_scheduler_access_envelope(
             source_id: access.source,
         });
     }
+    // Typed-cell mode: all-zero conflict_hash is illegal.
+    // The typed-cell branch only handles typed cells — there is no reason
+    // to allow a zero conflict_hash, and doing so would create a collision
+    // domain that silently merges unrelated accesses.
+    if access.conflict_hash == [0u8; 32] {
+        return Err(CellScriptSchedulerWitnessError::ZeroConflictHash);
+    }
     Ok(())
 }
 
 fn cellscript_scheduler_operation_accepts_source(operation: u8, source: u8) -> bool {
     match operation {
-        CELLSCRIPT_SCHEDULER_OP_CONSUME | CELLSCRIPT_SCHEDULER_OP_DESTROY | CELLSCRIPT_SCHEDULER_OP_MUTATE_INPUT => {
+        CELLSCRIPT_SCHEDULER_OP_CONSUME | CELLSCRIPT_SCHEDULER_OP_DESTROY => {
             source == CELLSCRIPT_SCHEDULER_SOURCE_INPUT
         }
-        CELLSCRIPT_SCHEDULER_OP_READ_REF => source == CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP,
-        CELLSCRIPT_SCHEDULER_OP_CREATE | CELLSCRIPT_SCHEDULER_OP_MUTATE_OUTPUT => source == CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
-        CELLSCRIPT_SCHEDULER_OP_TRANSFER | CELLSCRIPT_SCHEDULER_OP_CLAIM | CELLSCRIPT_SCHEDULER_OP_SETTLE => {
+        CELLSCRIPT_SCHEDULER_OP_READ_REF => {
+            source == CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP || source == CELLSCRIPT_SCHEDULER_SOURCE_INPUT
+        }
+        CELLSCRIPT_SCHEDULER_OP_CREATE => source == CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+        CELLSCRIPT_SCHEDULER_OP_TRANSFER => {
             source == CELLSCRIPT_SCHEDULER_SOURCE_INPUT || source == CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT
         }
         _ => false,
@@ -1504,15 +1746,15 @@ mod tests {
             operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
             source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
             index: 0,
-            binding_hash: [0x24; 32],
+            conflict_hash: [0x24; 32],
+            typed_data_hash: [0x00; 32],
         };
         let scheduler_witness = encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 1,
-            touches_shared: vec![[0x42; 32]],
+            
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![expected_access.clone()],
@@ -1527,7 +1769,6 @@ mod tests {
         let decoded = tx.decoded_cellscript_scheduler_witnesses().collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(decoded.len(), 1);
         assert_eq!(decoded[0].magic, 0xCE11);
-        assert_eq!(decoded[0].touches_shared, vec![[0x42; 32]]);
         assert_eq!(decoded[0].accesses[0].operation, CELLSCRIPT_SCHEDULER_OP_CREATE);
         decoded[0].validate_access_set(&[expected_access]).unwrap();
         let admitted = tx.admitted_cellscript_scheduler_witnesses().collect::<Result<Vec<_>, _>>().unwrap();
@@ -1547,15 +1788,15 @@ mod tests {
             operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
             source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
             index: 0,
-            binding_hash: [0x24; 32],
+            conflict_hash: [0x24; 32],
+            typed_data_hash: [0x00; 32],
         };
         let witness = CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 1,
-            touches_shared: vec![[0x42; 32]],
+            
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![expected_access.clone()],
@@ -1583,8 +1824,7 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
+            
             estimated_cycles: 64,
             access_count: 0,
             accesses: vec![],
@@ -1603,17 +1843,15 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY,
             parallelizable: true,
-            touches_shared_count: 2,
-            touches_shared: vec![[0x42; 32]],
             estimated_cycles: 32,
-            access_count: 0,
+            access_count: 1, // mismatch: claims 1 but has 0
             accesses: vec![],
         });
 
-        assert_eq!(
+        assert!(matches!(
             decode_cellscript_scheduler_witness(&bytes),
-            Err(CellScriptSchedulerWitnessError::CountMismatch { field: "touches_shared", declared: 2, actual: 1 })
-        );
+            Err(CellScriptSchedulerWitnessError::CountMismatch { .. })
+        ));
         assert!(!is_cellscript_scheduler_witness_bytes(&bytes));
     }
 
@@ -1628,15 +1866,15 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
+            
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![CellScriptSchedulerAccessWitness {
                 operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
                 source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
                 index: 0,
-                binding_hash: [0x24; 32],
+                conflict_hash: [0x24; 32],
+                typed_data_hash: [0x00; 32],
             }],
         });
 
@@ -1655,15 +1893,15 @@ mod tests {
             operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
             source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
             index: 0,
-            binding_hash: [0x24; 32],
+            conflict_hash: [0x24; 32],
+            typed_data_hash: [0x00; 32],
         };
         let compiled_scheduler_witness = encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
+            
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![expected_access.clone()],
@@ -1686,15 +1924,15 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
+            
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![CellScriptSchedulerAccessWitness {
                 operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
                 source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
                 index: 0,
-                binding_hash: [0x24; 32],
+                conflict_hash: [0x24; 32],
+                typed_data_hash: [0x00; 32],
             }],
         });
 
@@ -1722,15 +1960,15 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
+            
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![CellScriptSchedulerAccessWitness {
                 operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
                 source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
                 index: 0,
-                binding_hash: [0x24; 32],
+                conflict_hash: [0x24; 32],
+                typed_data_hash: [0x00; 32],
             }],
         });
 
@@ -1746,19 +1984,17 @@ mod tests {
         let bytes = encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
-            effect_class: 1,
+            effect_class: CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY,
             parallelizable: true,
-            touches_shared_count: 2,
-            touches_shared: vec![[0x42; 32]],
             estimated_cycles: 32,
-            access_count: 0,
+            access_count: 2, // mismatch: claims 2 but has 0
             accesses: vec![],
         });
 
-        assert_eq!(
+        assert!(matches!(
             decode_cellscript_scheduler_witness(&bytes),
-            Err(CellScriptSchedulerWitnessError::CountMismatch { field: "touches_shared", declared: 2, actual: 1 })
-        );
+            Err(CellScriptSchedulerWitnessError::CountMismatch { .. })
+        ));
         assert!(decode_cellscript_scheduler_witness(&[0x11, 0xCE]).is_err());
     }
 
@@ -1769,15 +2005,15 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY,
             parallelizable: true,
-            touches_shared_count: 0,
-            touches_shared: vec![],
+            
             estimated_cycles: 32,
             access_count: 1,
             accesses: vec![CellScriptSchedulerAccessWitness {
                 operation: CELLSCRIPT_SCHEDULER_OP_READ_REF,
                 source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
                 index: 0,
-                binding_hash: [0x24; 32],
+                conflict_hash: [0x24; 32],
+                typed_data_hash: [0x00; 32],
             }],
         });
 
@@ -1798,15 +2034,15 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
+            
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![CellScriptSchedulerAccessWitness {
                 operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
                 source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
                 index: 0,
-                binding_hash: [0x24; 32],
+                conflict_hash: [0x24; 32],
+                typed_data_hash: [0x00; 32],
             }],
         };
         let bytes = encode_cellscript_scheduler_witness_molecule(&witness);
@@ -1836,22 +2072,23 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
+            
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![CellScriptSchedulerAccessWitness {
                 operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
                 source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
                 index: 0,
-                binding_hash: [0x24; 32],
+                conflict_hash: [0x24; 32],
+                typed_data_hash: [0x00; 32],
             }],
         };
         let expected = [CellScriptSchedulerAccessWitness {
             operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
             source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
             index: 0,
-            binding_hash: [0x25; 32],
+            conflict_hash: [0x25; 32],
+            typed_data_hash: [0x00; 32],
         }];
 
         assert_eq!(
@@ -1860,7 +2097,7 @@ mod tests {
                 operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
                 source_id: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
                 index: 0,
-                binding_hash: [0x25; 32],
+                conflict_hash: [0x25; 32],
                 expected_count: 1,
                 actual_count: 0
             })
@@ -1873,21 +2110,22 @@ mod tests {
             operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
             source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
             index: 0,
-            binding_hash: [0x24; 32],
+            conflict_hash: [0x24; 32],
+            typed_data_hash: [0x00; 32],
         };
         let read_access = CellScriptSchedulerAccessWitness {
             operation: CELLSCRIPT_SCHEDULER_OP_READ_REF,
             source: CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP,
             index: 1,
-            binding_hash: [0x42; 32],
+                            conflict_hash: [0x42; 32],
+                            typed_data_hash: [0x00; 32],
         };
         let witness = CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
+            
             estimated_cycles: 64,
             access_count: 2,
             accesses: vec![create_access.clone(), read_access.clone()],
@@ -1902,15 +2140,15 @@ mod tests {
             operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
             source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
             index: 0,
-            binding_hash: [0x24; 32],
+            conflict_hash: [0x24; 32],
+            typed_data_hash: [0x00; 32],
         };
         let witness = CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
+            
             estimated_cycles: 64,
             access_count: 2,
             accesses: vec![access.clone(), access.clone()],
@@ -1922,7 +2160,7 @@ mod tests {
                 operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
                 source_id: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
                 index: 0,
-                binding_hash: [0x24; 32],
+                conflict_hash: [0x24; 32],
                 expected_count: 1,
                 actual_count: 2
             })
@@ -1935,15 +2173,15 @@ mod tests {
             operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
             source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
             index: 0,
-            binding_hash: [0x24; 32],
+            conflict_hash: [0x24; 32],
+            typed_data_hash: [0x00; 32],
         };
         let witness = CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
+            
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![access.clone()],
@@ -1955,7 +2193,7 @@ mod tests {
                 operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
                 source_id: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
                 index: 0,
-                binding_hash: [0x24; 32],
+                conflict_hash: [0x24; 32],
                 expected_count: 2,
                 actual_count: 1
             })
@@ -1963,30 +2201,43 @@ mod tests {
     }
 
     #[test]
-    fn test_cellscript_scheduler_witness_summary_rejects_shared_touch_tampering() {
+    fn test_cellscript_scheduler_witness_summary_rejects_conflict_hash_tampering() {
         let access = CellScriptSchedulerAccessWitness {
             operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
             source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
             index: 0,
-            binding_hash: [0x24; 32],
+            conflict_hash: [0x24; 32],
+            typed_data_hash: [0x00; 32],
         };
         let expected = CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 1,
-            touches_shared: vec![[0x42; 32]],
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![access.clone()],
         };
-        let actual =
-            CellScriptSchedulerWitness { touches_shared_count: 0, touches_shared: vec![], accesses: vec![access], ..expected.clone() };
+        // Tamper the conflict_hash in the actual witness
+        let tampered_access = CellScriptSchedulerAccessWitness {
+            conflict_hash: [0xFF; 32],
+            ..access
+        };
+        let actual = CellScriptSchedulerWitness {
+            accesses: vec![tampered_access],
+            ..expected.clone()
+        };
 
         assert_eq!(
             actual.validate_summary(&expected),
-            Err(CellScriptSchedulerWitnessError::TrustedSummaryMismatch { field: "touches_shared" })
+            Err(CellScriptSchedulerWitnessError::AccessSetMismatch {
+                operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+                source_id: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+                index: 0,
+                conflict_hash: [0x24; 32],
+                expected_count: 1,
+                actual_count: 0,
+            })
         );
     }
 
@@ -1997,8 +2248,7 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
+            
             estimated_cycles: 64,
             access_count: 0,
             accesses: vec![],
@@ -2012,13 +2262,12 @@ mod tests {
     }
 
     fn scheduler_witness_for_accesses(accesses: Vec<CellScriptSchedulerAccessWitness>) -> CellScriptSchedulerWitness {
-        scheduler_witness_for_summary(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, false, vec![], 64, accesses)
+        scheduler_witness_for_summary(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, false, 64, accesses)
     }
 
     fn scheduler_witness_for_summary(
         effect_class: u8,
         parallelizable: bool,
-        touches_shared: Vec<[u8; 32]>,
         estimated_cycles: u64,
         accesses: Vec<CellScriptSchedulerAccessWitness>,
     ) -> CellScriptSchedulerWitness {
@@ -2027,8 +2276,6 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class,
             parallelizable,
-            touches_shared_count: touches_shared.len() as u32,
-            touches_shared,
             estimated_cycles,
             access_count: accesses.len() as u32,
             accesses,
@@ -2045,85 +2292,81 @@ mod tests {
         ]
     }
 
-    fn binding_hash_strategy() -> impl Strategy<Value = [u8; 32]> {
+    fn hash32_strategy() -> impl Strategy<Value = [u8; 32]> {
         proptest::array::uniform32(any::<u8>())
     }
 
     fn scheduler_access_strategy() -> impl Strategy<Value = CellScriptSchedulerAccessWitness> {
         prop_oneof![
-            (0u32..16, binding_hash_strategy()).prop_map(|(index, binding_hash)| CellScriptSchedulerAccessWitness {
+            (0u32..16, hash32_strategy(), hash32_strategy()).prop_map(|(index, conflict_hash, typed_data_hash)| CellScriptSchedulerAccessWitness {
                 operation: CELLSCRIPT_SCHEDULER_OP_CONSUME,
                 source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
                 index,
-                binding_hash,
+                conflict_hash,
+                typed_data_hash,
             }),
-            (0u32..16, binding_hash_strategy()).prop_map(|(index, binding_hash)| CellScriptSchedulerAccessWitness {
+            (0u32..16, hash32_strategy(), hash32_strategy()).prop_map(|(index, conflict_hash, typed_data_hash)| CellScriptSchedulerAccessWitness {
                 operation: CELLSCRIPT_SCHEDULER_OP_DESTROY,
                 source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
                 index,
-                binding_hash,
+                conflict_hash,
+                typed_data_hash,
             }),
-            (0u32..16, binding_hash_strategy()).prop_map(|(index, binding_hash)| CellScriptSchedulerAccessWitness {
-                operation: CELLSCRIPT_SCHEDULER_OP_MUTATE_INPUT,
-                source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
-                index,
-                binding_hash,
-            }),
-            (0u32..16, binding_hash_strategy()).prop_map(|(index, binding_hash)| CellScriptSchedulerAccessWitness {
+            (0u32..16, hash32_strategy(), hash32_strategy()).prop_map(|(index, conflict_hash, typed_data_hash)| CellScriptSchedulerAccessWitness {
                 operation: CELLSCRIPT_SCHEDULER_OP_READ_REF,
                 source: CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP,
                 index,
-                binding_hash,
+                conflict_hash,
+                typed_data_hash,
             }),
-            (0u32..16, binding_hash_strategy()).prop_map(|(index, binding_hash)| CellScriptSchedulerAccessWitness {
+            (0u32..16, hash32_strategy(), hash32_strategy()).prop_map(|(index, conflict_hash, typed_data_hash)| CellScriptSchedulerAccessWitness {
                 operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
                 source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
                 index,
-                binding_hash,
+                conflict_hash,
+                typed_data_hash,
             }),
-            (0u32..16, binding_hash_strategy()).prop_map(|(index, binding_hash)| CellScriptSchedulerAccessWitness {
-                operation: CELLSCRIPT_SCHEDULER_OP_MUTATE_OUTPUT,
-                source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
-                index,
-                binding_hash,
-            }),
-            (0u32..16, binding_hash_strategy()).prop_map(|(index, binding_hash)| CellScriptSchedulerAccessWitness {
+            (0u32..16, hash32_strategy(), hash32_strategy()).prop_map(|(index, conflict_hash, typed_data_hash)| CellScriptSchedulerAccessWitness {
                 operation: CELLSCRIPT_SCHEDULER_OP_TRANSFER,
                 source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
                 index,
-                binding_hash,
+                conflict_hash,
+                typed_data_hash,
             }),
-            (0u32..16, binding_hash_strategy()).prop_map(|(index, binding_hash)| CellScriptSchedulerAccessWitness {
+            (0u32..16, hash32_strategy(), hash32_strategy()).prop_map(|(index, conflict_hash, typed_data_hash)| CellScriptSchedulerAccessWitness {
                 operation: CELLSCRIPT_SCHEDULER_OP_TRANSFER,
                 source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
                 index,
-                binding_hash,
+                conflict_hash,
+                typed_data_hash,
             }),
         ]
     }
 
     fn operation_tamper_strategy() -> impl Strategy<Value = (CellScriptSchedulerAccessWitness, u8)> {
         prop_oneof![
-            (0u32..16, binding_hash_strategy()).prop_map(|(index, binding_hash)| {
+            (0u32..16, hash32_strategy(), hash32_strategy()).prop_map(|(index, conflict_hash, typed_data_hash)| {
                 (
                     CellScriptSchedulerAccessWitness {
                         operation: CELLSCRIPT_SCHEDULER_OP_CONSUME,
                         source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
                         index,
-                        binding_hash,
+                        conflict_hash,
+                        typed_data_hash,
                     },
                     CELLSCRIPT_SCHEDULER_OP_DESTROY,
                 )
             }),
-            (0u32..16, binding_hash_strategy()).prop_map(|(index, binding_hash)| {
+            (0u32..16, hash32_strategy(), hash32_strategy()).prop_map(|(index, conflict_hash, typed_data_hash)| {
                 (
                     CellScriptSchedulerAccessWitness {
                         operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
                         source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
                         index,
-                        binding_hash,
+                        conflict_hash,
+                        typed_data_hash,
                     },
-                    CELLSCRIPT_SCHEDULER_OP_MUTATE_OUTPUT,
+                    CELLSCRIPT_SCHEDULER_OP_TRANSFER,
                 )
             }),
         ]
@@ -2131,26 +2374,16 @@ mod tests {
 
     fn source_tamper_strategy() -> impl Strategy<Value = (CellScriptSchedulerAccessWitness, u8)> {
         prop_oneof![
-            (0u32..16, binding_hash_strategy()).prop_map(|(index, binding_hash)| {
+            (0u32..16, hash32_strategy(), hash32_strategy()).prop_map(|(index, conflict_hash, typed_data_hash)| {
                 (
                     CellScriptSchedulerAccessWitness {
                         operation: CELLSCRIPT_SCHEDULER_OP_TRANSFER,
                         source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
                         index,
-                        binding_hash,
+                        conflict_hash,
+                        typed_data_hash,
                     },
                     CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
-                )
-            }),
-            (0u32..16, binding_hash_strategy()).prop_map(|(index, binding_hash)| {
-                (
-                    CellScriptSchedulerAccessWitness {
-                        operation: CELLSCRIPT_SCHEDULER_OP_CLAIM,
-                        source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
-                        index,
-                        binding_hash,
-                    },
-                    CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
                 )
             }),
         ]
@@ -2195,11 +2428,11 @@ mod tests {
         }
 
         #[test]
-        fn prop_cellscript_scheduler_access_set_rejects_binding_hash_tamper(
+        fn prop_cellscript_scheduler_access_set_rejects_conflict_hash_tamper(
             accesses in prop::collection::vec(scheduler_access_strategy(), 1..24)
         ) {
             let mut actual = accesses.clone();
-            actual[0].binding_hash[0] ^= 0x80;
+            actual[0].conflict_hash[0] ^= 0x80;
             let witness = scheduler_witness_for_accesses(actual);
 
             assert_access_set_mismatch(witness.validate_access_set(&accesses).unwrap_err());
@@ -2243,20 +2476,17 @@ mod tests {
             effect_class in effect_class_strategy(),
             parallelizable in any::<bool>(),
             estimated_cycles in any::<u64>(),
-            touches_shared in prop::collection::vec(binding_hash_strategy(), 0..24),
             accesses in prop::collection::vec(scheduler_access_strategy(), 0..24)
         ) {
             let expected = scheduler_witness_for_summary(
                 effect_class,
                 parallelizable,
-                touches_shared.clone(),
                 estimated_cycles,
                 accesses.clone(),
             );
             let actual = scheduler_witness_for_summary(
                 effect_class,
                 parallelizable,
-                touches_shared.into_iter().rev().collect(),
                 estimated_cycles,
                 accesses.into_iter().rev().collect(),
             );
@@ -2265,29 +2495,24 @@ mod tests {
         }
 
         #[test]
-        fn prop_cellscript_scheduler_summary_rejects_shared_touch_multiplicity_tamper(
-            touch in binding_hash_strategy(),
+        fn prop_cellscript_scheduler_summary_rejects_access_multiplicity_tamper(
+            access in scheduler_access_strategy(),
             accesses in prop::collection::vec(scheduler_access_strategy(), 0..24)
         ) {
             let expected = scheduler_witness_for_summary(
                 CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
                 false,
-                vec![touch],
                 64,
-                accesses.clone(),
+                std::iter::once(access.clone()).chain(accesses.clone()).collect(),
             );
             let actual = scheduler_witness_for_summary(
                 CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
                 false,
-                vec![touch, touch],
                 64,
-                accesses,
+                std::iter::once(access.clone()).chain(std::iter::once(access)).chain(accesses).collect(),
             );
 
-            prop_assert_eq!(
-                actual.validate_summary(&expected),
-                Err(CellScriptSchedulerWitnessError::TrustedSummaryMismatch { field: "touches_shared" })
-            );
+            prop_assert!(actual.validate_summary(&expected).is_err());
         }
 
         #[test]
@@ -2299,21 +2524,18 @@ mod tests {
             let expected = scheduler_witness_for_summary(
                 CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
                 parallelizable,
-                vec![],
                 estimated_cycles,
                 accesses.clone(),
             );
             let parallelizable_tamper = scheduler_witness_for_summary(
                 CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
                 !parallelizable,
-                vec![],
                 estimated_cycles,
                 accesses.clone(),
             );
             let cycle_tamper = scheduler_witness_for_summary(
                 CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
                 parallelizable,
-                vec![],
                 estimated_cycles.wrapping_add(1),
                 accesses,
             );
@@ -2405,6 +2627,498 @@ mod tests {
         assert_eq!(ckb_data, spora_data);
         assert_eq!(parse_dep_group_data_for_abi(&ckb_data, DepGroupDataAbi::CkbMolecule).unwrap(), ops);
         assert_eq!(parse_ckb_dep_group_data(&ckb_data).unwrap(), ops);
+    }
+
+    // ─── Typed Cell Tests ──────────────────────────────────────────────────────
+
+    fn test_script(code: u8, hash_type: u8, args_len: usize) -> Script {
+        Script::new([code; 32], hash_type, vec![code; args_len])
+    }
+
+    #[test]
+    fn test_compute_conflict_hash_determinism() {
+        let script = test_script(0xAA, 1, 4);
+        let conflict_key = b"pool_id=A";
+        let h1 = compute_conflict_hash(&script, conflict_key);
+        let h2 = compute_conflict_hash(&script, conflict_key);
+        assert_eq!(h1, h2, "conflict_hash must be deterministic for same inputs");
+    }
+
+    #[test]
+    fn test_compute_typed_data_hash_determinism() {
+        let script = test_script(0xBB, 1, 4);
+        let data = b"reserve_a=100;reserve_b=200";
+        let h1 = compute_typed_data_hash(&script, data);
+        let h2 = compute_typed_data_hash(&script, data);
+        assert_eq!(h1, h2, "typed_data_hash must be deterministic for same inputs");
+    }
+
+    #[test]
+    fn test_conflict_hash_stable_across_data_updates() {
+        // conflict_hash does NOT change when data changes
+        let script = test_script(0xAA, 1, 4);
+        let conflict_key = b"pool_id=A";
+        let data_v1 = b"reserve_a=100";
+        let data_v2 = b"reserve_a=200";
+
+        let ch = compute_conflict_hash(&script, conflict_key);
+        let tdh1 = compute_typed_data_hash(&script, data_v1);
+        let tdh2 = compute_typed_data_hash(&script, data_v2);
+
+        assert_eq!(ch, compute_conflict_hash(&script, conflict_key), "conflict_hash is stable");
+        assert_ne!(tdh1, tdh2, "typed_data_hash changes with data");
+        assert_ne!(ch, tdh1, "conflict_hash and typed_data_hash are different concepts");
+    }
+
+    #[test]
+    fn test_conflict_hash_differs_for_different_conflict_key_values() {
+        let script = test_script(0xAA, 1, 4);
+        let key_a = b"pool_id=A";
+        let key_b = b"pool_id=B";
+
+        let ch_a = compute_conflict_hash(&script, key_a);
+        let ch_b = compute_conflict_hash(&script, key_b);
+
+        assert_ne!(ch_a, ch_b, "different conflict_key_values must produce different conflict_hashes");
+    }
+
+    #[test]
+    fn test_typed_data_hash_differs_for_different_data() {
+        let script = test_script(0xAA, 1, 4);
+        let data1 = b"state=1";
+        let data2 = b"state=2";
+
+        let tdh1 = compute_typed_data_hash(&script, data1);
+        let tdh2 = compute_typed_data_hash(&script, data2);
+
+        assert_ne!(tdh1, tdh2, "different data must produce different typed_data_hashes");
+    }
+
+    #[test]
+    fn test_conflict_hash_differs_for_different_scripts() {
+        let script_a = test_script(0xAA, 1, 4);
+        let script_b = test_script(0xBB, 1, 4);
+        let conflict_key = b"pool_id=A";
+
+        let ch_a = compute_conflict_hash(&script_a, conflict_key);
+        let ch_b = compute_conflict_hash(&script_b, conflict_key);
+
+        assert_ne!(ch_a, ch_b, "different scripts must produce different conflict_hashes");
+    }
+
+    #[test]
+    fn test_encode_conflict_key_value_composite_canonical() {
+        // Canonical length-delimited encoding: len(field1_le_u32) || field1 || len(field2_le_u32) || field2
+        let fields: Vec<&[u8]> = vec![b"ab", b"c"];
+        let encoded = encode_conflict_key_value_composite(&fields);
+
+        // field1 "ab" -> len=2 (LE u32) + "ab"
+        // field2 "c"  -> len=1 (LE u32) + "c"
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&2u32.to_le_bytes());
+        expected.extend_from_slice(b"ab");
+        expected.extend_from_slice(&1u32.to_le_bytes());
+        expected.extend_from_slice(b"c");
+
+        assert_eq!(encoded, expected);
+    }
+
+    #[test]
+    fn test_encode_conflict_key_value_composite_disambiguates() {
+        // ["ab", "c"] must produce a different encoding than ["a", "bc"]
+        let enc1 = encode_conflict_key_value_composite(&[b"ab", b"c"]);
+        let enc2 = encode_conflict_key_value_composite(&[b"a", b"bc"]);
+
+        assert_ne!(enc1, enc2, "canonical encoding must disambiguate raw-concat collisions");
+    }
+
+    #[test]
+    fn test_encode_conflict_key_value_composite_empty() {
+        let encoded = encode_conflict_key_value_composite(&[]);
+        assert!(encoded.is_empty(), "empty fields produce empty encoding");
+    }
+
+    #[test]
+    fn test_validate_typed_cell_decl_rejects_mutable_with_none() {
+        let decl = TypedCellDecl {
+            ownership: CellOwnership::Owned,
+            mutability: CellMutability::Linear,
+            accounting: vec![CellAccounting::Fungible],
+            identity: CellIdentity::OutPoint,
+            settlement: CellSettlement::LocalSettled,
+            conflict_key: ConflictKeySpec::None,
+        };
+        assert_eq!(
+            validate_typed_cell_decl(&decl),
+            Err(TypedCellDeclError::MutableCellWithNoneConflictKey),
+            "mutable Owned cell with ConflictKeySpec::None must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_typed_cell_decl_rejects_shared_mutable_with_none() {
+        let decl = TypedCellDecl {
+            ownership: CellOwnership::Shared,
+            mutability: CellMutability::Versioned,
+            accounting: vec![CellAccounting::NonFungible],
+            identity: CellIdentity::Singleton,
+            settlement: CellSettlement::PendingSettlement,
+            conflict_key: ConflictKeySpec::None,
+        };
+        assert_eq!(
+            validate_typed_cell_decl(&decl),
+            Err(TypedCellDeclError::MutableCellWithNoneConflictKey),
+            "mutable Shared cell with ConflictKeySpec::None must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_typed_cell_decl_accepts_immutable_with_none() {
+        let decl = TypedCellDecl {
+            ownership: CellOwnership::Immutable,
+            mutability: CellMutability::Linear,
+            accounting: vec![CellAccounting::Receipt],
+            identity: CellIdentity::TypeId,
+            settlement: CellSettlement::LocalSettled,
+            conflict_key: ConflictKeySpec::None,
+        };
+        assert!(
+            validate_typed_cell_decl(&decl).is_ok(),
+            "Immutable cell with ConflictKeySpec::None is valid"
+        );
+    }
+
+    #[test]
+    fn test_validate_typed_cell_decl_accepts_ephemeral_with_none() {
+        let decl = TypedCellDecl {
+            ownership: CellOwnership::Ephemeral,
+            mutability: CellMutability::Linear,
+            accounting: vec![],
+            identity: CellIdentity::OutPoint,
+            settlement: CellSettlement::PendingSettlement,
+            conflict_key: ConflictKeySpec::None,
+        };
+        assert!(
+            validate_typed_cell_decl(&decl).is_ok(),
+            "Ephemeral cell with ConflictKeySpec::None is valid"
+        );
+    }
+
+    #[test]
+    fn test_validate_typed_cell_decl_accepts_owned_with_cell_id() {
+        let decl = TypedCellDecl {
+            ownership: CellOwnership::Owned,
+            mutability: CellMutability::Linear,
+            accounting: vec![CellAccounting::Fungible],
+            identity: CellIdentity::OutPoint,
+            settlement: CellSettlement::LocalSettled,
+            conflict_key: ConflictKeySpec::CellId,
+        };
+        assert!(validate_typed_cell_decl(&decl).is_ok());
+    }
+
+    #[test]
+    fn test_typed_cell_decl_serialization_roundtrip() {
+        let decl = TypedCellDecl {
+            ownership: CellOwnership::Shared,
+            mutability: CellMutability::Versioned,
+            accounting: vec![CellAccounting::NonFungible, CellAccounting::Receipt],
+            identity: CellIdentity::Field("pool_id".to_string()),
+            settlement: CellSettlement::BridgeSettled,
+            conflict_key: ConflictKeySpec::Composite(vec!["asset_id".to_string(), "owner".to_string()]),
+        };
+
+        let bytes = borsh::to_vec(&decl).expect("borsh serialize");
+        let restored: TypedCellDecl = borsh::from_slice(&bytes).expect("borsh deserialize");
+        assert_eq!(decl, restored, "TypedCellDecl must round-trip through Borsh");
+    }
+
+    #[test]
+    fn test_script_id_from_script() {
+        let script = test_script(0xAA, 1, 4);
+        let id1 = ScriptId::from_script(&script);
+        let id2 = ScriptId::from_script(&script);
+        assert_eq!(id1, id2, "same script produces same ScriptId");
+
+        let different_script = test_script(0xBB, 1, 4);
+        let id3 = ScriptId::from_script(&different_script);
+        assert_ne!(id1, id3, "different scripts produce different ScriptIds");
+    }
+
+    #[test]
+    fn test_script_id_differs_for_different_args() {
+        let script_a = Script::new([0xAA; 32], 1, vec![0x01]);
+        let script_b = Script::new([0xAA; 32], 1, vec![0x02]);
+        let id_a = ScriptId::from_script(&script_a);
+        let id_b = ScriptId::from_script(&script_b);
+        assert_ne!(id_a, id_b, "same code_hash+hash_type but different args must differ");
+    }
+
+    #[test]
+    fn test_in_memory_typed_cell_store_roundtrip() {
+        let mut store = InMemoryTypedCellStore::new();
+        let script = test_script(0xAA, 1, 4);
+        let decl = TypedCellDecl {
+            ownership: CellOwnership::Shared,
+            mutability: CellMutability::Versioned,
+            accounting: vec![CellAccounting::NonFungible],
+            identity: CellIdentity::Field("pool_id".to_string()),
+            settlement: CellSettlement::PendingSettlement,
+            conflict_key: ConflictKeySpec::Field("pool_id".to_string()),
+        };
+
+        assert!(store.get_decl(&script).is_none());
+        store.insert_decl(script.clone(), decl.clone());
+        let retrieved = store.get_decl(&script).expect("should find inserted decl");
+        assert_eq!(*retrieved, decl);
+    }
+
+    #[test]
+    fn test_typed_cell_scheduler_witness_encode_decode_roundtrip() {
+        let script = test_script(0xAA, 1, 4);
+        let conflict_key = b"pool_id=A";
+        let data = b"reserve_a=100;reserve_b=200";
+
+        let conflict_hash = compute_conflict_hash(&script, conflict_key);
+        let typed_data_hash = compute_typed_data_hash(&script, data);
+
+        let access = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CONSUME,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
+            index: 0,
+            conflict_hash,
+            typed_data_hash,
+        };
+
+        let witness = CellScriptSchedulerWitness {
+            magic: 0xCE11,
+            version: TYPED_CELL_SCHEDULER_WITNESS_VERSION,
+            effect_class: CELLSCRIPT_SCHEDULER_EFFECT_MUTATING,
+            parallelizable: false,
+            estimated_cycles: 500,
+            access_count: 1,
+            accesses: vec![access],
+        };
+
+        let encoded = encode_cellscript_scheduler_witness_molecule(&witness);
+        let decoded = decode_cellscript_scheduler_witness_molecule(&encoded).expect("decode should succeed");
+
+        assert_eq!(decoded.magic, 0xCE11);
+        assert_eq!(decoded.version, TYPED_CELL_SCHEDULER_WITNESS_VERSION);
+        assert_eq!(decoded.accesses.len(), 1);
+        assert_eq!(decoded.accesses[0].conflict_hash, conflict_hash);
+        assert_eq!(decoded.accesses[0].typed_data_hash, typed_data_hash);
+    }
+
+    #[test]
+    fn test_typed_cell_witness_conflict_hash_stability_across_data_update() {
+        // Simulate a shared pool cell whose data changes between two blocks.
+        // conflict_hash remains stable; typed_data_hash changes.
+        let script = test_script(0xAA, 1, 4);
+        let conflict_key = b"pool_id=A";
+
+        let ch = compute_conflict_hash(&script, conflict_key);
+        let tdh_v1 = compute_typed_data_hash(&script, b"reserve_a=100");
+        let tdh_v2 = compute_typed_data_hash(&script, b"reserve_a=200");
+
+        // Build two witnesses for the same cell at different data versions
+        let access_v1 = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CONSUME,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
+            index: 0,
+            conflict_hash: ch,
+            typed_data_hash: tdh_v1,
+        };
+        let access_v2 = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CONSUME,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
+            index: 0,
+            conflict_hash: ch,
+            typed_data_hash: tdh_v2,
+        };
+
+        // Same conflict_hash, different typed_data_hash
+        assert_eq!(access_v1.conflict_hash, access_v2.conflict_hash);
+        assert_ne!(access_v1.typed_data_hash, access_v2.typed_data_hash);
+    }
+
+    #[test]
+    fn test_validate_summary_rejects_forged_conflict_hash() {
+        let script = test_script(0xAA, 1, 4);
+        let conflict_key = b"pool_id=A";
+        let conflict_hash = compute_conflict_hash(&script, conflict_key);
+        let typed_data_hash = compute_typed_data_hash(&script, b"data");
+
+        let trusted = CellScriptSchedulerWitness {
+            magic: 0xCE11,
+            version: TYPED_CELL_SCHEDULER_WITNESS_VERSION,
+            effect_class: CELLSCRIPT_SCHEDULER_EFFECT_MUTATING,
+            parallelizable: false,
+            estimated_cycles: 500,
+            access_count: 1,
+            accesses: vec![CellScriptSchedulerAccessWitness {
+                operation: CELLSCRIPT_SCHEDULER_OP_CONSUME,
+                source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
+                index: 0,
+                conflict_hash,
+                typed_data_hash,
+            }],
+        };
+
+        let mut forged = trusted.clone();
+        forged.accesses[0].conflict_hash = [0xFF; 32]; // tamper
+
+        let result = validate_cellscript_scheduler_witness_access_set(&forged, &trusted.accesses);
+        assert!(result.is_err(), "forged conflict_hash must be rejected");
+    }
+
+    #[test]
+    fn test_access_count_exceeds_max_is_rejected() {
+        // Construct a witness with access_count exceeding MAX_CELLSCRIPT_ACCESS_COUNT
+        let too_many: Vec<CellScriptSchedulerAccessWitness> = (0..=MAX_CELLSCRIPT_ACCESS_COUNT)
+            .map(|i| CellScriptSchedulerAccessWitness {
+                operation: CELLSCRIPT_SCHEDULER_OP_READ_REF,
+                source: CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP,
+                index: i,
+                conflict_hash: [0xAA; 32],
+                typed_data_hash: [0xBB; 32],
+            })
+            .collect();
+        let witness = CellScriptSchedulerWitness {
+            magic: 0xCE11,
+            version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+            effect_class: CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY,
+            parallelizable: true,
+            estimated_cycles: 1000,
+            access_count: too_many.len() as u32,
+            accesses: too_many,
+        };
+        let bytes = encode_cellscript_scheduler_witness_molecule(&witness);
+        // Decode should reject
+        assert!(matches!(
+            decode_cellscript_scheduler_witness(&bytes),
+            Err(CellScriptSchedulerWitnessError::AccessCountExceedsMax { .. })
+        ));
+        // Admission guard should also reject
+        assert!(!is_cellscript_scheduler_witness_bytes(&bytes));
+    }
+
+    #[test]
+    fn test_zero_conflict_hash_in_merge_is_rejected() {
+        // Zero conflict_hash should be rejected, not silently skipped
+        let access = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_READ_REF,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP,
+            index: 0,
+            conflict_hash: [0u8; 32], // zero — illegal in typed-cell mode
+            typed_data_hash: [0xBB; 32],
+        };
+        let result = validate_cellscript_scheduler_access_envelope(&access);
+        assert!(result.is_err(), "zero conflict_hash must be rejected in typed-cell mode");
+    }
+
+    #[test]
+    fn test_shared_cell_must_declare_explicit_conflict_key() {
+        // Shared mutable cell without explicit conflict_key (using CellId) is valid
+        // but Shared + None is not
+        let shared_cellid = TypedCellDecl {
+            ownership: CellOwnership::Shared,
+            mutability: CellMutability::Versioned,
+            accounting: vec![CellAccounting::NonFungible],
+            identity: CellIdentity::Singleton,
+            settlement: CellSettlement::PendingSettlement,
+            conflict_key: ConflictKeySpec::Field("pool_id".to_string()),
+        };
+        assert!(validate_typed_cell_decl(&shared_cellid).is_ok());
+
+        let shared_none = TypedCellDecl {
+            ownership: CellOwnership::Shared,
+            mutability: CellMutability::Versioned,
+            accounting: vec![CellAccounting::NonFungible],
+            identity: CellIdentity::Singleton,
+            settlement: CellSettlement::PendingSettlement,
+            conflict_key: ConflictKeySpec::None,
+        };
+        assert_eq!(
+            validate_typed_cell_decl(&shared_none),
+            Err(TypedCellDeclError::MutableCellWithNoneConflictKey),
+            "Shared mutable cell with ConflictKeySpec::None must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_composite_conflict_key_produces_different_hash_than_field_key() {
+        let script = test_script(0xAA, 1, 4);
+        let field_key = b"pool_id=A";
+        let composite_key = encode_conflict_key_value_composite(&[b"pool_id", b"A"]);
+
+        let ch_field = compute_conflict_hash(&script, field_key);
+        let ch_composite = compute_conflict_hash(&script, &composite_key);
+
+        assert_ne!(ch_field, ch_composite, "field key and composite key must produce different hashes");
+    }
+
+    #[test]
+    fn test_operation_source_validation() {
+        // Valid: CONSUME + INPUT
+        let access = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CONSUME,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
+            index: 0,
+            conflict_hash: [0x24; 32],
+            typed_data_hash: [0x00; 32],
+        };
+        assert!(validate_cellscript_scheduler_access_envelope(&access).is_ok());
+
+        // Invalid: CONSUME + OUTPUT
+        let access_bad = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CONSUME,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            index: 0,
+            conflict_hash: [0x24; 32],
+            typed_data_hash: [0x00; 32],
+        };
+        assert!(validate_cellscript_scheduler_access_envelope(&access_bad).is_err());
+
+        // Valid: READ_REF + INPUT
+        let access_read_input = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_READ_REF,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
+            index: 0,
+            conflict_hash: [0x24; 32],
+            typed_data_hash: [0x00; 32],
+        };
+        assert!(validate_cellscript_scheduler_access_envelope(&access_read_input).is_ok());
+
+        // Valid: READ_REF + CELL_DEP
+        let access_read_dep = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_READ_REF,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP,
+            index: 0,
+            conflict_hash: [0x24; 32],
+            typed_data_hash: [0x00; 32],
+        };
+        assert!(validate_cellscript_scheduler_access_envelope(&access_read_dep).is_ok());
+
+        // Invalid: READ_REF + OUTPUT
+        let access_read_output = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_READ_REF,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            index: 0,
+            conflict_hash: [0x24; 32],
+            typed_data_hash: [0x00; 32],
+        };
+        assert!(validate_cellscript_scheduler_access_envelope(&access_read_output).is_err());
+
+        // Valid: CREATE + OUTPUT
+        let access_create = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            index: 0,
+            conflict_hash: [0x24; 32],
+            typed_data_hash: [0x00; 32],
+        };
+        assert!(validate_cellscript_scheduler_access_envelope(&access_create).is_ok());
     }
 }
 

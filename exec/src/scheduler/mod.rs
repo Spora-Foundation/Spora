@@ -18,5 +18,5 @@ pub mod dag;
 pub mod executor;
 
 pub use conflict::{ConflictKey, ConflictResolution, ConflictResolver};
-pub use dag::{CellDAG, DagEdge, DagNode};
+pub use dag::{AccessMode, CellDAG, ConflictEntry, DagEdge, DagNode};
 pub use executor::{ExecutionReceipt, ExecutionResult, ParallelExecutor};

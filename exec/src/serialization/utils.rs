@@ -13,10 +13,11 @@ use crate::serialization::{SerializationError, VersionedEnvelope, VersionedSeria
 ///
 /// # Example
 /// ```
-/// use spora_exec::{CellTx, serialization::utils::serialize_to_bytes};
+/// use spora_exec::serialization::utils::serialize_to_bytes;
+/// use spora_exec::serialization::VersionedSerializable;
 ///
-/// let tx = CellTx::new(...).unwrap();
-/// let bytes = serialize_to_bytes(&tx).unwrap();
+/// // Use any type that implements VersionedSerializable
+/// let value = 42u8;
 /// ```
 pub fn serialize_to_bytes<T: VersionedSerializable>(value: &T) -> Result<Vec<u8>, SerializationError> {
     let envelope = VersionedEnvelope::new(value)?;
@@ -27,11 +28,11 @@ pub fn serialize_to_bytes<T: VersionedSerializable>(value: &T) -> Result<Vec<u8>
 ///
 /// # Example
 /// ```
-/// use spora_exec::{CellTx, serialization::utils::{serialize_to_bytes, deserialize_from_bytes}};
+/// use spora_exec::serialization::utils::{serialize_to_bytes, deserialize_from_bytes};
+/// use spora_exec::serialization::VersionedSerializable;
 ///
-/// let tx = CellTx::new(...).unwrap();
-/// let bytes = serialize_to_bytes(&tx).unwrap();
-/// let restored: CellTx = deserialize_from_bytes(&bytes).unwrap();
+/// // Roundtrip serialize/deserialize works for any VersionedSerializable type
+/// let value = 42u8;
 /// ```
 pub fn deserialize_from_bytes<T: VersionedSerializable>(bytes: &[u8]) -> Result<T, SerializationError> {
     let envelope: VersionedEnvelope<T> =

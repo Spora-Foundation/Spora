@@ -310,7 +310,7 @@ mod tests {
 
         let mut block = example_block.clone();
         let txs = &mut block.transactions;
-        txs[1].witnesses.push(vec![0; 600_000]);
+        txs[1].witnesses.push(vec![0; 2_000_000]);
         block.header.hash_merkle_root = calc_hash_merkle_root(txs.iter());
         assert_match!(body_processor.validate_body_in_isolation(&block.to_immutable()), Err(RuleError::ExceedsComputeMassLimit(_, _)));
 

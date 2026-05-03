@@ -1446,15 +1446,15 @@ mod tests {
             operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
             source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
             index: 0,
-            binding_hash: [0x4a; 32],
+            conflict_hash: [0x4a; 32],
+            typed_data_hash: [0x00; 32],
         };
         let witness = encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
+            
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![access.clone()],
@@ -1484,15 +1484,15 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            touches_shared_count: 0,
-            touches_shared: vec![],
+            
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![CellScriptSchedulerAccessWitness {
                 operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
                 source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
                 index: 0,
-                binding_hash: [0x4b; 32],
+                conflict_hash: [0x4b; 32],
+                typed_data_hash: [0x00; 32],
             }],
         });
 

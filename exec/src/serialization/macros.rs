@@ -182,7 +182,7 @@ macro_rules! serialize {
 /// # Example
 ///
 /// ```rust
-/// use spora_exec::{serialize, deserialize, CellOutput};
+/// use spora_exec::{serialize, deserialize, CellOutput, Script};
 ///
 /// # let output = CellOutput {
 /// #     lock: Script::new([0xAA; 32], 0, vec![]),
@@ -207,7 +207,7 @@ macro_rules! deserialize {
 /// # Example
 ///
 /// ```rust
-/// use spora_exec::define_schema_version;
+/// use spora_exec::{define_schema_version, VersionedSerializable};
 /// use borsh::{BorshSerialize, BorshDeserialize};
 ///
 /// #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
@@ -219,8 +219,8 @@ macro_rules! deserialize {
 /// define_schema_version!(MY_SCHEMA_VERSION = 1, TypeA, TypeB);
 ///
 /// assert_eq!(MY_SCHEMA_VERSION, 1);
-/// assert_eq!(TypeA::CURRENT_VERSION, 1);
-/// assert_eq!(TypeB::CURRENT_VERSION, 1);
+/// assert_eq!(<TypeA as VersionedSerializable>::CURRENT_VERSION, 1);
+/// assert_eq!(<TypeB as VersionedSerializable>::CURRENT_VERSION, 1);
 /// ```
 #[macro_export]
 macro_rules! define_schema_version {

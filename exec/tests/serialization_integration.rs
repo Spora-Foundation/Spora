@@ -106,10 +106,11 @@ fn test_abi_version_negotiation_scenarios() {
     let result = VmAbiNegotiator::negotiate(VmAbiNegotiator::ABI_VERSION_BORSH_V1, &caps);
     assert_eq!(result.unwrap(), VmAbiNegotiator::ABI_VERSION_BORSH_V1);
 
-    // Scenario 2: Molecule request with Borsh fallback
+    // Scenario 2: Molecule request when VM only supports Borsh → version mismatch
+    // (no implicit downgrade — caller must explicitly try a lower version)
     let caps = vec![VmAbiNegotiator::ABI_VERSION_BORSH_V1];
     let result = VmAbiNegotiator::negotiate(VmAbiNegotiator::ABI_VERSION_MOLECULE_V1, &caps);
-    assert_eq!(result.unwrap(), VmAbiNegotiator::ABI_VERSION_BORSH_V1);
+    assert!(result.is_err());
 
     // Scenario 3: Multiple capabilities with preferred match
     let caps = vec![0x0001, 0x0002, VmAbiNegotiator::ABI_VERSION_MOLECULE_V1];

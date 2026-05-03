@@ -11,6 +11,13 @@ use super::access_summary::BlockAccessSummary;
 ///
 /// 注意：这个 DAG 是执行层 DAG，不是 GhostDAG。
 /// 它不改变最终 canonical order，只表示"哪些 blocks 可以在同一前置状态下分析"。
+///
+/// # Snapshot 一致性不变量
+///
+/// 同一层内所有 blocks 的 `analyze_blue_block` 调用必须基于同一个 frozen snapshot。
+/// 这是执行等价性的核心保证：并行分析产生的 effects 与串行执行等价，
+/// 因为所有同层 blocks 看到的是同一个不可变状态视图。
+/// 违反此不变量会导致执行等价性被破坏。
 pub(super) struct ExecutionDAG {
     /// 分层结果，每层包含可并行分析的 block 索引
     /// 索引对应输入 summaries 数组的位置

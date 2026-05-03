@@ -1564,9 +1564,16 @@ impl VirtualStateProcessor {
                 } else {
                     // ── Multiple blocks in layer — freeze snapshot, parallel analyze ──
                     //
-                    // All blocks in this layer share the same frozen snapshot.
-                    // They are analyzed concurrently on independent local copies,
-                    // then committed sequentially in canonical order.
+                    // INVARIANT: All blocks in this layer share the same frozen snapshot.
+                    // The snapshot is captured ONCE before par_iter and passed by shared
+                    // reference to all analyze_blue_block calls. This guarantees execution
+                    // equivalence: parallel analysis produces the same effects as serial
+                    // execution because every block sees the same immutable state view.
+                    //
+                    // After parallel analysis, effects are committed sequentially in
+                    // canonical order. Any effect that conflicts with a preceding
+                    // same-layer commit is invalidated (replaced with empty effect
+                    // preserving block reward).
                     let snapshot = ExecutionSnapshot::from_current_state(&ctx.cell_state_tree, &processed_txs, &replay_validation);
 
                     // Parallel analysis via rayon par_iter
