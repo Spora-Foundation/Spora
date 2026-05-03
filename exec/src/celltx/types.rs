@@ -50,6 +50,23 @@ mod outpoint_serde {
 pub const CELL_TX_VERSION: u32 = 0xC001;
 /// Little-endian bytes for the CellScript scheduler witness magic `0xCE11`.
 // ─── Typed Cell Classification ──────────────────────────────────────────────
+//
+// Six dimensions with three enforcement levels:
+//
+// | Dimension       | Phase 1 status                    | Meaning                                        |
+// |-----------------|------------------------------------|------------------------------------------------|
+// | Ownership       | partially runtime-enforced         | controls write/read eligibility and shared     |
+// |                 |                                    | conflict handling                              |
+// | ConflictKeySpec | runtime-enforced                   | directly derives `conflict_hash`               |
+// | Mutability      | advisory + validation constraints  | future compiler/runtime semantics              |
+// | Accounting      | advisory + validation constraints  | future accounting checks / ProofPlan           |
+// | Identity        | advisory + manifest semantics      | future update pairing / settlement              |
+// | Settlement      | advisory                           | future checkpoint/exit/bridge layer            |
+//
+// "Partially runtime-enforced" means Ownership's Immutable/Ephemeral distinction
+// is checked by validate_typed_cell_decl, but Shared vs Party is scheduler-equivalent.
+// "Advisory" means the field is metadata for future use; cross-axis constraints
+// prevent obviously illegal combinations but the field does not affect scheduling.
 
 /// Ownership class — determines parallel execution and access rules
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
@@ -58,7 +75,9 @@ pub enum CellOwnership {
     Owned,
     /// Public mutable cell (AMM pool, oracle)
     Shared,
-    /// Bounded multi-party session
+    /// Bounded multi-party session (e.g. payment channel)
+    /// Advisory in Phase 1: scheduler-equivalent to Shared.
+    /// Product-distinct for CellScript but does not affect conflict_hash scheduling.
     Party,
     /// Read-only after creation
     Immutable,
@@ -113,14 +132,15 @@ pub enum CellIdentity {
 /// Settlement class — determines how this cell's state is committed
 ///
 /// Naming is deployment-agnostic: does not presuppose L2, consortium, or standalone.
+/// Advisory in Phase 1: not consumed by runtime scheduling.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub enum CellSettlement {
-    /// Settled on this chain
-    LocalSettled,
-    /// Settled across chains (bridge / rollup)
-    BridgeSettled,
-    /// Awaiting settlement
-    PendingSettlement,
+    /// Settled within this execution environment
+    Local,
+    /// Participates in root commitment (bridge / rollup / consortium)
+    Committed,
+    /// Awaiting external settlement/finalisation
+    Pending,
 }
 
 /// Conflict key specification — determines how conflict_hash is derived
@@ -131,12 +151,10 @@ pub enum CellSettlement {
 pub enum ConflictKeySpec {
     /// Concrete cell identity — default for owned mutable cells
     CellId,
-    /// Single field name (e.g. "pool_id")
+    /// Single field name (e.g. "pool_id", "owner")
     Field(String),
     /// Composite key from multiple fields (e.g. ["asset_id", "owner", "shard_id"])
     Composite(Vec<String>),
-    /// Owner-level serialisation (explicit coarse opt-in)
-    Owner,
     /// No conflict key — only valid for Pure / ReadOnly / Ephemeral
     None,
 }
@@ -271,18 +289,53 @@ pub fn encode_conflict_key_value_composite(fields: &[&[u8]]) -> Vec<u8> {
 
 /// Validate that a `TypedCellDecl` satisfies Phase 1 constraints.
 ///
-/// Returns an error if any non-ephemeral access that can produce Write mode
-/// uses `ConflictKeySpec::None`. This is more precise than checking
-/// `CellMutability` alone: even a Linear burn is mutable and needs a
-/// conflict key.
+/// Enforcement levels:
+/// - **runtime-enforced**: Ownership + ConflictKeySpec (directly affect scheduling)
+/// - **compiler-enforced + validation constraints**: Mutability, Accounting (cross-axis checks)
+/// - **advisory**: Identity, Settlement (future ProofPlan / settlement layer)
 ///
-/// Rule: `Immutable` and `Ephemeral` are the only ownership classes that
-/// cannot produce Write mode. All others must declare a non-None conflict key.
+/// # Runtime-enforced rules
+///
+/// Any non-ephemeral access that can produce Write mode must use a non-None
+/// `ConflictKeySpec`. This is more precise than checking `CellMutability`
+/// alone: even a Linear burn is mutable and needs a conflict key.
+///
+/// # Cross-axis constraint rules
+///
+/// - `Immutable` ownership must not pair with mutable `CellMutability`
+///   (Versioned / AppendOnly / Migratable)
+/// - `Fungible` and `NonFungible` are mutually exclusive accounting labels
+/// - `Ephemeral` ownership must not pair with non-local settlement
 pub fn validate_typed_cell_decl(decl: &TypedCellDecl) -> Result<(), TypedCellDeclError> {
+    // Runtime-enforced: write-capable cells need a conflict key
     let can_write = !matches!(decl.ownership, CellOwnership::Immutable | CellOwnership::Ephemeral);
     if can_write && matches!(decl.conflict_key, ConflictKeySpec::None) {
         return Err(TypedCellDeclError::MutableCellWithNoneConflictKey);
     }
+
+    // Cross-axis: Immutable ownership cannot pair with mutable mutability
+    if matches!(decl.ownership, CellOwnership::Immutable) {
+        if !matches!(decl.mutability, CellMutability::Linear) {
+            return Err(TypedCellDeclError::ImmutableWithMutableMutability {
+                mutability: decl.mutability,
+            });
+        }
+    }
+
+    // Cross-axis: Fungible and NonFungible are mutually exclusive
+    let has_fungible = decl.accounting.contains(&CellAccounting::Fungible);
+    let has_nonfungible = decl.accounting.contains(&CellAccounting::NonFungible);
+    if has_fungible && has_nonfungible {
+        return Err(TypedCellDeclError::ConflictingAccountingLabels);
+    }
+
+    // Cross-axis: Ephemeral cells must not have non-local settlement
+    if matches!(decl.ownership, CellOwnership::Ephemeral)
+        && !matches!(decl.settlement, CellSettlement::Local)
+    {
+        return Err(TypedCellDeclError::EphemeralWithNonLocalSettlement);
+    }
+
     Ok(())
 }
 
@@ -292,6 +345,18 @@ pub enum TypedCellDeclError {
     /// Any non-ephemeral access that can produce Write mode must not use ConflictKeySpec::None
     #[error("non-ephemeral write-capable cell must not use ConflictKeySpec::None")]
     MutableCellWithNoneConflictKey,
+    /// Immutable ownership cannot pair with a mutable mutability variant
+    #[error("Immutable ownership cannot pair with {mutability:?} mutability")]
+    ImmutableWithMutableMutability {
+        /// The mutability variant that conflicts with Immutable ownership
+        mutability: CellMutability,
+    },
+    /// Fungible and NonFungible are mutually exclusive accounting labels
+    #[error("Fungible and NonFungible are mutually exclusive accounting labels")]
+    ConflictingAccountingLabels,
+    /// Ephemeral cells must not have non-local settlement
+    #[error("Ephemeral cells must not have non-local settlement")]
+    EphemeralWithNonLocalSettlement,
 }
 
 // ─── Scheduler Witness Constants ─────────────────────────────────────────────
@@ -2745,7 +2810,7 @@ mod tests {
             mutability: CellMutability::Linear,
             accounting: vec![CellAccounting::Fungible],
             identity: CellIdentity::OutPoint,
-            settlement: CellSettlement::LocalSettled,
+            settlement: CellSettlement::Local,
             conflict_key: ConflictKeySpec::None,
         };
         assert_eq!(
@@ -2762,7 +2827,7 @@ mod tests {
             mutability: CellMutability::Versioned,
             accounting: vec![CellAccounting::NonFungible],
             identity: CellIdentity::Singleton,
-            settlement: CellSettlement::PendingSettlement,
+            settlement: CellSettlement::Pending,
             conflict_key: ConflictKeySpec::None,
         };
         assert_eq!(
@@ -2779,7 +2844,7 @@ mod tests {
             mutability: CellMutability::Linear,
             accounting: vec![CellAccounting::Receipt],
             identity: CellIdentity::TypeId,
-            settlement: CellSettlement::LocalSettled,
+            settlement: CellSettlement::Local,
             conflict_key: ConflictKeySpec::None,
         };
         assert!(
@@ -2795,12 +2860,12 @@ mod tests {
             mutability: CellMutability::Linear,
             accounting: vec![],
             identity: CellIdentity::OutPoint,
-            settlement: CellSettlement::PendingSettlement,
+            settlement: CellSettlement::Local,
             conflict_key: ConflictKeySpec::None,
         };
         assert!(
             validate_typed_cell_decl(&decl).is_ok(),
-            "Ephemeral cell with ConflictKeySpec::None is valid"
+            "Ephemeral cell with ConflictKeySpec::None and Local settlement is valid"
         );
     }
 
@@ -2811,10 +2876,94 @@ mod tests {
             mutability: CellMutability::Linear,
             accounting: vec![CellAccounting::Fungible],
             identity: CellIdentity::OutPoint,
-            settlement: CellSettlement::LocalSettled,
+            settlement: CellSettlement::Local,
             conflict_key: ConflictKeySpec::CellId,
         };
         assert!(validate_typed_cell_decl(&decl).is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_immutable_with_versioned() {
+        let decl = TypedCellDecl {
+            ownership: CellOwnership::Immutable,
+            mutability: CellMutability::Versioned,
+            accounting: vec![],
+            identity: CellIdentity::Singleton,
+            settlement: CellSettlement::Local,
+            conflict_key: ConflictKeySpec::None,
+        };
+        assert_eq!(
+            validate_typed_cell_decl(&decl),
+            Err(TypedCellDeclError::ImmutableWithMutableMutability {
+                mutability: CellMutability::Versioned,
+            })
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_immutable_with_append_only() {
+        let decl = TypedCellDecl {
+            ownership: CellOwnership::Immutable,
+            mutability: CellMutability::AppendOnly,
+            accounting: vec![],
+            identity: CellIdentity::Singleton,
+            settlement: CellSettlement::Local,
+            conflict_key: ConflictKeySpec::None,
+        };
+        assert_eq!(
+            validate_typed_cell_decl(&decl),
+            Err(TypedCellDeclError::ImmutableWithMutableMutability {
+                mutability: CellMutability::AppendOnly,
+            })
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_fungible_plus_nonfungible() {
+        let decl = TypedCellDecl {
+            ownership: CellOwnership::Owned,
+            mutability: CellMutability::Linear,
+            accounting: vec![CellAccounting::Fungible, CellAccounting::NonFungible],
+            identity: CellIdentity::OutPoint,
+            settlement: CellSettlement::Local,
+            conflict_key: ConflictKeySpec::CellId,
+        };
+        assert_eq!(
+            validate_typed_cell_decl(&decl),
+            Err(TypedCellDeclError::ConflictingAccountingLabels)
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_ephemeral_with_committed_settlement() {
+        let decl = TypedCellDecl {
+            ownership: CellOwnership::Ephemeral,
+            mutability: CellMutability::Linear,
+            accounting: vec![],
+            identity: CellIdentity::OutPoint,
+            settlement: CellSettlement::Committed,
+            conflict_key: ConflictKeySpec::None,
+        };
+        assert_eq!(
+            validate_typed_cell_decl(&decl),
+            Err(TypedCellDeclError::EphemeralWithNonLocalSettlement)
+        );
+    }
+
+    #[test]
+    fn test_validate_rejects_ephemeral_with_pending_settlement() {
+        let decl = TypedCellDecl {
+            ownership: CellOwnership::Ephemeral,
+            mutability: CellMutability::Linear,
+            accounting: vec![],
+            identity: CellIdentity::OutPoint,
+            settlement: CellSettlement::Pending,
+            conflict_key: ConflictKeySpec::None,
+        };
+        assert_eq!(
+            validate_typed_cell_decl(&decl),
+            Err(TypedCellDeclError::EphemeralWithNonLocalSettlement)
+        );
     }
 
     #[test]
@@ -2824,7 +2973,7 @@ mod tests {
             mutability: CellMutability::Versioned,
             accounting: vec![CellAccounting::NonFungible, CellAccounting::Receipt],
             identity: CellIdentity::Field("pool_id".to_string()),
-            settlement: CellSettlement::BridgeSettled,
+            settlement: CellSettlement::Committed,
             conflict_key: ConflictKeySpec::Composite(vec!["asset_id".to_string(), "owner".to_string()]),
         };
 
@@ -2863,7 +3012,7 @@ mod tests {
             mutability: CellMutability::Versioned,
             accounting: vec![CellAccounting::NonFungible],
             identity: CellIdentity::Field("pool_id".to_string()),
-            settlement: CellSettlement::PendingSettlement,
+            settlement: CellSettlement::Pending,
             conflict_key: ConflictKeySpec::Field("pool_id".to_string()),
         };
 
@@ -3026,7 +3175,7 @@ mod tests {
             mutability: CellMutability::Versioned,
             accounting: vec![CellAccounting::NonFungible],
             identity: CellIdentity::Singleton,
-            settlement: CellSettlement::PendingSettlement,
+            settlement: CellSettlement::Pending,
             conflict_key: ConflictKeySpec::Field("pool_id".to_string()),
         };
         assert!(validate_typed_cell_decl(&shared_cellid).is_ok());
@@ -3036,7 +3185,7 @@ mod tests {
             mutability: CellMutability::Versioned,
             accounting: vec![CellAccounting::NonFungible],
             identity: CellIdentity::Singleton,
-            settlement: CellSettlement::PendingSettlement,
+            settlement: CellSettlement::Pending,
             conflict_key: ConflictKeySpec::None,
         };
         assert_eq!(

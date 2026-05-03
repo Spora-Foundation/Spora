@@ -58,11 +58,31 @@ typed_data_hash
 | Mutability | `CellMutability` | Linear, Versioned, AppendOnly, Migratable |
 | Accounting | `CellAccounting` | Fungible, NonFungible, Receipt, StorageClaim（多标签 Vec）——Phase 1 仅为分类元数据，不强制 CKB occupied capacity 验证 |
 | Identity | `CellIdentity` | OutPoint, TypeId, Singleton, Field(String), Composite(Vec\<String\>) |
-| Settlement | `CellSettlement` | LocalSettled, BridgeSettled, PendingSettlement |
-  （命名不预设 L2：`LocalSettled` = 本链结算，`BridgeSettled` = 跨链结算，`PendingSettlement` = 待结算。不再使用 L2Only/RollupCommitted/ExitClaim） |
-| ConflictKeySpec | `ConflictKeySpec` | CellId, Field(String), Composite(Vec\<String\>), Owner, None |
+| Settlement | `CellSettlement` | Local, Committed, Pending（advisory，不预设部署形态。`Local` = 本环境结算，`Committed` = 参与根承诺/跨链，`Pending` = 待结算/终局化） |
+| ConflictKeySpec | `ConflictKeySpec` | CellId, Field(String), Composite(Vec<String>), None（`Owner` 已删除：owner-level 串行化不是 conflict-key 原语，应显式用 `Field("owner")` 或 `Composite`） |
 
 声明结构：`TypedCellDecl { ownership, mutability, accounting, identity, settlement, conflict_key }`
+
+### 六维 Enforcement Level
+
+| 维度 | Phase 1 状态 | 含义 |
+|------|-------------|------|
+| Ownership | partially runtime-enforced | 控制 write/read 资格和 shared 冲突处理。`Party` 在 Phase 1 调度等价于 `Shared` |
+| ConflictKeySpec | runtime-enforced | 直接推导 `conflict_hash`，影响 CellDAG 调度 |
+| Mutability | advisory + validation constraints | 未来编译器/runtime 语义入口，当前仅做交叉约束校验 |
+| Accounting | advisory + validation constraints | 未来 accounting/ProofPlan 检查，当前仅做 Fungible/NonFungible 互斥校验 |
+| Identity | advisory + manifest semantics | 未来 update pairing / settlement，当前不影响调度 |
+| Settlement | advisory | 未来 checkpoint/exit/bridge 层，当前不影响调度 |
+
+**Identity 与 ConflictKeySpec 的区别**：
+
+| 轴 | 回答的问题 | 示例 |
+|----|-----------|------|
+| Identity | “这个 cell 是谁？” | `order_id` |
+| ConflictKeySpec | “它和谁不能并行？” | `market_id` |
+| typed_data_hash | “它当前内容是什么？” | `blake3(domain || script || data)` |
+
+**Identity 回答“它是谁”；ConflictKeySpec 回答“它和谁不能并行”。** 两者不可隐式等同——orderbook cell 的 identity 是 order_id，conflict_key 是 market_id。
 
 验证规则：mutable cell 使用 `ConflictKeySpec::None` 被拒绝。
 
