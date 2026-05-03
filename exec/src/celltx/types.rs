@@ -159,20 +159,39 @@ pub enum ConflictKeySpec {
     None,
 }
 
-/// Typed cell declaration
+/// Normalized typed-cell semantic metadata.
+///
+/// Six dimensions with two enforcement tiers:
+///
+/// **Runtime-critical axes** (directly affect CellDAG scheduling):
+/// - `ownership` — determines write/read eligibility and shared conflict handling
+/// - `conflict_key` — directly derives `conflict_hash` for conflict detection
+///
+/// **Advisory / future-consumed axes** (validated for contradictions but
+/// not consumed by the scheduler in Phase 1):
+/// - `mutability` — future compiler/ProofPlan semantics, current cross-axis checks only
+/// - `accounting` — future accounting/ProofPlan checks, current label exclusivity only
+/// - `identity` — future update pairing / settlement / exit / artifact metadata
+/// - `settlement` — future checkpoint/exit/bridge layer, current manifest tag
+///
+/// Runtime uses `conflict_key` to derive conflict_hash for CellDAG scheduling.
+/// Other axes are validated for obvious contradictions, but are primarily
+/// consumed by future compiler, ProofPlan, settlement, and audit layers.
+///
+/// See `docs/TYPED_CELL_CLASSIFICATION_GOVERNANCE.md` for full governance.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct TypedCellDecl {
-    /// Ownership class
+    /// Ownership class (runtime-critical)
     pub ownership: CellOwnership,
-    /// Mutability class
+    /// Mutability class (advisory — future compiler/ProofPlan)
     pub mutability: CellMutability,
-    /// Accounting labels (multi-label)
+    /// Accounting labels (advisory — future accounting/ProofPlan)
     pub accounting: Vec<CellAccounting>,
-    /// Identity class
+    /// Identity class (advisory — future update pairing/settlement)
     pub identity: CellIdentity,
-    /// Settlement class
+    /// Settlement class (advisory — future checkpoint/exit/bridge)
     pub settlement: CellSettlement,
-    /// Conflict key specification.
+    /// Conflict key specification (runtime-critical).
     /// `conflict_hash = blake3(domain || full_script_id || conflict_key_value)`
     pub conflict_key: ConflictKeySpec,
 }
@@ -289,31 +308,40 @@ pub fn encode_conflict_key_value_composite(fields: &[&[u8]]) -> Vec<u8> {
 
 /// Validate that a `TypedCellDecl` satisfies Phase 1 constraints.
 ///
-/// Enforcement levels:
-/// - **runtime-enforced**: Ownership + ConflictKeySpec (directly affect scheduling)
-/// - **compiler-enforced + validation constraints**: Mutability, Accounting (cross-axis checks)
-/// - **advisory**: Identity, Settlement (future ProofPlan / settlement layer)
+/// Internally split into two enforcement tiers:
+/// 1. **Runtime-scheduling checks** — ownership + conflict_key rules that
+///    directly affect CellDAG scheduling correctness
+/// 2. **Semantic consistency checks** — cross-axis constraints that prevent
+///    obviously illegal dimension combinations
 ///
-/// # Runtime-enforced rules
-///
-/// Any non-ephemeral access that can produce Write mode must use a non-None
-/// `ConflictKeySpec`. This is more precise than checking `CellMutability`
-/// alone: even a Linear burn is mutable and needs a conflict key.
-///
-/// # Cross-axis constraint rules
-///
-/// - `Immutable` ownership must not pair with mutable `CellMutability`
-///   (Versioned / AppendOnly / Migratable)
-/// - `Fungible` and `NonFungible` are mutually exclusive accounting labels
-/// - `Ephemeral` ownership must not pair with non-local settlement
+/// See `docs/TYPED_CELL_CLASSIFICATION_GOVERNANCE.md` for full governance.
 pub fn validate_typed_cell_decl(decl: &TypedCellDecl) -> Result<(), TypedCellDeclError> {
-    // Runtime-enforced: write-capable cells need a conflict key
+    check_runtime_scheduling_rules(decl)?;
+    check_semantic_consistency_rules(decl)?;
+    Ok(())
+}
+
+/// Runtime-scheduling critical checks.
+///
+/// These directly affect CellDAG conflict detection correctness.
+/// Violations here can cause missed conflicts or phantom dependencies.
+fn check_runtime_scheduling_rules(decl: &TypedCellDecl) -> Result<(), TypedCellDeclError> {
+    // Write-capable cells need a conflict key (conflict_hash must be non-zero)
     let can_write = !matches!(decl.ownership, CellOwnership::Immutable | CellOwnership::Ephemeral);
     if can_write && matches!(decl.conflict_key, ConflictKeySpec::None) {
         return Err(TypedCellDeclError::MutableCellWithNoneConflictKey);
     }
+    Ok(())
+}
 
-    // Cross-axis: Immutable ownership cannot pair with mutable mutability
+/// Semantic consistency checks — cross-axis constraints.
+///
+/// These prevent obviously illegal dimension combinations but do not
+/// affect CellDAG scheduling directly. They are enforced at validation time
+/// to catch errors early; the scheduler would produce correct results
+/// even without these checks.
+fn check_semantic_consistency_rules(decl: &TypedCellDecl) -> Result<(), TypedCellDeclError> {
+    // Immutable ownership cannot pair with mutable mutability
     if matches!(decl.ownership, CellOwnership::Immutable) {
         if !matches!(decl.mutability, CellMutability::Linear) {
             return Err(TypedCellDeclError::ImmutableWithMutableMutability {
@@ -322,14 +350,14 @@ pub fn validate_typed_cell_decl(decl: &TypedCellDecl) -> Result<(), TypedCellDec
         }
     }
 
-    // Cross-axis: Fungible and NonFungible are mutually exclusive
+    // Fungible and NonFungible are mutually exclusive
     let has_fungible = decl.accounting.contains(&CellAccounting::Fungible);
     let has_nonfungible = decl.accounting.contains(&CellAccounting::NonFungible);
     if has_fungible && has_nonfungible {
         return Err(TypedCellDeclError::ConflictingAccountingLabels);
     }
 
-    // Cross-axis: Ephemeral cells must not have non-local settlement
+    // Ephemeral cells must not have non-local settlement
     if matches!(decl.ownership, CellOwnership::Ephemeral)
         && !matches!(decl.settlement, CellSettlement::Local)
     {
