@@ -22,6 +22,7 @@ use spora_exec::{
     CkbWitnessArgs, Script, CKB_SECP256K1_BLAKE160_LOCK_ARG_SIZE, CKB_SECP256K1_SIGHASH_ALL_SIGNATURE_SIZE,
 };
 use spora_rpc_core::{RpcTransaction, RpcTransactionId};
+use std::sync::OnceLock;
 
 pub(crate) struct PendingTransactionInner {
     /// Generator that produced the transaction
@@ -57,7 +58,7 @@ pub(crate) struct PendingTransactionInner {
     /// Indicates the type of the transaction
     pub(crate) kind: DataKind,
     /// Trusted CellScript scheduler summary attached by the transaction generator.
-    pub(crate) cellscript_scheduler_accesses: Option<CellScriptSchedulerAccessList>,
+    pub(crate) cellscript_scheduler_accesses: OnceLock<CellScriptSchedulerAccessList>,
 }
 
 impl std::fmt::Debug for PendingTransaction {
@@ -109,6 +110,10 @@ impl PendingTransaction {
         let entries = cell_entries.iter().map(|e| e.cell.as_ref().into()).collect::<Vec<_>>();
         let signable_tx = Mutex::new(SignableTransaction::with_entries(transaction, entries));
         let cell_entries = cell_entries.into_iter().map(|entry| (entry.id(), entry)).collect::<AHashMap<_, _>>();
+        let cellscript_scheduler_accesses_lock = OnceLock::new();
+        if let Some(cellscript_scheduler_accesses) = cellscript_scheduler_accesses {
+            let _ = cellscript_scheduler_accesses_lock.set(cellscript_scheduler_accesses);
+        }
         Ok(Self {
             inner: Arc::new(PendingTransactionInner {
                 generator: generator.clone(),
@@ -126,7 +131,7 @@ impl PendingTransaction {
                 mass,
                 fees,
                 kind,
-                cellscript_scheduler_accesses,
+                cellscript_scheduler_accesses: cellscript_scheduler_accesses_lock,
             }),
         })
     }
@@ -208,7 +213,7 @@ impl PendingTransaction {
 
     /// Trusted CellScript scheduler summary attached by the transaction generator.
     pub fn cellscript_scheduler_accesses(&self) -> Option<&CellScriptSchedulerAccessList> {
-        self.inner.cellscript_scheduler_accesses.as_ref()
+        self.inner.cellscript_scheduler_accesses.get()
     }
 
     pub fn signable_transaction(&self) -> SignableTransaction {
@@ -458,6 +463,7 @@ impl PendingTransaction {
         let mut mutable_tx = self.inner.signable_tx.lock()?.clone();
         let accesses = crate::tx::attach_cellscript_typed_cell_scheduler_witness_from_rpc(rpc, &mut mutable_tx.tx, plan).await?;
         *self.inner.signable_tx.lock().unwrap() = mutable_tx;
+        let _ = self.inner.cellscript_scheduler_accesses.set(accesses.clone());
         Ok(accesses)
     }
 
@@ -478,6 +484,7 @@ impl PendingTransaction {
         )
         .await?;
         *self.inner.signable_tx.lock().unwrap() = mutable_tx;
+        let _ = self.inner.cellscript_scheduler_accesses.set(accesses.clone());
         Ok(accesses)
     }
 
@@ -744,7 +751,7 @@ mod tests {
                 mass: 0,
                 fees: 0,
                 kind: DataKind::Final,
-                cellscript_scheduler_accesses: None,
+                cellscript_scheduler_accesses: OnceLock::new(),
             }),
         };
 
@@ -797,7 +804,7 @@ mod tests {
                 mass: 0,
                 fees: 0,
                 kind: DataKind::Final,
-                cellscript_scheduler_accesses: None,
+                cellscript_scheduler_accesses: OnceLock::new(),
             }),
         };
 
@@ -840,7 +847,7 @@ mod tests {
                 mass: 0,
                 fees: 0,
                 kind: DataKind::Final,
-                cellscript_scheduler_accesses: None,
+                cellscript_scheduler_accesses: OnceLock::new(),
             }),
         };
 
@@ -851,6 +858,10 @@ mod tests {
         assert_eq!(summary.accesses[0].operation, CELLSCRIPT_SCHEDULER_OP_CONSUME);
         assert_eq!(summary.accesses[0].source, CELLSCRIPT_SCHEDULER_SOURCE_INPUT);
         assert_eq!(summary.accesses[0].conflict_hash, compute_conflict_hash(&type_script, &[0x44; 32]));
+        assert_eq!(
+            pending.cellscript_scheduler_accesses().map(|accesses| accesses.accesses.as_slice()),
+            Some(summary.accesses.as_slice())
+        );
         assert_eq!(pending.transaction().witnesses.len(), 1);
     }
 }
