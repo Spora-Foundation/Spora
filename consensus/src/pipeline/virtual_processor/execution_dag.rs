@@ -100,6 +100,17 @@ mod tests {
         }
     }
 
+    fn make_shared_summary(_block: u8, shared_reads: &[Hash], shared_writes: &[Hash]) -> BlockAccessSummary {
+        BlockAccessSummary {
+            spent_outpoints: Default::default(),
+            created_outpoints: Default::default(),
+            read_deps: Default::default(),
+            tx_ids: Default::default(),
+            cellscript_shared_reads: shared_reads.iter().copied().collect(),
+            cellscript_shared_writes: shared_writes.iter().copied().collect(),
+        }
+    }
+
     #[test]
     fn empty_summaries() {
         let dag = ExecutionDAG::build(&[]);
@@ -237,13 +248,43 @@ mod tests {
     #[test]
     fn shared_write_touch_serializes_blocks() {
         let shared = hash(0x42);
-        let mut first = make_summary(1, &[], &[], &[], &[hash(0x10)]);
-        first.cellscript_shared_writes.insert(shared);
-        let mut second = make_summary(2, &[], &[], &[], &[hash(0x20)]);
-        second.cellscript_shared_writes.insert(shared);
+        let first = make_shared_summary(1, &[], &[shared]);
+        let second = make_shared_summary(2, &[], &[shared]);
 
         let dag = ExecutionDAG::build(&[first, second]);
         assert_eq!(dag.layers.len(), 2);
         assert_eq!(dag.layers, vec![vec![0], vec![1]]);
+    }
+
+    #[test]
+    fn shared_read_touch_does_not_serialize_blocks() {
+        let shared = hash(0x42);
+        let first = make_shared_summary(1, &[shared], &[]);
+        let second = make_shared_summary(2, &[shared], &[]);
+
+        let dag = ExecutionDAG::build(&[first, second]);
+        assert_eq!(dag.layers.len(), 1);
+        assert_eq!(dag.layers, vec![vec![0, 1]]);
+    }
+
+    #[test]
+    fn shared_read_write_touch_serializes_blocks() {
+        let shared = hash(0x42);
+        let first = make_shared_summary(1, &[shared], &[]);
+        let second = make_shared_summary(2, &[], &[shared]);
+
+        let dag = ExecutionDAG::build(&[first, second]);
+        assert_eq!(dag.layers.len(), 2);
+        assert_eq!(dag.layers, vec![vec![0], vec![1]]);
+    }
+
+    #[test]
+    fn different_shared_write_touches_stay_in_one_layer() {
+        let first = make_shared_summary(1, &[], &[hash(0x42)]);
+        let second = make_shared_summary(2, &[], &[hash(0x43)]);
+
+        let dag = ExecutionDAG::build(&[first, second]);
+        assert_eq!(dag.layers.len(), 1);
+        assert_eq!(dag.layers, vec![vec![0, 1]]);
     }
 }

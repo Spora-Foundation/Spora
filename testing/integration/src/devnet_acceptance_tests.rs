@@ -1963,10 +1963,10 @@ async fn run_token_action_builder_matrix(
             },
         ],
         vec![
-            CellOutput { capacity: minted_token_capacity, lock: mint_recipient_lock.clone(), type_: None },
             CellOutput { capacity: replacement_capacity, lock: mint_lock.clone(), type_: Some(mint_type.clone()) },
+            CellOutput { capacity: minted_token_capacity, lock: mint_recipient_lock.clone(), type_: None },
         ],
-        vec![valid_minted_token_data.clone(), mint_authority_cell_data(mint_symbol, 1_000, 36)],
+        vec![mint_authority_cell_data(mint_symbol, 1_000, 36), valid_minted_token_data.clone()],
         vec![mint_witness.clone()],
     )
     .expect("malformed token mint transaction must be structurally valid");
@@ -1995,10 +1995,10 @@ async fn run_token_action_builder_matrix(
             },
         ],
         vec![
-            CellOutput { capacity: minted_token_capacity, lock: mint_recipient_lock, type_: None },
             CellOutput { capacity: replacement_capacity, lock: mint_lock, type_: Some(mint_type) },
+            CellOutput { capacity: minted_token_capacity, lock: mint_recipient_lock, type_: None },
         ],
-        vec![valid_minted_token_data.clone(), valid_replacement_data],
+        vec![valid_replacement_data, valid_minted_token_data.clone()],
         vec![mint_witness],
     )
     .expect("valid token mint transaction must be structurally valid");
@@ -2292,16 +2292,16 @@ async fn run_amm_action_builder_matrix(
         .expect("AMM swap_a_for_b action must leave capacity")
         / 2;
     let swap_outputs = vec![
-        CellOutput { capacity: swap_output_capacity, lock: swap_recipient_lock, type_: None },
         CellOutput { capacity: swap_output_capacity, lock: swap_lock, type_: Some(swap_pool_type) },
+        CellOutput { capacity: swap_output_capacity, lock: swap_recipient_lock, type_: None },
     ];
     let swap_valid_output_data = vec![
-        token_cell_data(swap_output, symbol_b),
         pool_cell_data(symbol_a, symbol_b, swap_output_reserve_a, swap_output_reserve_b, swap_total_lp, fee_rate_bps),
+        token_cell_data(swap_output, symbol_b),
     ];
     let swap_malformed_output_data = vec![
-        token_cell_data(swap_output + 1, symbol_b),
         pool_cell_data(symbol_a, symbol_b, swap_output_reserve_a, swap_output_reserve_b - 1, swap_total_lp, fee_rate_bps),
+        token_cell_data(swap_output + 1, symbol_b),
     ];
     let swap_cell_deps = vec![
         CellDep { out_point: OutPoint::new(swap_code_outpoint.tx_hash, swap_code_outpoint.index), dep_type: DepType::Code },
@@ -2313,8 +2313,8 @@ async fn run_amm_action_builder_matrix(
     let malformed_swap_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
             vec![
-                CellInput::new(OutPoint::new(swap_token_input.tx_hash, swap_token_input.index), 0),
                 CellInput::new(OutPoint::new(swap_pool_input.tx_hash, swap_pool_input.index), 0),
+                CellInput::new(OutPoint::new(swap_token_input.tx_hash, swap_token_input.index), 0),
             ],
             swap_cell_deps.clone(),
             swap_outputs.clone(),
@@ -2335,8 +2335,8 @@ async fn run_amm_action_builder_matrix(
     let valid_swap_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
             vec![
-                CellInput::new(OutPoint::new(swap_token_input.tx_hash, swap_token_input.index), 0),
                 CellInput::new(OutPoint::new(swap_pool_input.tx_hash, swap_pool_input.index), 0),
+                CellInput::new(OutPoint::new(swap_token_input.tx_hash, swap_token_input.index), 0),
             ],
             swap_cell_deps,
             swap_outputs,
@@ -2451,11 +2451,10 @@ async fn run_amm_action_builder_matrix(
         .expect("AMM add_liquidity action must leave capacity")
         / 2;
     let add_liquidity_outputs = vec![
-        CellOutput { capacity: add_liquidity_output_capacity, lock: add_provider_lock, type_: None },
         CellOutput { capacity: add_liquidity_output_capacity, lock: add_liquidity_lock, type_: Some(add_pool_type) },
+        CellOutput { capacity: add_liquidity_output_capacity, lock: add_provider_lock, type_: None },
     ];
     let add_liquidity_valid_output_data = vec![
-        lp_receipt_cell_data(add_pool_id, add_lp_amount, add_provider_hash),
         pool_cell_data(
             symbol_a,
             symbol_b,
@@ -2464,9 +2463,9 @@ async fn run_amm_action_builder_matrix(
             add_total_lp + add_lp_amount,
             fee_rate_bps,
         ),
+        lp_receipt_cell_data(add_pool_id, add_lp_amount, add_provider_hash),
     ];
     let add_liquidity_malformed_output_data = vec![
-        lp_receipt_cell_data(add_pool_id, add_lp_amount + 1, add_provider_hash),
         pool_cell_data(
             symbol_a,
             symbol_b,
@@ -2475,6 +2474,7 @@ async fn run_amm_action_builder_matrix(
             add_total_lp + add_lp_amount,
             fee_rate_bps,
         ),
+        lp_receipt_cell_data(add_pool_id, add_lp_amount + 1, add_provider_hash),
     ];
     let add_liquidity_cell_deps = vec![
         CellDep {
@@ -2489,9 +2489,9 @@ async fn run_amm_action_builder_matrix(
     let malformed_add_liquidity_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
             vec![
+                CellInput::new(OutPoint::new(add_pool_input.tx_hash, add_pool_input.index), 0),
                 CellInput::new(OutPoint::new(add_token_a_input.tx_hash, add_token_a_input.index), 0),
                 CellInput::new(OutPoint::new(add_token_b_input.tx_hash, add_token_b_input.index), 0),
-                CellInput::new(OutPoint::new(add_pool_input.tx_hash, add_pool_input.index), 0),
             ],
             add_liquidity_cell_deps.clone(),
             add_liquidity_outputs.clone(),
@@ -2512,9 +2512,9 @@ async fn run_amm_action_builder_matrix(
     let valid_add_liquidity_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
             vec![
+                CellInput::new(OutPoint::new(add_pool_input.tx_hash, add_pool_input.index), 0),
                 CellInput::new(OutPoint::new(add_token_a_input.tx_hash, add_token_a_input.index), 0),
                 CellInput::new(OutPoint::new(add_token_b_input.tx_hash, add_token_b_input.index), 0),
-                CellInput::new(OutPoint::new(add_pool_input.tx_hash, add_pool_input.index), 0),
             ],
             add_liquidity_cell_deps,
             add_liquidity_outputs,
@@ -2636,25 +2636,23 @@ async fn run_amm_action_builder_matrix(
         .expect("AMM remove_liquidity action must leave capacity")
         / 3;
     let remove_liquidity_outputs = vec![
+        CellOutput { capacity: remove_liquidity_output_capacity, lock: remove_liquidity_lock, type_: Some(remove_pool_type) },
         CellOutput { capacity: remove_liquidity_output_capacity, lock: remove_provider_lock.clone(), type_: None },
         CellOutput { capacity: remove_liquidity_output_capacity, lock: remove_provider_lock, type_: None },
-        CellOutput { capacity: remove_liquidity_output_capacity, lock: remove_liquidity_lock, type_: Some(remove_pool_type) },
     ];
     let remove_liquidity_valid_output_data = vec![
+        pool_cell_data(
+            symbol_a,
+            symbol_b,
+            remove_reserve_a - remove_amount_a,
+            remove_reserve_b - remove_amount_b,
+            remove_total_lp - remove_lp_amount,
+            fee_rate_bps,
+        ),
         token_cell_data(remove_amount_a, symbol_a),
         token_cell_data(remove_amount_b, symbol_b),
-        pool_cell_data(
-            symbol_a,
-            symbol_b,
-            remove_reserve_a - remove_amount_a,
-            remove_reserve_b - remove_amount_b,
-            remove_total_lp - remove_lp_amount,
-            fee_rate_bps,
-        ),
     ];
     let remove_liquidity_malformed_output_data = vec![
-        token_cell_data(remove_amount_a + 1, symbol_a),
-        token_cell_data(remove_amount_b, symbol_b),
         pool_cell_data(
             symbol_a,
             symbol_b,
@@ -2663,6 +2661,8 @@ async fn run_amm_action_builder_matrix(
             remove_total_lp - remove_lp_amount,
             fee_rate_bps,
         ),
+        token_cell_data(remove_amount_a + 1, symbol_a),
+        token_cell_data(remove_amount_b, symbol_b),
     ];
     let remove_liquidity_cell_deps = vec![
         CellDep {
@@ -2677,8 +2677,8 @@ async fn run_amm_action_builder_matrix(
     let malformed_remove_liquidity_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
             vec![
-                CellInput::new(OutPoint::new(remove_receipt_input.tx_hash, remove_receipt_input.index), 0),
                 CellInput::new(OutPoint::new(remove_pool_input.tx_hash, remove_pool_input.index), 0),
+                CellInput::new(OutPoint::new(remove_receipt_input.tx_hash, remove_receipt_input.index), 0),
             ],
             remove_liquidity_cell_deps.clone(),
             remove_liquidity_outputs.clone(),
@@ -2699,8 +2699,8 @@ async fn run_amm_action_builder_matrix(
     let valid_remove_liquidity_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
             vec![
-                CellInput::new(OutPoint::new(remove_receipt_input.tx_hash, remove_receipt_input.index), 0),
                 CellInput::new(OutPoint::new(remove_pool_input.tx_hash, remove_pool_input.index), 0),
+                CellInput::new(OutPoint::new(remove_receipt_input.tx_hash, remove_receipt_input.index), 0),
             ],
             remove_liquidity_cell_deps,
             remove_liquidity_outputs,
@@ -3296,6 +3296,10 @@ async fn run_nft_action_builder_matrix(
         vec![CellInput::new(OutPoint::new(malformed_create_listing_input.tx_hash, malformed_create_listing_input.index), 0)],
         vec![
             CellDep {
+                out_point: OutPoint::new(malformed_create_listing_input.tx_hash, malformed_create_listing_input.index),
+                dep_type: DepType::Code,
+            },
+            CellDep {
                 out_point: OutPoint::new(create_listing_code_outpoint.tx_hash, create_listing_code_outpoint.index),
                 dep_type: DepType::Code,
             },
@@ -3328,6 +3332,10 @@ async fn run_nft_action_builder_matrix(
     let valid_create_listing_tx = CellTx::new(
         vec![CellInput::new(OutPoint::new(valid_create_listing_input.tx_hash, valid_create_listing_input.index), 0)],
         vec![
+            CellDep {
+                out_point: OutPoint::new(valid_create_listing_input.tx_hash, valid_create_listing_input.index),
+                dep_type: DepType::Code,
+            },
             CellDep {
                 out_point: OutPoint::new(create_listing_code_outpoint.tx_hash, create_listing_code_outpoint.index),
                 dep_type: DepType::Code,
@@ -3362,7 +3370,7 @@ async fn run_nft_action_builder_matrix(
                 async move {
                     client.get_cells_by_addresses(vec![address]).await.unwrap().iter().any(|cell| {
                         cell.outpoint.transaction_id == valid_create_listing_tx_id
-                            && cell.cell_entry.data_bytes == 56
+                            && cell.cell_entry.data_bytes == 57
                             && cell.cell_entry.data_hash == valid_listing_data_hash
                     })
                 }
@@ -3640,7 +3648,7 @@ async fn run_nft_action_builder_matrix(
                 async move {
                     client.get_cells_by_addresses(vec![address]).await.unwrap().iter().any(|cell| {
                         cell.outpoint.transaction_id == valid_create_offer_tx_id
-                            && cell.cell_entry.data_bytes == 56
+                            && cell.cell_entry.data_bytes == 57
                             && cell.cell_entry.data_hash == valid_offer_data_hash
                     })
                 }
@@ -3768,8 +3776,8 @@ async fn run_nft_action_builder_matrix(
         / 3;
     let malformed_buy_tx = CellTx::new(
         vec![
-            CellInput::new(OutPoint::new(malformed_buy_listing_input.tx_hash, malformed_buy_listing_input.index), 0),
             CellInput::new(OutPoint::new(malformed_buy_nft_input.tx_hash, malformed_buy_nft_input.index), 0),
+            CellInput::new(OutPoint::new(malformed_buy_listing_input.tx_hash, malformed_buy_listing_input.index), 0),
         ],
         vec![
             CellDep {
@@ -3782,14 +3790,14 @@ async fn run_nft_action_builder_matrix(
             },
         ],
         vec![
-            CellOutput { capacity: buy_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
-            CellOutput { capacity: buy_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
             CellOutput { capacity: buy_output_capacity, lock: buy_from_listing_lock.clone(), type_: Some(buy_nft_type.clone()) },
+            CellOutput { capacity: buy_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
+            CellOutput { capacity: buy_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
         ],
         vec![
+            nft_cell_data(12, buy_buyer, [114; 32], buy_royalty_recipient, 250),
             royalty_payment_cell_data(12, buy_royalty_recipient, buy_royalty_amount),
             royalty_payment_cell_data(12, buy_listing_seller, buy_seller_amount + 1),
-            nft_cell_data(12, buy_buyer, [114; 32], buy_royalty_recipient, 250),
         ],
         vec![buy_from_listing_witness.clone()],
     )
@@ -3812,8 +3820,8 @@ async fn run_nft_action_builder_matrix(
     let valid_bought_nft_data = nft_cell_data(12, buy_buyer, [114; 32], buy_royalty_recipient, 250);
     let valid_buy_tx = CellTx::new(
         vec![
-            CellInput::new(OutPoint::new(valid_buy_listing_input.tx_hash, valid_buy_listing_input.index), 0),
             CellInput::new(OutPoint::new(valid_buy_nft_input.tx_hash, valid_buy_nft_input.index), 0),
+            CellInput::new(OutPoint::new(valid_buy_listing_input.tx_hash, valid_buy_listing_input.index), 0),
         ],
         vec![
             CellDep {
@@ -3826,14 +3834,14 @@ async fn run_nft_action_builder_matrix(
             },
         ],
         vec![
-            CellOutput { capacity: buy_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
-            CellOutput { capacity: buy_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
             CellOutput { capacity: buy_output_capacity, lock: buy_from_listing_lock, type_: Some(buy_nft_type) },
+            CellOutput { capacity: buy_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
+            CellOutput { capacity: buy_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
         ],
         vec![
+            valid_bought_nft_data.clone(),
             royalty_payment_cell_data(12, buy_royalty_recipient, buy_royalty_amount),
             royalty_payment_cell_data(12, buy_listing_seller, buy_seller_amount),
-            valid_bought_nft_data.clone(),
         ],
         vec![buy_from_listing_witness],
     )
@@ -3979,8 +3987,8 @@ async fn run_nft_action_builder_matrix(
         / 3;
     let malformed_accept_tx = CellTx::new(
         vec![
-            CellInput::new(OutPoint::new(malformed_accept_offer_input.tx_hash, malformed_accept_offer_input.index), 0),
             CellInput::new(OutPoint::new(malformed_accept_nft_input.tx_hash, malformed_accept_nft_input.index), 0),
+            CellInput::new(OutPoint::new(malformed_accept_offer_input.tx_hash, malformed_accept_offer_input.index), 0),
         ],
         vec![
             CellDep {
@@ -3993,14 +4001,14 @@ async fn run_nft_action_builder_matrix(
             },
         ],
         vec![
-            CellOutput { capacity: accept_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
-            CellOutput { capacity: accept_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
             CellOutput { capacity: accept_output_capacity, lock: accept_offer_lock.clone(), type_: Some(accept_nft_type.clone()) },
+            CellOutput { capacity: accept_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
+            CellOutput { capacity: accept_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
         ],
         vec![
+            nft_cell_data(13, accept_buyer, [124; 32], accept_royalty_recipient, 250),
             royalty_payment_cell_data(13, accept_royalty_recipient, accept_royalty_amount),
             royalty_payment_cell_data(13, accept_seller, accept_seller_amount),
-            nft_cell_data(13, accept_buyer, [124; 32], accept_royalty_recipient, 250),
         ],
         vec![expired_accept_offer_witness],
     )
@@ -4032,8 +4040,8 @@ async fn run_nft_action_builder_matrix(
     let valid_accept_nft_data = nft_cell_data(13, accept_buyer, [124; 32], accept_royalty_recipient, 250);
     let valid_accept_tx = CellTx::new(
         vec![
-            CellInput::new(OutPoint::new(valid_accept_offer_input.tx_hash, valid_accept_offer_input.index), 0),
             CellInput::new(OutPoint::new(valid_accept_nft_input.tx_hash, valid_accept_nft_input.index), 0),
+            CellInput::new(OutPoint::new(valid_accept_offer_input.tx_hash, valid_accept_offer_input.index), 0),
         ],
         vec![
             CellDep {
@@ -4046,14 +4054,14 @@ async fn run_nft_action_builder_matrix(
             },
         ],
         vec![
-            CellOutput { capacity: accept_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
-            CellOutput { capacity: accept_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
             CellOutput { capacity: accept_output_capacity, lock: accept_offer_lock, type_: Some(accept_nft_type) },
+            CellOutput { capacity: accept_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
+            CellOutput { capacity: accept_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
         ],
         vec![
+            valid_accept_nft_data.clone(),
             royalty_payment_cell_data(13, accept_royalty_recipient, accept_royalty_amount),
             royalty_payment_cell_data(13, accept_seller, accept_seller_amount),
-            valid_accept_nft_data.clone(),
         ],
         vec![accept_offer_witness],
     )
@@ -4171,12 +4179,12 @@ async fn run_nft_action_builder_matrix(
             },
         ],
         vec![
-            CellOutput { capacity: mint_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
             CellOutput { capacity: mint_output_capacity, lock: mint_lock.clone(), type_: Some(mint_collection_type.clone()) },
+            CellOutput { capacity: mint_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
         ],
         vec![
-            nft_cell_data(2, mint_recipient, mint_metadata_hash, mint_creator, 250),
             collection_cell_data(b"Acceptance NFT", b"ANFT", mint_creator, 3, 100, b"spora://acceptance/nft/"),
+            nft_cell_data(2, mint_recipient, mint_metadata_hash, mint_creator, 250),
         ],
         vec![mint_witness.clone()],
     )
@@ -4207,12 +4215,12 @@ async fn run_nft_action_builder_matrix(
             },
         ],
         vec![
-            CellOutput { capacity: mint_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
             CellOutput { capacity: mint_output_capacity, lock: mint_lock, type_: Some(mint_collection_type) },
+            CellOutput { capacity: mint_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
         ],
         vec![
-            valid_minted_nft_data.clone(),
             collection_cell_data(b"Acceptance NFT", b"ANFT", mint_creator, 2, 100, b"spora://acceptance/nft/"),
+            valid_minted_nft_data.clone(),
         ],
         vec![mint_witness],
     )
@@ -4349,22 +4357,22 @@ async fn run_nft_action_builder_matrix(
                 },
             ],
             vec![
-                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
-                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
-                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
-                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
                 CellOutput {
                     capacity: batch_output_capacity,
                     lock: batch_mint_lock.clone(),
                     type_: Some(batch_collection_type.clone()),
                 },
+                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
+                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
+                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
+                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
             ],
             vec![
+                collection_cell_data(b"Batch NFT", b"BNFT", batch_creator, 14, 100, b"spora://acceptance/batch/"),
                 nft_cell_data(11, batch_recipients[0], batch_metadata_hashes[0], batch_creator, 250),
                 nft_cell_data(12, batch_recipients[1], batch_metadata_hashes[1], batch_creator, 250),
                 nft_cell_data(13, batch_recipients[2], batch_metadata_hashes[2], batch_creator, 250),
                 nft_cell_data(14, batch_recipients[3], [150; 32], batch_creator, 250),
-                collection_cell_data(b"Batch NFT", b"BNFT", batch_creator, 14, 100, b"spora://acceptance/batch/"),
             ],
             vec![batch_mint_witness.clone()],
         )
@@ -4407,18 +4415,18 @@ async fn run_nft_action_builder_matrix(
                 },
             ],
             vec![
-                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
-                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
-                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
-                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
                 CellOutput { capacity: batch_output_capacity, lock: batch_mint_lock, type_: Some(batch_collection_type) },
+                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
+                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
+                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
+                CellOutput { capacity: batch_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
             ],
             vec![
+                collection_cell_data(b"Batch NFT", b"BNFT", batch_creator, 14, 100, b"spora://acceptance/batch/"),
                 valid_batch_nft_data[0].clone(),
                 valid_batch_nft_data[1].clone(),
                 valid_batch_nft_data[2].clone(),
                 valid_batch_nft_data[3].clone(),
-                collection_cell_data(b"Batch NFT", b"BNFT", batch_creator, 14, 100, b"spora://acceptance/batch/"),
             ],
             vec![batch_mint_witness],
         )
@@ -4741,13 +4749,25 @@ async fn run_launch_action_builder_matrix(
         ])
         .expect("launch launch_token witness must encode launch parameters");
     let launch_token_output_capacity = launch_token_fixture_capacity
-        .checked_sub(required_fee(1, 6).saturating_add(100_000))
-        .and_then(|value| value.checked_div(6))
-        .expect("launch launch_token action must leave capacity for six outputs");
+        .checked_sub(required_fee(1, 8).saturating_add(100_000))
+        .and_then(|value| value.checked_div(8))
+        .expect("launch launch_token action must leave capacity for eight outputs");
     let launch_auth_type = Script::new(always_success_code_hash(), 0, b"launch-token-auth-type".to_vec());
+    let launch_pool_type = Script::new(always_success_code_hash(), 0, b"launch-pool-type".to_vec());
+    let launch_lp_receipt_type = Script::new(always_success_code_hash(), 0, b"launch-lp-receipt-type".to_vec());
     let launch_dist_token_type = Script::new(always_success_code_hash(), 0, b"launch-distribution-token-type".to_vec());
     let mut launch_outputs =
         vec![CellOutput { capacity: launch_token_output_capacity, lock: launch_creator_lock.clone(), type_: Some(launch_auth_type) }];
+    launch_outputs.push(CellOutput {
+        capacity: launch_token_output_capacity,
+        lock: launch_token_lock,
+        type_: Some(launch_pool_type.clone()),
+    });
+    launch_outputs.push(CellOutput {
+        capacity: launch_token_output_capacity,
+        lock: launch_creator_lock.clone(),
+        type_: Some(launch_lp_receipt_type),
+    });
     launch_outputs.extend(dist_locks.iter().map(|lock| CellOutput {
         capacity: launch_token_output_capacity,
         lock: lock.clone(),
@@ -4758,11 +4778,16 @@ async fn run_launch_action_builder_matrix(
         lock: launch_creator_lock,
         type_: Some(launch_dist_token_type),
     });
-    let mut launch_output_data = vec![mint_authority_cell_data(launch_symbol, launch_max_supply, launch_initial_mint)];
+    let launch_remaining = launch_initial_mint - dist_amounts.iter().sum::<u64>() - pool_seed_amount;
+    let mut launch_output_data = vec![
+        mint_authority_cell_data(launch_symbol, launch_max_supply, launch_initial_mint),
+        pool_cell_data(launch_symbol, *b"PAIR0001", pool_seed_amount, 400, pool_seed_amount, fee_rate_bps),
+        lp_receipt_cell_data(launch_pool_type.hash(), pool_seed_amount, launch_creator),
+    ];
     launch_output_data.extend(dist_amounts.iter().map(|amount| token_cell_data(*amount, launch_symbol)));
-    launch_output_data.push(token_cell_data(pool_seed_amount, launch_symbol));
+    launch_output_data.push(token_cell_data(launch_remaining, launch_symbol));
     let mut malformed_launch_output_data = launch_output_data.clone();
-    malformed_launch_output_data[5] = token_cell_data(pool_seed_amount + 1, launch_symbol);
+    malformed_launch_output_data[7] = token_cell_data(launch_remaining + 1, launch_symbol);
     let launch_token_cell_deps = vec![
         CellDep {
             out_point: OutPoint::new(launch_token_code_outpoint.tx_hash, launch_token_code_outpoint.index),
@@ -5458,6 +5483,7 @@ async fn run_multisig_action_builder_matrix(
     let witness = create_wallet_artifact
         .action
         .entry_witness_args(&[
+            cellscript::EntryWitnessArg::Hash([0; 32]),
             cellscript::EntryWitnessArg::Bytes(signers_payload),
             cellscript::EntryWitnessArg::U8(threshold),
             cellscript::EntryWitnessArg::U64(current_time),
@@ -5638,14 +5664,14 @@ async fn run_multisig_action_builder_matrix(
                 },
             ],
             vec![
-                CellOutput { capacity: propose_transfer_proposal_capacity, lock: propose_transfer_lock.clone(), type_: None },
                 CellOutput {
                     capacity: propose_transfer_wallet_output_capacity,
                     lock: propose_transfer_lock.clone(),
                     type_: Some(propose_transfer_type.clone()),
                 },
+                CellOutput { capacity: propose_transfer_proposal_capacity, lock: propose_transfer_lock.clone(), type_: None },
             ],
-            vec![malformed_proposal_payload, malformed_wallet_payload],
+            vec![malformed_wallet_payload, malformed_proposal_payload],
             vec![propose_transfer_witness.clone()],
         )
         .expect("malformed multisig propose_transfer transaction must be structurally valid"),
@@ -5673,14 +5699,14 @@ async fn run_multisig_action_builder_matrix(
                 },
             ],
             vec![
-                CellOutput { capacity: propose_transfer_proposal_capacity, lock: propose_transfer_lock.clone(), type_: None },
                 CellOutput {
                     capacity: propose_transfer_wallet_output_capacity,
-                    lock: propose_transfer_lock,
+                    lock: propose_transfer_lock.clone(),
                     type_: Some(propose_transfer_type),
                 },
+                CellOutput { capacity: propose_transfer_proposal_capacity, lock: propose_transfer_lock, type_: None },
             ],
-            vec![proposal_payload, mutated_wallet_payload],
+            vec![mutated_wallet_payload, proposal_payload],
             vec![propose_transfer_witness],
         )
         .expect("valid multisig propose_transfer transaction must be structurally valid"),
@@ -5826,15 +5852,16 @@ async fn run_multisig_action_builder_matrix(
     let add_signature_confirmation_capacity = add_signature_proposal_capacity / 4;
     let add_signature_output_proposal_capacity = add_signature_proposal_capacity
         .checked_sub(add_signature_confirmation_capacity)
-        .and_then(|value| value.checked_sub(required_fee(2, 2).saturating_add(100_000)))
+        .and_then(|value| value.checked_sub(required_fee(1, 2).saturating_add(100_000)))
         .expect("multisig add_signature action must leave proposal output capacity");
     let malformed_add_signature_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
+            vec![CellInput::new(OutPoint::new(add_signature_proposal_input.tx_hash, add_signature_proposal_input.index), 0)],
             vec![
-                CellInput::new(OutPoint::new(add_signature_proposal_input.tx_hash, add_signature_proposal_input.index), 0),
-                CellInput::new(OutPoint::new(add_signature_wallet_input.tx_hash, add_signature_wallet_input.index), 0),
-            ],
-            vec![
+                CellDep {
+                    out_point: OutPoint::new(add_signature_wallet_input.tx_hash, add_signature_wallet_input.index),
+                    dep_type: DepType::Code,
+                },
                 CellDep {
                     out_point: OutPoint::new(add_signature_code_outpoint.tx_hash, add_signature_code_outpoint.index),
                     dep_type: DepType::Code,
@@ -5845,14 +5872,14 @@ async fn run_multisig_action_builder_matrix(
                 },
             ],
             vec![
-                CellOutput { capacity: add_signature_confirmation_capacity, lock: add_signature_lock.clone(), type_: None },
                 CellOutput {
                     capacity: add_signature_output_proposal_capacity,
                     lock: add_signature_lock.clone(),
                     type_: Some(add_signature_proposal_type.clone()),
                 },
+                CellOutput { capacity: add_signature_confirmation_capacity, lock: add_signature_lock.clone(), type_: None },
             ],
-            vec![signature_confirmation_payload.clone(), malformed_signed_proposal_payload],
+            vec![malformed_signed_proposal_payload, signature_confirmation_payload.clone()],
             vec![add_signature_witness.clone()],
         )
         .expect("malformed multisig add_signature transaction must be structurally valid"),
@@ -5868,11 +5895,12 @@ async fn run_multisig_action_builder_matrix(
 
     let valid_add_signature_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
+            vec![CellInput::new(OutPoint::new(add_signature_proposal_input.tx_hash, add_signature_proposal_input.index), 0)],
             vec![
-                CellInput::new(OutPoint::new(add_signature_proposal_input.tx_hash, add_signature_proposal_input.index), 0),
-                CellInput::new(OutPoint::new(add_signature_wallet_input.tx_hash, add_signature_wallet_input.index), 0),
-            ],
-            vec![
+                CellDep {
+                    out_point: OutPoint::new(add_signature_wallet_input.tx_hash, add_signature_wallet_input.index),
+                    dep_type: DepType::Code,
+                },
                 CellDep {
                     out_point: OutPoint::new(add_signature_code_outpoint.tx_hash, add_signature_code_outpoint.index),
                     dep_type: DepType::Code,
@@ -5883,14 +5911,14 @@ async fn run_multisig_action_builder_matrix(
                 },
             ],
             vec![
-                CellOutput { capacity: add_signature_confirmation_capacity, lock: add_signature_lock.clone(), type_: None },
                 CellOutput {
                     capacity: add_signature_output_proposal_capacity,
                     lock: add_signature_lock.clone(),
                     type_: Some(add_signature_proposal_type),
                 },
+                CellOutput { capacity: add_signature_confirmation_capacity, lock: add_signature_lock.clone(), type_: None },
             ],
-            vec![signature_confirmation_payload, signed_proposal_payload],
+            vec![signed_proposal_payload, signature_confirmation_payload],
             vec![add_signature_witness],
         )
         .expect("valid multisig add_signature transaction must be structurally valid"),
@@ -6013,15 +6041,16 @@ async fn run_multisig_action_builder_matrix(
         .entry_witness_args(&[cellscript::EntryWitnessArg::Address(executor), cellscript::EntryWitnessArg::U64(execute_current_time)])
         .expect("multisig execute_proposal witness must encode executor and current_time");
     let execute_record_output_capacity = execute_proposal_proposal_capacity
-        .checked_sub(required_fee(2, 1).saturating_add(100_000))
+        .checked_sub(required_fee(1, 1).saturating_add(100_000))
         .expect("multisig execute_proposal action must leave execution record output capacity");
     let malformed_execute_proposal_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
+            vec![CellInput::new(OutPoint::new(execute_proposal_input.tx_hash, execute_proposal_input.index), 0)],
             vec![
-                CellInput::new(OutPoint::new(execute_proposal_input.tx_hash, execute_proposal_input.index), 0),
-                CellInput::new(OutPoint::new(execute_wallet_input.tx_hash, execute_wallet_input.index), 0),
-            ],
-            vec![
+                CellDep {
+                    out_point: OutPoint::new(execute_wallet_input.tx_hash, execute_wallet_input.index),
+                    dep_type: DepType::Code,
+                },
                 CellDep {
                     out_point: OutPoint::new(execute_proposal_code_outpoint.tx_hash, execute_proposal_code_outpoint.index),
                     dep_type: DepType::Code,
@@ -6048,11 +6077,12 @@ async fn run_multisig_action_builder_matrix(
 
     let valid_execute_proposal_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
+            vec![CellInput::new(OutPoint::new(execute_proposal_input.tx_hash, execute_proposal_input.index), 0)],
             vec![
-                CellInput::new(OutPoint::new(execute_proposal_input.tx_hash, execute_proposal_input.index), 0),
-                CellInput::new(OutPoint::new(execute_wallet_input.tx_hash, execute_wallet_input.index), 0),
-            ],
-            vec![
+                CellDep {
+                    out_point: OutPoint::new(execute_wallet_input.tx_hash, execute_wallet_input.index),
+                    dep_type: DepType::Code,
+                },
                 CellDep {
                     out_point: OutPoint::new(execute_proposal_code_outpoint.tx_hash, execute_proposal_code_outpoint.index),
                     dep_type: DepType::Code,
@@ -6181,16 +6211,13 @@ async fn run_multisig_action_builder_matrix(
         .entry_witness_args(&[cellscript::EntryWitnessArg::Address(signer_b)])
         .expect("multisig cancel_proposal malformed witness must encode canceller");
     let cancel_change_capacity = cancel_proposal_proposal_capacity
-        .checked_add(cancel_proposal_wallet_capacity)
-        .and_then(|value| value.checked_sub(required_fee(2, 1).saturating_add(100_000)))
+        .checked_sub(required_fee(1, 1).saturating_add(100_000))
         .expect("multisig cancel_proposal action must leave change output capacity");
     let malformed_cancel_proposal_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
+            vec![CellInput::new(OutPoint::new(cancel_proposal_input.tx_hash, cancel_proposal_input.index), 0)],
             vec![
-                CellInput::new(OutPoint::new(cancel_proposal_input.tx_hash, cancel_proposal_input.index), 0),
-                CellInput::new(OutPoint::new(cancel_wallet_input.tx_hash, cancel_wallet_input.index), 0),
-            ],
-            vec![
+                CellDep { out_point: OutPoint::new(cancel_wallet_input.tx_hash, cancel_wallet_input.index), dep_type: DepType::Code },
                 CellDep {
                     out_point: OutPoint::new(cancel_proposal_code_outpoint.tx_hash, cancel_proposal_code_outpoint.index),
                     dep_type: DepType::Code,
@@ -6221,11 +6248,9 @@ async fn run_multisig_action_builder_matrix(
         .expect("multisig cancel_proposal valid witness must encode canceller");
     let valid_cancel_proposal_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
+            vec![CellInput::new(OutPoint::new(cancel_proposal_input.tx_hash, cancel_proposal_input.index), 0)],
             vec![
-                CellInput::new(OutPoint::new(cancel_proposal_input.tx_hash, cancel_proposal_input.index), 0),
-                CellInput::new(OutPoint::new(cancel_wallet_input.tx_hash, cancel_wallet_input.index), 0),
-            ],
-            vec![
+                CellDep { out_point: OutPoint::new(cancel_wallet_input.tx_hash, cancel_wallet_input.index), dep_type: DepType::Code },
                 CellDep {
                     out_point: OutPoint::new(cancel_proposal_code_outpoint.tx_hash, cancel_proposal_code_outpoint.index),
                     dep_type: DepType::Code,
@@ -6395,14 +6420,14 @@ async fn run_multisig_action_builder_matrix(
                 },
             ],
             vec![
-                CellOutput { capacity: propose_add_signer_proposal_capacity, lock: propose_add_signer_lock.clone(), type_: None },
                 CellOutput {
                     capacity: propose_add_signer_wallet_output_capacity,
                     lock: propose_add_signer_lock.clone(),
                     type_: Some(propose_add_signer_wallet_type.clone()),
                 },
+                CellOutput { capacity: propose_add_signer_proposal_capacity, lock: propose_add_signer_lock.clone(), type_: None },
             ],
-            vec![malformed_propose_add_signer_proposal_payload, malformed_propose_wallet_output_payload.clone()],
+            vec![malformed_propose_wallet_output_payload.clone(), malformed_propose_add_signer_proposal_payload],
             vec![propose_add_signer_witness.clone()],
         )
         .expect("malformed multisig propose_add_signer transaction must be structurally valid"),
@@ -6430,14 +6455,14 @@ async fn run_multisig_action_builder_matrix(
                 },
             ],
             vec![
-                CellOutput { capacity: propose_add_signer_proposal_capacity, lock: propose_add_signer_lock.clone(), type_: None },
                 CellOutput {
                     capacity: propose_add_signer_wallet_output_capacity,
                     lock: propose_add_signer_lock.clone(),
                     type_: Some(propose_add_signer_wallet_type.clone()),
                 },
+                CellOutput { capacity: propose_add_signer_proposal_capacity, lock: propose_add_signer_lock.clone(), type_: None },
             ],
-            vec![propose_add_signer_proposal_payload, propose_wallet_output_payload.clone()],
+            vec![propose_wallet_output_payload.clone(), propose_add_signer_proposal_payload],
             vec![propose_add_signer_witness],
         )
         .expect("valid multisig propose_add_signer transaction must be structurally valid"),
@@ -6603,17 +6628,17 @@ async fn run_multisig_action_builder_matrix(
             ],
             vec![
                 CellOutput {
-                    capacity: propose_remove_signer_proposal_capacity,
-                    lock: propose_remove_signer_lock.clone(),
-                    type_: None,
-                },
-                CellOutput {
                     capacity: propose_remove_signer_wallet_output_capacity,
                     lock: propose_remove_signer_lock.clone(),
                     type_: Some(propose_remove_signer_wallet_type.clone()),
                 },
+                CellOutput {
+                    capacity: propose_remove_signer_proposal_capacity,
+                    lock: propose_remove_signer_lock.clone(),
+                    type_: None,
+                },
             ],
-            vec![malformed_propose_remove_signer_proposal_payload, malformed_propose_remove_signer_wallet_output_payload],
+            vec![malformed_propose_remove_signer_wallet_output_payload, malformed_propose_remove_signer_proposal_payload],
             vec![propose_remove_signer_witness.clone()],
         )
         .expect("malformed multisig propose_remove_signer transaction must be structurally valid"),
@@ -6645,17 +6670,17 @@ async fn run_multisig_action_builder_matrix(
             ],
             vec![
                 CellOutput {
-                    capacity: propose_remove_signer_proposal_capacity,
-                    lock: propose_remove_signer_lock.clone(),
-                    type_: None,
-                },
-                CellOutput {
                     capacity: propose_remove_signer_wallet_output_capacity,
                     lock: propose_remove_signer_lock.clone(),
                     type_: Some(propose_remove_signer_wallet_type.clone()),
                 },
+                CellOutput {
+                    capacity: propose_remove_signer_proposal_capacity,
+                    lock: propose_remove_signer_lock.clone(),
+                    type_: None,
+                },
             ],
-            vec![propose_remove_signer_proposal_payload, propose_remove_signer_wallet_output_payload],
+            vec![propose_remove_signer_wallet_output_payload, propose_remove_signer_proposal_payload],
             vec![propose_remove_signer_witness],
         )
         .expect("valid multisig propose_remove_signer transaction must be structurally valid"),
@@ -6818,17 +6843,17 @@ async fn run_multisig_action_builder_matrix(
             ],
             vec![
                 CellOutput {
-                    capacity: propose_change_threshold_proposal_capacity,
-                    lock: propose_change_threshold_lock.clone(),
-                    type_: None,
-                },
-                CellOutput {
                     capacity: propose_change_threshold_wallet_output_capacity,
                     lock: propose_change_threshold_lock.clone(),
                     type_: Some(propose_change_threshold_wallet_type.clone()),
                 },
+                CellOutput {
+                    capacity: propose_change_threshold_proposal_capacity,
+                    lock: propose_change_threshold_lock.clone(),
+                    type_: None,
+                },
             ],
-            vec![malformed_propose_change_threshold_proposal_payload, malformed_propose_wallet_output_payload],
+            vec![malformed_propose_wallet_output_payload, malformed_propose_change_threshold_proposal_payload],
             vec![propose_change_threshold_witness.clone()],
         )
         .expect("malformed multisig propose_change_threshold transaction must be structurally valid"),
@@ -6863,17 +6888,17 @@ async fn run_multisig_action_builder_matrix(
             ],
             vec![
                 CellOutput {
-                    capacity: propose_change_threshold_proposal_capacity,
-                    lock: propose_change_threshold_lock.clone(),
-                    type_: None,
-                },
-                CellOutput {
                     capacity: propose_change_threshold_wallet_output_capacity,
                     lock: propose_change_threshold_lock.clone(),
                     type_: Some(propose_change_threshold_wallet_type.clone()),
                 },
+                CellOutput {
+                    capacity: propose_change_threshold_proposal_capacity,
+                    lock: propose_change_threshold_lock.clone(),
+                    type_: None,
+                },
             ],
-            vec![propose_change_threshold_proposal_payload, propose_wallet_output_payload],
+            vec![propose_wallet_output_payload, propose_change_threshold_proposal_payload],
             vec![propose_change_threshold_witness],
         )
         .expect("valid multisig propose_change_threshold transaction must be structurally valid"),
@@ -7042,6 +7067,7 @@ async fn run_timelock_action_builder_matrix(
     let absolute_witness = create_absolute_artifact
         .action
         .entry_witness_args(&[
+            cellscript::EntryWitnessArg::Hash([0; 32]),
             cellscript::EntryWitnessArg::Address(absolute_owner),
             cellscript::EntryWitnessArg::U64(absolute_unlock_height),
             cellscript::EntryWitnessArg::U64(absolute_current_height),
@@ -7156,6 +7182,7 @@ async fn run_timelock_action_builder_matrix(
     let relative_witness = create_relative_artifact
         .action
         .entry_witness_args(&[
+            cellscript::EntryWitnessArg::Hash([0; 32]),
             cellscript::EntryWitnessArg::Address(relative_owner),
             cellscript::EntryWitnessArg::U64(relative_period),
             cellscript::EntryWitnessArg::U64(relative_current_height),
@@ -7286,10 +7313,16 @@ async fn run_timelock_action_builder_matrix(
                 CellInput::new(OutPoint::new(lock_asset_time_lock_input.tx_hash, lock_asset_time_lock_input.index), 0),
                 CellInput::new(OutPoint::new(lock_asset_type_input.tx_hash, lock_asset_type_input.index), 0),
             ],
-            vec![CellDep {
-                out_point: OutPoint::new(lock_asset_code_outpoint.tx_hash, lock_asset_code_outpoint.index),
-                dep_type: DepType::Code,
-            }],
+            vec![
+                CellDep {
+                    out_point: OutPoint::new(lock_asset_time_lock_input.tx_hash, lock_asset_time_lock_input.index),
+                    dep_type: DepType::Code,
+                },
+                CellDep {
+                    out_point: OutPoint::new(lock_asset_code_outpoint.tx_hash, lock_asset_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+            ],
             vec![
                 CellOutput { capacity: lock_asset_output_capacity, lock: lock_asset_lock.clone(), type_: None },
                 CellOutput { capacity: lock_asset_output_capacity, lock: lock_asset_lock.clone(), type_: None },
@@ -7317,10 +7350,16 @@ async fn run_timelock_action_builder_matrix(
                 CellInput::new(OutPoint::new(lock_asset_time_lock_input.tx_hash, lock_asset_time_lock_input.index), 0),
                 CellInput::new(OutPoint::new(lock_asset_type_input.tx_hash, lock_asset_type_input.index), 0),
             ],
-            vec![CellDep {
-                out_point: OutPoint::new(lock_asset_code_outpoint.tx_hash, lock_asset_code_outpoint.index),
-                dep_type: DepType::Code,
-            }],
+            vec![
+                CellDep {
+                    out_point: OutPoint::new(lock_asset_time_lock_input.tx_hash, lock_asset_time_lock_input.index),
+                    dep_type: DepType::Code,
+                },
+                CellDep {
+                    out_point: OutPoint::new(lock_asset_code_outpoint.tx_hash, lock_asset_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+            ],
             vec![
                 CellOutput { capacity: lock_asset_output_capacity, lock: lock_asset_lock.clone(), type_: None },
                 CellOutput { capacity: lock_asset_output_capacity, lock: lock_asset_lock, type_: None },
@@ -7414,10 +7453,13 @@ async fn run_timelock_action_builder_matrix(
     let malformed_request_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(OutPoint::new(request_input.tx_hash, request_input.index), 0)],
-            vec![CellDep {
-                out_point: OutPoint::new(request_release_code_outpoint.tx_hash, request_release_code_outpoint.index),
-                dep_type: DepType::Code,
-            }],
+            vec![
+                CellDep { out_point: OutPoint::new(request_input.tx_hash, request_input.index), dep_type: DepType::Code },
+                CellDep {
+                    out_point: OutPoint::new(request_release_code_outpoint.tx_hash, request_release_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+            ],
             vec![
                 CellOutput { capacity: request_output_capacity, lock: request_release_lock.clone(), type_: None },
                 CellOutput { capacity: request_output_capacity, lock: request_release_lock.clone(), type_: None },
@@ -7440,10 +7482,13 @@ async fn run_timelock_action_builder_matrix(
     let valid_request_tx = with_compiled_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(OutPoint::new(request_input.tx_hash, request_input.index), 0)],
-            vec![CellDep {
-                out_point: OutPoint::new(request_release_code_outpoint.tx_hash, request_release_code_outpoint.index),
-                dep_type: DepType::Code,
-            }],
+            vec![
+                CellDep { out_point: OutPoint::new(request_input.tx_hash, request_input.index), dep_type: DepType::Code },
+                CellDep {
+                    out_point: OutPoint::new(request_release_code_outpoint.tx_hash, request_release_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+            ],
             vec![
                 CellOutput { capacity: request_output_capacity, lock: request_release_lock.clone(), type_: None },
                 CellOutput { capacity: request_output_capacity, lock: request_release_lock, type_: None },
@@ -7727,10 +7772,16 @@ async fn run_timelock_action_builder_matrix(
                 CellInput::new(OutPoint::new(emergency_time_lock_input.tx_hash, emergency_time_lock_input.index), 0),
                 CellInput::new(OutPoint::new(emergency_reason_input.tx_hash, emergency_reason_input.index), 0),
             ],
-            vec![CellDep {
-                out_point: OutPoint::new(request_emergency_code_outpoint.tx_hash, request_emergency_code_outpoint.index),
-                dep_type: DepType::Code,
-            }],
+            vec![
+                CellDep {
+                    out_point: OutPoint::new(emergency_time_lock_input.tx_hash, emergency_time_lock_input.index),
+                    dep_type: DepType::Code,
+                },
+                CellDep {
+                    out_point: OutPoint::new(request_emergency_code_outpoint.tx_hash, request_emergency_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+            ],
             vec![
                 CellOutput { capacity: request_emergency_output_capacity, lock: request_emergency_lock.clone(), type_: None },
                 CellOutput { capacity: request_emergency_output_capacity, lock: request_emergency_lock.clone(), type_: None },
@@ -7758,10 +7809,16 @@ async fn run_timelock_action_builder_matrix(
                 CellInput::new(OutPoint::new(emergency_time_lock_input.tx_hash, emergency_time_lock_input.index), 0),
                 CellInput::new(OutPoint::new(emergency_reason_input.tx_hash, emergency_reason_input.index), 0),
             ],
-            vec![CellDep {
-                out_point: OutPoint::new(request_emergency_code_outpoint.tx_hash, request_emergency_code_outpoint.index),
-                dep_type: DepType::Code,
-            }],
+            vec![
+                CellDep {
+                    out_point: OutPoint::new(emergency_time_lock_input.tx_hash, emergency_time_lock_input.index),
+                    dep_type: DepType::Code,
+                },
+                CellDep {
+                    out_point: OutPoint::new(request_emergency_code_outpoint.tx_hash, request_emergency_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+            ],
             vec![
                 CellOutput { capacity: request_emergency_output_capacity, lock: request_emergency_lock.clone(), type_: None },
                 CellOutput { capacity: request_emergency_output_capacity, lock: request_emergency_lock, type_: None },
@@ -8340,6 +8397,7 @@ async fn run_timelock_action_builder_matrix(
     let batch_witness = batch_create_artifact
         .action
         .entry_witness_args(&[
+            cellscript::EntryWitnessArg::Bytes(fixed_32_array_arg([[0; 32]; 4])),
             cellscript::EntryWitnessArg::Bytes(fixed_32_array_arg(batch_owners)),
             cellscript::EntryWitnessArg::Bytes(fixed_u64_array_arg(batch_unlock_heights)),
             cellscript::EntryWitnessArg::U64(batch_current_height),
@@ -8549,6 +8607,7 @@ fn listing_cell_data(token_id: u64, seller: [u8; 32], price: u64, created_at: u6
     data.extend_from_slice(&seller);
     data.extend_from_slice(&price.to_le_bytes());
     data.extend_from_slice(&created_at.to_le_bytes());
+    data.push(0);
     data
 }
 
@@ -8557,6 +8616,7 @@ fn offer_cell_data(token_id: u64, buyer: [u8; 32], price: u64, expires_at: u64) 
     data.extend_from_slice(&buyer);
     data.extend_from_slice(&price.to_le_bytes());
     data.extend_from_slice(&expires_at.to_le_bytes());
+    data.push(0);
     data
 }
 
@@ -8568,7 +8628,8 @@ fn royalty_payment_cell_data(token_id: u64, recipient: [u8; 32], amount: u64) ->
 }
 
 fn timelock_cell_data(owner: [u8; 32], lock_type: u8, unlock_height: u64, created_at: u64) -> Vec<u8> {
-    let mut data = owner.to_vec();
+    let mut data = vec![0; 32];
+    data.extend_from_slice(&owner);
     data.push(lock_type);
     data.extend_from_slice(&unlock_height.to_le_bytes());
     data.extend_from_slice(&created_at.to_le_bytes());
@@ -8579,6 +8640,7 @@ fn release_request_cell_data(lock_hash: [u8; 32], requester: [u8; 32], requested
     let mut data = lock_hash.to_vec();
     data.extend_from_slice(&requester);
     data.extend_from_slice(&requested_at.to_le_bytes());
+    data.push(0);
     data
 }
 
@@ -8607,12 +8669,14 @@ fn emergency_release_molecule_cell_data(
         reason.to_vec(),
         requested_at.to_le_bytes().to_vec(),
         molecule_fixvec_cell_data(&approver_items),
+        vec![0],
     ])
 }
 
 fn multisig_wallet_molecule_cell_data(signers: &[[u8; 32]], threshold: u8, nonce: u64, created_at: u64) -> Vec<u8> {
     let signer_items = signers.iter().map(|signer| signer.to_vec()).collect::<Vec<_>>();
     molecule_table_cell_data(&[
+        vec![0; 32],
         molecule_fixvec_cell_data(&signer_items),
         vec![threshold],
         nonce.to_le_bytes().to_vec(),
@@ -8646,6 +8710,7 @@ fn multisig_proposal_molecule_cell_data(
         molecule_fixvec_cell_data(&signature_items),
         created_at.to_le_bytes().to_vec(),
         expires_at.to_le_bytes().to_vec(),
+        vec![0],
     ])
 }
 

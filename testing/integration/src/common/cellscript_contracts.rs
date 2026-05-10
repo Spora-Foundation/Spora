@@ -1,10 +1,12 @@
 use camino::Utf8PathBuf;
 use cellscript::{
-    compile, compile_file, compile_file_with_entry_action, ActionMetadata, ArtifactFormat, CompileOptions, EntryWitnessArg,
+    compile, compile_file, compile_file_with_entry_action, ActionMetadata, ArtifactFormat, CompileOptions, CompileResult,
+    EntryWitnessArg,
 };
 
 pub const BUNDLED_CELLSCRIPT_EXAMPLES: [&str; 7] =
     ["amm_pool.cell", "launch.cell", "multisig.cell", "nft.cell", "timelock.cell", "token.cell", "vesting.cell"];
+const CELLSCRIPT_TARGET_PROFILE_TYPED_CELL: &str = "typed-cell";
 
 pub struct CompiledCellScriptContract {
     pub artifact_bytes: Vec<u8>,
@@ -44,12 +46,54 @@ pub struct CompiledCellScriptActionArtifact {
     pub action: ActionMetadata,
 }
 
+struct TypedCellMassEstimate {
+    estimated_compute_mass: u64,
+    estimated_storage_mass: u64,
+    estimated_transient_mass: u64,
+    estimated_code_deployment_mass: u64,
+    requires_relaxed_mass_policy: bool,
+}
+
+fn spora_code_hash(artifact_bytes: &[u8]) -> [u8; 32] {
+    *blake3::hash(artifact_bytes).as_bytes()
+}
+
+fn assert_typed_cell_spora_elf(result: &CompileResult, context: &str) -> [u8; 32] {
+    assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf, "{context} must compile to an ELF artifact");
+    assert!(result.artifact_bytes.starts_with(b"\x7fELF"), "{context} artifact must start with the ELF magic");
+    assert!(result.metadata.runtime.vm_abi.embedded_in_artifact, "{context} must embed the Molecule VM ABI");
+    assert_eq!(result.metadata.target_profile.name, CELLSCRIPT_TARGET_PROFILE_TYPED_CELL, "{context} target profile");
+    spora_code_hash(&result.artifact_bytes)
+}
+
+fn typed_cell_mass_estimate(result: &CompileResult) -> TypedCellMassEstimate {
+    let estimated_compute_mass = result.metadata.actions.iter().map(|action| action.estimated_cycles).max().unwrap_or(0);
+    let estimated_storage_mass = result.artifact_bytes.len() as u64;
+    TypedCellMassEstimate {
+        estimated_compute_mass,
+        estimated_storage_mass,
+        estimated_transient_mass: 0,
+        estimated_code_deployment_mass: estimated_storage_mass,
+        requires_relaxed_mass_policy: false,
+    }
+}
+
+fn bundled_example_source_path(examples_dir: &camino::Utf8Path, name: &str) -> Utf8PathBuf {
+    let package_name = name.strip_suffix(".cell").unwrap_or(name);
+    let package_main = examples_dir.join(package_name).join("src/main.cell");
+    if package_main.exists() {
+        package_main
+    } else {
+        examples_dir.join(name)
+    }
+}
+
 pub fn compile_all_spora_full_example_contracts() -> Vec<CompiledCellScriptExample> {
     let examples_dir = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../cellscript/examples");
     BUNDLED_CELLSCRIPT_EXAMPLES
         .into_iter()
         .map(|name| {
-            let source_path = examples_dir.join(name);
+            let source_path = bundled_example_source_path(&examples_dir, name);
             let local_action_names = source_declared_action_names(&source_path)
                 .unwrap_or_else(|err| panic!("{name} source-local action names must be parsed: {err}"));
             let result = compile_file(
@@ -57,40 +101,28 @@ pub fn compile_all_spora_full_example_contracts() -> Vec<CompiledCellScriptExamp
                 CompileOptions {
                     opt_level: 3,
                     target: Some("riscv64-elf".to_string()),
-                    target_profile: Some("spora".to_string()),
+                    target_profile: Some(CELLSCRIPT_TARGET_PROFILE_TYPED_CELL.to_string()),
                     ..CompileOptions::default()
                 },
             )
             .unwrap_or_else(|err| panic!("{name} must compile to Spora ELF: {err}"));
 
-            assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf, "{name} must compile to an ELF artifact");
-            assert!(result.artifact_bytes.starts_with(b"\x7fELF"), "{name} artifact must start with the ELF magic");
-            assert!(result.metadata.runtime.vm_abi.embedded_in_artifact, "{name} must embed the Molecule VM ABI");
-            assert_eq!(
-                result.artifact_hash,
-                *blake3::hash(&result.artifact_bytes).as_bytes(),
-                "{name} artifact hash must match artifact bytes"
-            );
+            let code_hash = assert_typed_cell_spora_elf(&result, name);
+            let mass = typed_cell_mass_estimate(&result);
             assert!(!result.metadata.actions.is_empty(), "{name} must expose action metadata");
-            let spora_constraints = result
-                .metadata
-                .constraints
-                .spora
-                .as_ref()
-                .unwrap_or_else(|| panic!("{name} must expose Spora production constraints"));
 
             CompiledCellScriptExample {
                 name,
                 artifact_bytes: result.artifact_bytes,
-                code_hash: result.artifact_hash,
+                code_hash,
                 ckb_runtime_required: result.metadata.runtime.ckb_runtime_required,
                 action_artifacts: Vec::new(),
                 action_names: local_action_names,
-                estimated_compute_mass: spora_constraints.estimated_compute_mass,
-                estimated_storage_mass: spora_constraints.estimated_storage_mass,
-                estimated_transient_mass: spora_constraints.estimated_transient_mass,
-                estimated_code_deployment_mass: spora_constraints.estimated_code_deployment_mass,
-                requires_relaxed_mass_policy: spora_constraints.requires_relaxed_mass_policy,
+                estimated_compute_mass: mass.estimated_compute_mass,
+                estimated_storage_mass: mass.estimated_storage_mass,
+                estimated_transient_mass: mass.estimated_transient_mass,
+                estimated_code_deployment_mass: mass.estimated_code_deployment_mass,
+                requires_relaxed_mass_policy: mass.requires_relaxed_mass_policy,
             }
         })
         .collect()
@@ -101,7 +133,8 @@ pub fn compile_noop_spora_lock_contract() -> CompiledCellScriptContract {
 module acceptance::noop_lock
 
 action main() -> u64 {
-    return 0
+    verification
+        0
 }
 "#;
 
@@ -110,21 +143,18 @@ action main() -> u64 {
         CompileOptions {
             opt_level: 3,
             target: Some("riscv64-elf".to_string()),
-            target_profile: Some("spora".to_string()),
+            target_profile: Some(CELLSCRIPT_TARGET_PROFILE_TYPED_CELL.to_string()),
             ..CompileOptions::default()
         },
     )
     .expect("CellScript no-op contract must compile to Spora ELF");
 
-    assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf);
-    assert!(result.artifact_bytes.starts_with(b"\x7fELF"));
-    assert!(result.metadata.runtime.vm_abi.embedded_in_artifact);
+    let code_hash = assert_typed_cell_spora_elf(&result, "CellScript no-op contract");
     assert!(result.metadata.runtime.standalone_runner_compatible);
     assert!(!result.metadata.runtime.ckb_runtime_required);
     assert!(result.metadata.runtime.fail_closed_runtime_features.is_empty());
-    assert_eq!(result.artifact_hash, *blake3::hash(&result.artifact_bytes).as_bytes());
 
-    CompiledCellScriptContract { artifact_bytes: result.artifact_bytes, code_hash: result.artifact_hash }
+    CompiledCellScriptContract { artifact_bytes: result.artifact_bytes, code_hash }
 }
 
 pub fn compile_fixed_output_spora_contract() -> CompiledCellScriptContract {
@@ -135,10 +165,11 @@ resource Marker has store {
     amount: u64
 }
 
-action main() -> Marker {
-    return create Marker {
-        amount: 42
-    }
+action main() -> marker: Marker {
+    verification
+        create marker = Marker {
+            amount: 42
+        }
 }
 "#;
 
@@ -147,30 +178,32 @@ action main() -> Marker {
         CompileOptions {
             opt_level: 3,
             target: Some("riscv64-elf".to_string()),
-            target_profile: Some("spora".to_string()),
+            target_profile: Some(CELLSCRIPT_TARGET_PROFILE_TYPED_CELL.to_string()),
             ..CompileOptions::default()
         },
     )
     .expect("CellScript fixed-output contract must compile to Spora ELF");
 
-    assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf);
-    assert!(result.artifact_bytes.starts_with(b"\x7fELF"));
-    assert!(result.metadata.runtime.vm_abi.embedded_in_artifact);
+    let code_hash = assert_typed_cell_spora_elf(&result, "CellScript fixed-output contract");
     assert!(result.metadata.runtime.ckb_runtime_required);
     assert!(!result.metadata.runtime.standalone_runner_compatible);
     assert!(result.metadata.runtime.fail_closed_runtime_features.is_empty());
-    assert_eq!(result.artifact_hash, *blake3::hash(&result.artifact_bytes).as_bytes());
 
     let main = result.metadata.actions.iter().find(|action| action.name == "main").expect("main action metadata");
     assert!(main.elf_compatible);
     assert!(main.fail_closed_runtime_features.is_empty());
-    assert!(main.verifier_obligations.iter().any(|obligation| {
-        obligation.category == "transaction-invariant"
-            && obligation.feature == "create-output:Marker:create_Marker"
-            && obligation.status == "checked-runtime"
-    }));
+    assert!(main
+        .create_set
+        .iter()
+        .any(|pattern| { pattern.operation == "output" && pattern.ty == "Marker" && pattern.binding == "marker" }));
+    let create_obligation = main
+        .verifier_obligations
+        .iter()
+        .find(|obligation| obligation.category == "transaction-invariant" && obligation.feature.starts_with("create-output:Marker:"))
+        .unwrap_or_else(|| panic!("missing Marker create-output verifier obligation: {:?}", main.verifier_obligations));
+    assert_eq!(create_obligation.status, "checked-runtime");
 
-    CompiledCellScriptContract { artifact_bytes: result.artifact_bytes, code_hash: result.artifact_hash }
+    CompiledCellScriptContract { artifact_bytes: result.artifact_bytes, code_hash }
 }
 
 pub fn compile_parameterized_amount_spora_contract() -> CompiledParameterizedAmountContract {
@@ -178,10 +211,11 @@ pub fn compile_parameterized_amount_spora_contract() -> CompiledParameterizedAmo
 module acceptance::parameterized_amount
 
 action main(amount: u64) -> u64 {
-    if amount == 77 {
-        return 0
-    }
-    return 41
+    verification
+        if amount == 77 {
+            return 0
+        }
+        41
 }
 "#;
 
@@ -190,25 +224,22 @@ action main(amount: u64) -> u64 {
         CompileOptions {
             opt_level: 3,
             target: Some("riscv64-elf".to_string()),
-            target_profile: Some("spora".to_string()),
+            target_profile: Some(CELLSCRIPT_TARGET_PROFILE_TYPED_CELL.to_string()),
             ..CompileOptions::default()
         },
     )
     .expect("CellScript parameterized amount contract must compile to Spora ELF");
 
-    assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf);
-    assert!(result.artifact_bytes.starts_with(b"\x7fELF"));
-    assert!(result.metadata.runtime.vm_abi.embedded_in_artifact);
+    let code_hash = assert_typed_cell_spora_elf(&result, "CellScript parameterized amount contract");
     assert!(!result.metadata.runtime.ckb_runtime_required);
     assert!(result.metadata.runtime.fail_closed_runtime_features.is_empty());
-    assert_eq!(result.artifact_hash, *blake3::hash(&result.artifact_bytes).as_bytes());
 
     let main = result.metadata.actions.iter().find(|action| action.name == "main").cloned().expect("main action metadata");
     assert!(main.elf_compatible);
     assert!(main.fail_closed_runtime_features.is_empty());
     assert!(main.verifier_obligations.is_empty());
 
-    CompiledParameterizedAmountContract { artifact_bytes: result.artifact_bytes, code_hash: result.artifact_hash, main_action: main }
+    CompiledParameterizedAmountContract { artifact_bytes: result.artifact_bytes, code_hash, main_action: main }
 }
 
 pub fn compile_all_spora_example_contracts() -> Vec<CompiledCellScriptExample> {
@@ -216,7 +247,7 @@ pub fn compile_all_spora_example_contracts() -> Vec<CompiledCellScriptExample> {
     BUNDLED_CELLSCRIPT_EXAMPLES
         .into_iter()
         .map(|name| {
-            let source_path = examples_dir.join(name);
+            let source_path = bundled_example_source_path(&examples_dir, name);
             let local_action_names = source_declared_action_names(&source_path)
                 .unwrap_or_else(|err| panic!("{name} source-local action names must be parsed: {err}"));
             let result = compile_file(
@@ -224,20 +255,14 @@ pub fn compile_all_spora_example_contracts() -> Vec<CompiledCellScriptExample> {
                 CompileOptions {
                     opt_level: 3,
                     target: Some("riscv64-elf".to_string()),
-                    target_profile: Some("spora".to_string()),
+                    target_profile: Some(CELLSCRIPT_TARGET_PROFILE_TYPED_CELL.to_string()),
                     ..CompileOptions::default()
                 },
             )
             .unwrap_or_else(|err| panic!("{name} must compile to Spora ELF: {err}"));
 
-            assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf, "{name} must compile to an ELF artifact");
-            assert!(result.artifact_bytes.starts_with(b"\x7fELF"), "{name} artifact must start with the ELF magic");
-            assert!(result.metadata.runtime.vm_abi.embedded_in_artifact, "{name} must embed the Molecule VM ABI");
-            assert_eq!(
-                result.artifact_hash,
-                *blake3::hash(&result.artifact_bytes).as_bytes(),
-                "{name} artifact hash must match artifact bytes"
-            );
+            let code_hash = assert_typed_cell_spora_elf(&result, name);
+            let mass = typed_cell_mass_estimate(&result);
             assert!(!result.metadata.actions.is_empty(), "{name} must expose action metadata");
             let mut action_artifacts = Vec::new();
             for action_name in &local_action_names {
@@ -246,20 +271,13 @@ pub fn compile_all_spora_example_contracts() -> Vec<CompiledCellScriptExample> {
                     CompileOptions {
                         opt_level: 3,
                         target: Some("riscv64-elf".to_string()),
-                        target_profile: Some("spora".to_string()),
+                        target_profile: Some(CELLSCRIPT_TARGET_PROFILE_TYPED_CELL.to_string()),
                         ..CompileOptions::default()
                     },
                     action_name,
                 )
                 .unwrap_or_else(|err| panic!("{name}::{action_name} must compile to scoped Spora ELF: {err}"));
-                assert_eq!(scoped.artifact_format, ArtifactFormat::RiscvElf, "{name}::{action_name} must compile to scoped ELF");
-                assert!(scoped.artifact_bytes.starts_with(b"\x7fELF"), "{name}::{action_name} scoped artifact must be ELF");
-                assert!(scoped.metadata.runtime.vm_abi.embedded_in_artifact, "{name}::{action_name} must embed the Molecule VM ABI");
-                assert_eq!(
-                    scoped.artifact_hash,
-                    *blake3::hash(&scoped.artifact_bytes).as_bytes(),
-                    "{name}::{action_name} scoped artifact hash must match bytes"
-                );
+                let scoped_code_hash = assert_typed_cell_spora_elf(&scoped, &format!("{name}::{action_name}"));
                 let scoped_action = scoped
                     .metadata
                     .actions
@@ -267,36 +285,26 @@ pub fn compile_all_spora_example_contracts() -> Vec<CompiledCellScriptExample> {
                     .find(|action| &action.name == action_name)
                     .unwrap_or_else(|| panic!("{name}::{action_name} scoped metadata must contain the selected action"))
                     .clone();
-                assert!(
-                    scoped.metadata.constraints.spora.is_some(),
-                    "{name}::{action_name} scoped artifact must expose Spora constraints"
-                );
                 action_artifacts.push(CompiledCellScriptActionArtifact {
                     name: action_name.clone(),
                     artifact_bytes: scoped.artifact_bytes,
-                    code_hash: scoped.artifact_hash,
+                    code_hash: scoped_code_hash,
                     action: scoped_action,
                 });
             }
-            let spora_constraints = result
-                .metadata
-                .constraints
-                .spora
-                .as_ref()
-                .unwrap_or_else(|| panic!("{name} must expose Spora production constraints"));
 
             CompiledCellScriptExample {
                 name,
                 artifact_bytes: result.artifact_bytes,
-                code_hash: result.artifact_hash,
+                code_hash,
                 ckb_runtime_required: result.metadata.runtime.ckb_runtime_required,
                 action_artifacts,
                 action_names: local_action_names,
-                estimated_compute_mass: spora_constraints.estimated_compute_mass,
-                estimated_storage_mass: spora_constraints.estimated_storage_mass,
-                estimated_transient_mass: spora_constraints.estimated_transient_mass,
-                estimated_code_deployment_mass: spora_constraints.estimated_code_deployment_mass,
-                requires_relaxed_mass_policy: spora_constraints.requires_relaxed_mass_policy,
+                estimated_compute_mass: mass.estimated_compute_mass,
+                estimated_storage_mass: mass.estimated_storage_mass,
+                estimated_transient_mass: mass.estimated_transient_mass,
+                estimated_code_deployment_mass: mass.estimated_code_deployment_mass,
+                requires_relaxed_mass_policy: mass.requires_relaxed_mass_policy,
             }
         })
         .collect()
@@ -325,19 +333,16 @@ pub fn compile_token_spora_example_contract() -> CompiledCellScriptContract {
         CompileOptions {
             opt_level: 3,
             target: Some("riscv64-elf".to_string()),
-            target_profile: Some("spora".to_string()),
+            target_profile: Some(CELLSCRIPT_TARGET_PROFILE_TYPED_CELL.to_string()),
             ..CompileOptions::default()
         },
     )
     .expect("bundled token.cell example must compile to Spora ELF");
 
-    assert_eq!(result.artifact_format, ArtifactFormat::RiscvElf);
-    assert!(result.artifact_bytes.starts_with(b"\x7fELF"));
-    assert!(result.metadata.runtime.vm_abi.embedded_in_artifact);
+    let code_hash = assert_typed_cell_spora_elf(&result, "bundled token.cell example");
     assert!(result.metadata.runtime.ckb_runtime_required);
     assert!(!result.metadata.runtime.standalone_runner_compatible);
     assert!(result.metadata.runtime.fail_closed_runtime_features.is_empty());
-    assert_eq!(result.artifact_hash, *blake3::hash(&result.artifact_bytes).as_bytes());
 
     let transfer = result
         .metadata
@@ -355,7 +360,7 @@ pub fn compile_token_spora_example_contract() -> CompiledCellScriptContract {
             && obligation.status == "checked-runtime"
     }));
 
-    CompiledCellScriptContract { artifact_bytes: result.artifact_bytes, code_hash: result.artifact_hash }
+    CompiledCellScriptContract { artifact_bytes: result.artifact_bytes, code_hash }
 }
 
 #[cfg(test)]

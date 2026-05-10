@@ -7,10 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use spora_consensus_core::tx::TransactionOutpoint;
 use spora_exec::celltx::{
-    CellScriptSchedulerWitness, CellScriptSchedulerWitnessError, CellTx,
-    CELLSCRIPT_SCHEDULER_OP_READ_REF,
-    CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP, CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
-    CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+    CellScriptSchedulerWitness, CellScriptSchedulerWitnessError, CellTx, CELLSCRIPT_SCHEDULER_OP_READ_REF,
+    CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP, CELLSCRIPT_SCHEDULER_SOURCE_INPUT, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
 };
 use spora_hashes::Hash;
 use thiserror::Error;
@@ -268,14 +266,14 @@ impl BlockAccessSummary {
 
 #[cfg(test)]
 mod tests {
+    use super::super::execution_dag::ExecutionDAG;
     use super::*;
     use spora_consensus_core::tx::TransactionOutpoint;
     use spora_exec::celltx::{
         encode_cellscript_scheduler_witness_molecule, CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness,
         CELLSCRIPT_SCHEDULER_EFFECT_CREATING, CELLSCRIPT_SCHEDULER_EFFECT_MUTATING, CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY,
         CELLSCRIPT_SCHEDULER_OP_CREATE, CELLSCRIPT_SCHEDULER_OP_READ_REF, CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
-        CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
-        CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+        CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT, CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
     };
     use spora_exec::{CellDep, CellInput, CellOutput, CellTx, DepType, OutPoint, Script};
     use spora_hashes::Hash;
@@ -324,17 +322,11 @@ mod tests {
         CellTx::new(inputs, cell_deps, vec![test_output(); output_count], vec![vec![]; output_count], witnesses).unwrap()
     }
 
-    fn scheduler_witness_bytes(
-        effect_class: u8,
-        accesses: Vec<CellScriptSchedulerAccessWitness>,
-    ) -> Vec<u8> {
+    fn scheduler_witness_bytes(effect_class: u8, accesses: Vec<CellScriptSchedulerAccessWitness>) -> Vec<u8> {
         encode_cellscript_scheduler_witness_molecule(&scheduler_witness(effect_class, accesses))
     }
 
-    fn scheduler_witness(
-        effect_class: u8,
-        accesses: Vec<CellScriptSchedulerAccessWitness>,
-    ) -> CellScriptSchedulerWitness {
+    fn scheduler_witness(effect_class: u8, accesses: Vec<CellScriptSchedulerAccessWitness>) -> CellScriptSchedulerWitness {
         CellScriptSchedulerWitness {
             magic: 0xCE11,
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
@@ -617,6 +609,96 @@ mod tests {
     }
 
     #[test]
+    fn trusted_access_set_path_feeds_execution_dag_write_conflict() {
+        let first_access = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            index: 0,
+            conflict_hash: [0x42; 32],
+            typed_data_hash: [0x51; 32],
+        };
+        let second_access = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_CREATE,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
+            index: 0,
+            conflict_hash: [0x42; 32],
+            typed_data_hash: [0x52; 32],
+        };
+        let first_summary = scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![first_access]);
+        let second_summary = scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![second_access]);
+        let first_tx = test_tx(
+            vec![CellInput::new(OutPoint::new([0x61; 32], 0), 0)],
+            vec![],
+            1,
+            vec![encode_cellscript_scheduler_witness_molecule(&first_summary)],
+        );
+        let second_tx = test_tx(
+            vec![CellInput::new(OutPoint::new([0x62; 32], 0), 0)],
+            vec![],
+            1,
+            vec![encode_cellscript_scheduler_witness_molecule(&second_summary)],
+        );
+        let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
+        trusted.insert(Hash::from_bytes(first_tx.id()), first_summary);
+        trusted.insert(Hash::from_bytes(second_tx.id()), second_summary);
+
+        let first =
+            BlockAccessSummary::try_from_block_txs_with_trusted_cellscript_scheduler_accesses(hash(0x01), &[first_tx], &trusted)
+                .unwrap();
+        let second =
+            BlockAccessSummary::try_from_block_txs_with_trusted_cellscript_scheduler_accesses(hash(0x02), &[second_tx], &trusted)
+                .unwrap();
+
+        let dag = ExecutionDAG::build(&[first, second]);
+        assert_eq!(dag.layers, vec![vec![0], vec![1]]);
+    }
+
+    #[test]
+    fn trusted_access_set_path_feeds_execution_dag_read_read_parallelism() {
+        let first_access = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_READ_REF,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
+            index: 0,
+            conflict_hash: [0x42; 32],
+            typed_data_hash: [0x51; 32],
+        };
+        let second_access = CellScriptSchedulerAccessWitness {
+            operation: CELLSCRIPT_SCHEDULER_OP_READ_REF,
+            source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
+            index: 0,
+            conflict_hash: [0x42; 32],
+            typed_data_hash: [0x52; 32],
+        };
+        let first_summary = scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY, vec![first_access]);
+        let second_summary = scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY, vec![second_access]);
+        let first_tx = test_tx(
+            vec![CellInput::new(OutPoint::new([0x63; 32], 0), 0)],
+            vec![],
+            0,
+            vec![encode_cellscript_scheduler_witness_molecule(&first_summary)],
+        );
+        let second_tx = test_tx(
+            vec![CellInput::new(OutPoint::new([0x64; 32], 0), 0)],
+            vec![],
+            0,
+            vec![encode_cellscript_scheduler_witness_molecule(&second_summary)],
+        );
+        let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
+        trusted.insert(Hash::from_bytes(first_tx.id()), first_summary);
+        trusted.insert(Hash::from_bytes(second_tx.id()), second_summary);
+
+        let first =
+            BlockAccessSummary::try_from_block_txs_with_trusted_cellscript_scheduler_accesses(hash(0x01), &[first_tx], &trusted)
+                .unwrap();
+        let second =
+            BlockAccessSummary::try_from_block_txs_with_trusted_cellscript_scheduler_accesses(hash(0x02), &[second_tx], &trusted)
+                .unwrap();
+
+        let dag = ExecutionDAG::build(&[first, second]);
+        assert_eq!(dag.layers, vec![vec![0, 1]]);
+    }
+
+    #[test]
     fn trusted_access_set_path_rejects_missing_compiled_summary() {
         let witness = scheduler_witness_bytes(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![]);
         let tx = test_tx(vec![], vec![], 0, vec![witness]);
@@ -647,8 +729,7 @@ mod tests {
         let witness = scheduler_witness_bytes(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![actual_access]);
         let tx = test_tx(vec![], vec![], 1, vec![witness]);
         let mut trusted = TrustedCellScriptSchedulerAccessSets::new();
-        trusted
-            .insert(Hash::from_bytes(tx.id()), scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![expected_access]));
+        trusted.insert(Hash::from_bytes(tx.id()), scheduler_witness(CELLSCRIPT_SCHEDULER_EFFECT_CREATING, vec![expected_access]));
 
         let error = BlockAccessSummary::try_from_block_txs_with_trusted_cellscript_scheduler_accesses(hash(0x01), &[tx], &trusted)
             .unwrap_err();

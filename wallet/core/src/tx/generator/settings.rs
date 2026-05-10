@@ -13,6 +13,7 @@ use spora_exec::{celltx::decode_cellscript_scheduler_witness, CellDep, CkbSecp25
 use workflow_core::channel::Multiplexer;
 
 const CELLSCRIPT_TARGET_PROFILE_SPORA: &str = "spora";
+const CELLSCRIPT_TARGET_PROFILE_TYPED_CELL: &str = "typed-cell";
 const CELLSCRIPT_TARGET_PROFILE_CKB: &str = "ckb";
 const CELLSCRIPT_TARGET_PROFILE_PORTABLE_CELL: &str = "portable-cell";
 const CELLSCRIPT_SCHEDULER_WITNESS_ABI_MOLECULE: &str = "molecule";
@@ -324,7 +325,7 @@ pub fn cellscript_action_generator_plan_from_metadata_json(
     };
 
     match target_profile {
-        CELLSCRIPT_TARGET_PROFILE_SPORA => {
+        CELLSCRIPT_TARGET_PROFILE_TYPED_CELL | CELLSCRIPT_TARGET_PROFILE_SPORA => {
             plan.final_cellscript_compiled_scheduler_witness = cellscript_spora_scheduler_witness_from_action(action, action_name)?;
         }
         CELLSCRIPT_TARGET_PROFILE_CKB => {
@@ -550,12 +551,12 @@ mod tests {
     }
 
     #[test]
-    fn profile_selected_cellscript_action_plan_extracts_spora_molecule_scheduler_witness() {
+    fn profile_selected_cellscript_action_plan_extracts_typed_cell_molecule_scheduler_witness() {
         let witness = valid_spora_scheduler_witness_bytes();
         let witness_hex = bytes_to_hex(&witness);
         let metadata = r#"
 {
-  "target_profile": { "name": "spora" },
+  "target_profile": { "name": "typed-cell" },
   "actions": [
     {
       "name": "mint",
@@ -572,7 +573,7 @@ mod tests {
 
         let plan = cellscript_action_generator_plan_from_metadata_json(&metadata, "mint").unwrap();
 
-        assert_eq!(plan.target_profile, "spora");
+        assert_eq!(plan.target_profile, "typed-cell");
         assert_eq!(plan.final_cellscript_compiled_scheduler_witness, Some(witness));
         assert!(plan.ckb_type_id_output_indexes.is_empty());
     }
@@ -735,9 +736,9 @@ mod tests {
         };
         let witness = valid_spora_scheduler_witness_bytes();
         let witness_hex = bytes_to_hex(&witness);
-        let spora_metadata = r#"
+        let typed_cell_metadata = r#"
 {
-  "target_profile": { "name": "spora" },
+  "target_profile": { "name": "typed-cell" },
   "actions": [
     {
       "name": "mint",
@@ -763,11 +764,11 @@ mod tests {
 }
 "#;
 
-        let spora_settings = base_settings().with_cellscript_action_metadata_json(&spora_metadata, "mint").unwrap();
+        let typed_cell_settings = base_settings().with_cellscript_action_metadata_json(&typed_cell_metadata, "mint").unwrap();
         let ckb_settings = base_settings().with_cellscript_action_metadata_json(ckb_metadata, "mint").unwrap();
 
-        assert_eq!(spora_settings.final_cellscript_compiled_scheduler_witness, Some(witness));
-        assert!(spora_settings.ckb_type_id_output_indexes.is_empty());
+        assert_eq!(typed_cell_settings.final_cellscript_compiled_scheduler_witness, Some(witness));
+        assert!(typed_cell_settings.ckb_type_id_output_indexes.is_empty());
         assert_eq!(ckb_settings.ckb_type_id_output_indexes, vec![0]);
         assert!(ckb_settings.final_cellscript_compiled_scheduler_witness.is_none());
     }

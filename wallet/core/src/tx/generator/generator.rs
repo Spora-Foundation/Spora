@@ -1454,7 +1454,7 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            
+
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![access.clone()],
@@ -1484,7 +1484,7 @@ mod tests {
             version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
             effect_class: CELLSCRIPT_SCHEDULER_EFFECT_CREATING,
             parallelizable: false,
-            
+
             estimated_cycles: 64,
             access_count: 1,
             accesses: vec![CellScriptSchedulerAccessWitness {

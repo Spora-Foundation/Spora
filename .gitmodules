@@ -1,6 +1,6 @@
 [submodule "cellscript"]
 	path = cellscript
-	url = https://github.com/tsukifune-kosei/CellScript.git
+	url = https://github.com/a19q3/CellScript_Private.git
 [submodule "research"]
 	path = research
 	url = https://github.com/Spora-Foundation/Research.git

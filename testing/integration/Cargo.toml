@@ -46,6 +46,7 @@ blake3.workspace = true
 camino = "1.1"
 clap.workspace = true
 chrono.workspace = true
+cellscript = { path = "../../cellscript" }
 crossbeam-channel.workspace = true
 dhat = { workspace = true, optional = true }
 faster-hex.workspace = true

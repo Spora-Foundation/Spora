@@ -45,6 +45,7 @@ USAGE
 done
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CELLSCRIPT_MANIFEST="$REPO_ROOT/cellscript/Cargo.toml"
 RUN_ID="$(date +%Y%m%d-%H%M%S)-$$"
 STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 RUN_DIR="$REPO_ROOT/target/devnet-acceptance/$RUN_ID"
@@ -335,15 +336,15 @@ PY
 run_cellscript_suite() {
   (
     cd "$REPO_ROOT"
-    cargo test --locked -p cellscript --test examples -- --nocapture --test-threads=1
-    cargo test --locked -p cellscript --test cli cellc_compiles_package_with_local_path_dependency -- --nocapture --test-threads=1
-    cargo test --locked -p cellscript --test cli cellc_rejects_registry_package_dependencies_fail_closed -- --nocapture --test-threads=1
-    cargo test --locked -p cellscript --test cli cellc_build_and_check_subcommands_use_package_flow -- --nocapture --test-threads=1
-    cargo test --locked -p cellscript --test cli cellc_init_subcommand_supports_json_summary -- --nocapture --test-threads=1
-    cargo test --locked -p cellscript --test cli cellc_info_subcommand_supports_json_summary -- --nocapture --test-threads=1
-    cargo test --locked -p cellscript --test cli cellc_entry_witness_subcommand -- --nocapture --test-threads=1
-    cargo test --locked -p cellscript --test cli cellc_add_and_remove_subcommands_honor_dev_path_and_json -- --nocapture --test-threads=1
-    cargo test --locked -p cellscript --test cli cellc_install_path_updates_lockfile_and_remove_prunes_it -- --nocapture --test-threads=1
+    cargo test --locked --manifest-path "$CELLSCRIPT_MANIFEST" -p cellscript --test examples -- --nocapture --test-threads=1
+    cargo test --locked --manifest-path "$CELLSCRIPT_MANIFEST" -p cellscript --test cli cellc_compiles_package_with_local_path_dependency -- --nocapture --test-threads=1
+    cargo test --locked --manifest-path "$CELLSCRIPT_MANIFEST" -p cellscript --test cli cellc_rejects_registry_package_dependencies_fail_closed -- --nocapture --test-threads=1
+    cargo test --locked --manifest-path "$CELLSCRIPT_MANIFEST" -p cellscript --test cli cellc_build_and_check_subcommands_use_package_flow -- --nocapture --test-threads=1
+    cargo test --locked --manifest-path "$CELLSCRIPT_MANIFEST" -p cellscript --test cli cellc_init_subcommand_supports_json_summary -- --nocapture --test-threads=1
+    cargo test --locked --manifest-path "$CELLSCRIPT_MANIFEST" -p cellscript --test cli cellc_info_subcommand_supports_json_summary -- --nocapture --test-threads=1
+    cargo test --locked --manifest-path "$CELLSCRIPT_MANIFEST" -p cellscript --test cli cellc_entry_witness_subcommand -- --nocapture --test-threads=1
+    cargo test --locked --manifest-path "$CELLSCRIPT_MANIFEST" -p cellscript --test cli cellc_add_and_remove_subcommands_honor_dev_path_and_json -- --nocapture --test-threads=1
+    cargo test --locked --manifest-path "$CELLSCRIPT_MANIFEST" -p cellscript --test cli cellc_install_path_updates_lockfile_and_remove_prunes_it -- --nocapture --test-threads=1
     cargo test --locked -p spora-testing-integration --lib \
       --features "integration-tests devnet-prealloc vm" \
       common::cellscript_contracts::tests::all_spora_examples_compile_metadata_acceptance \
