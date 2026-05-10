@@ -80,6 +80,12 @@ pub struct CellScriptActionGeneratorPlan {
     pub typed_cell_scheduler_plan: Option<CellScriptTypedCellSchedulerPlan>,
 }
 
+impl CellScriptActionGeneratorPlan {
+    pub fn typed_cell_scheduler_requirements(&self) -> Result<Option<CellScriptTypedCellSchedulerRequirements>> {
+        self.typed_cell_scheduler_plan.as_ref().map(CellScriptTypedCellSchedulerRequirements::from_plan).transpose()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CellScriptTypedCellSchedulerPlan {
     pub abi: String,
@@ -89,6 +95,12 @@ pub struct CellScriptTypedCellSchedulerPlan {
     pub parallelizable: bool,
     pub estimated_cycles: u64,
     pub accesses: Vec<CellScriptTypedCellSchedulerAccessPlan>,
+}
+
+impl CellScriptTypedCellSchedulerPlan {
+    pub fn requirements(&self) -> Result<CellScriptTypedCellSchedulerRequirements> {
+        CellScriptTypedCellSchedulerRequirements::from_plan(self)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,6 +116,69 @@ pub struct CellScriptTypedCellSchedulerAccessPlan {
     pub conflict_key_field_slices: Vec<CellScriptTypedCellFieldSlice>,
     pub conflict_key_value_source: String,
     pub typed_data_source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CellScriptTypedCellSchedulerRequirements {
+    pub output_configs: Vec<CellScriptTypedCellSchedulerAccessRequirement>,
+    pub resolved_cell_sidecars: Vec<CellScriptTypedCellSchedulerAccessRequirement>,
+}
+
+impl CellScriptTypedCellSchedulerRequirements {
+    pub fn from_plan(plan: &CellScriptTypedCellSchedulerPlan) -> Result<Self> {
+        let mut requirements = Self { output_configs: Vec::new(), resolved_cell_sidecars: Vec::new() };
+        for access in &plan.accesses {
+            let requirement = CellScriptTypedCellSchedulerAccessRequirement::from_access(access)?;
+            match access.source.as_str() {
+                "Output" => requirements.output_configs.push(requirement),
+                "Input" | "CellDep" => requirements.resolved_cell_sidecars.push(requirement),
+                other => {
+                    return Err(Error::custom(format!(
+                        "CellScript typed-cell scheduler access {} has unsupported source {other}",
+                        access.binding
+                    )));
+                }
+            }
+        }
+        Ok(requirements)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.output_configs.is_empty() && self.resolved_cell_sidecars.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CellScriptTypedCellSchedulerAccessRequirement {
+    pub operation: String,
+    pub source: String,
+    pub index: usize,
+    pub binding: String,
+    pub ty: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conflict_key: Option<String>,
+    pub conflict_key_fields: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conflict_key_encoding: Option<String>,
+    pub required_data_len: usize,
+}
+
+impl CellScriptTypedCellSchedulerAccessRequirement {
+    fn from_access(access: &CellScriptTypedCellSchedulerAccessPlan) -> Result<Self> {
+        Ok(Self {
+            operation: access.operation.clone(),
+            source: access.source.clone(),
+            index: access.index,
+            binding: access.binding.clone(),
+            ty: access.ty.clone(),
+            conflict_key: access.conflict_key.clone(),
+            conflict_key_fields: access.conflict_key_fields.clone(),
+            conflict_key_encoding: access.conflict_key_encoding.clone(),
+            required_data_len: typed_cell_required_data_len(access)?,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -554,6 +629,16 @@ pub fn typed_cell_scheduler_plan_from_cellscript_metadata_json(
     cellscript_typed_cell_scheduler_plan_from_action(&metadata, action, action_name)
 }
 
+pub fn cellscript_typed_cell_scheduler_requirements_from_metadata_json(
+    metadata_json: &str,
+    action_name: &str,
+) -> Result<Option<CellScriptTypedCellSchedulerRequirements>> {
+    typed_cell_scheduler_plan_from_cellscript_metadata_json(metadata_json, action_name)?
+        .as_ref()
+        .map(CellScriptTypedCellSchedulerRequirements::from_plan)
+        .transpose()
+}
+
 fn cellscript_typed_cell_scheduler_plan_from_action(
     metadata: &serde_json::Value,
     action: &serde_json::Value,
@@ -763,6 +848,18 @@ fn typed_cell_conflict_key_field_slices(
         .collect()
 }
 
+fn typed_cell_required_data_len(access: &CellScriptTypedCellSchedulerAccessPlan) -> Result<usize> {
+    access.conflict_key_field_slices.iter().try_fold(0usize, |required_len, field| {
+        let end = field.offset.checked_add(field.size).ok_or_else(|| {
+            Error::custom(format!(
+                "CellScript typed-cell scheduler access {} conflict key field {} offset overflows",
+                access.binding, field.field
+            ))
+        })?;
+        Ok(required_len.max(end))
+    })
+}
+
 fn validate_typed_cell_scheduler_operation_source(
     action_name: &str,
     access_index: usize,
@@ -946,8 +1043,9 @@ fn decode_cellscript_metadata_hex(hex: &str, field: &str) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        cellscript_action_generator_plan_from_metadata_json, ckb_type_id_output_indexes_from_cellscript_metadata_json,
-        typed_cell_scheduler_plan_from_cellscript_metadata_json, GeneratorSettings,
+        cellscript_action_generator_plan_from_metadata_json, cellscript_typed_cell_scheduler_requirements_from_metadata_json,
+        ckb_type_id_output_indexes_from_cellscript_metadata_json, typed_cell_scheduler_plan_from_cellscript_metadata_json,
+        CellScriptTypedCellFieldSlice, CellScriptTypedCellSchedulerAccessPlan, CellScriptTypedCellSchedulerPlan, GeneratorSettings,
     };
     use crate::imports::{NetworkId, NetworkType};
     use crate::tx::{Fees, PaymentDestination};
@@ -1160,6 +1258,90 @@ mod tests {
         assert_eq!(access.conflict_key_field_slices[0].size, 32);
         assert_eq!(access.conflict_key_value_source, "transaction-output-data-conflict-key-fields");
         assert_eq!(access.typed_data_source, "transaction-output-data");
+    }
+
+    #[test]
+    fn typed_cell_scheduler_requirements_split_output_configs_and_resolved_sidecars() {
+        let access = |operation: &str, source: &str, index: usize, binding: &str, offset: usize, size: usize| {
+            CellScriptTypedCellSchedulerAccessPlan {
+                operation: operation.to_string(),
+                source: source.to_string(),
+                index,
+                binding: binding.to_string(),
+                ty: "Invoice".to_string(),
+                conflict_key: Some("field(invoice_id)".to_string()),
+                conflict_key_fields: vec!["invoice_id".to_string()],
+                conflict_key_encoding: Some("single-field-fixed-bytes-v1".to_string()),
+                conflict_key_field_slices: vec![CellScriptTypedCellFieldSlice { field: "invoice_id".to_string(), offset, size }],
+                conflict_key_value_source: format!("transaction-{}-data-conflict-key-fields", source.to_ascii_lowercase()),
+                typed_data_source: format!("transaction-{}-data", source.to_ascii_lowercase()),
+            }
+        };
+        let plan = CellScriptTypedCellSchedulerPlan {
+            abi: "spora-typed-cell-scheduler-plan-v1".to_string(),
+            conflict_hash_domain: "spora-typed-cell/conflict-hash/v1".to_string(),
+            typed_data_hash_domain: "spora-typed-cell/typed-data-hash/v1".to_string(),
+            effect_class: "Mutating".to_string(),
+            parallelizable: false,
+            estimated_cycles: 64,
+            accesses: vec![
+                access("transfer", "Input", 0, "invoice_in", 4, 32),
+                access("transfer", "Output", 0, "invoice_out", 8, 32),
+                access("read_ref", "CellDep", 1, "policy", 0, 16),
+            ],
+        };
+
+        let requirements = plan.requirements().unwrap();
+
+        assert_eq!(requirements.output_configs.len(), 1);
+        assert_eq!(requirements.output_configs[0].source, "Output");
+        assert_eq!(requirements.output_configs[0].index, 0);
+        assert_eq!(requirements.output_configs[0].binding, "invoice_out");
+        assert_eq!(requirements.output_configs[0].required_data_len, 40);
+        assert_eq!(requirements.resolved_cell_sidecars.len(), 2);
+        assert_eq!(requirements.resolved_cell_sidecars[0].source, "Input");
+        assert_eq!(requirements.resolved_cell_sidecars[0].index, 0);
+        assert_eq!(requirements.resolved_cell_sidecars[0].required_data_len, 36);
+        assert_eq!(requirements.resolved_cell_sidecars[1].source, "CellDep");
+        assert_eq!(requirements.resolved_cell_sidecars[1].index, 1);
+        assert_eq!(requirements.resolved_cell_sidecars[1].required_data_len, 16);
+    }
+
+    #[test]
+    fn typed_cell_scheduler_requirements_from_metadata_json_exposes_output_config_need() {
+        let witness = valid_spora_scheduler_witness_bytes();
+        let witness_hex = bytes_to_hex(&witness);
+        let metadata = format!(
+            r#"
+{{
+  "target_profile": {{ "name": "typed-cell" }},
+  {}
+  "actions": [
+    {{
+      "name": "register_invoice",
+      "effect_class": "Creating",
+      "parallelizable": false,
+      "estimated_cycles": 64,
+      "scheduler_witness_abi": "molecule",
+      "scheduler_witness_hex": "{witness_hex}",
+      "create_set": [],
+      {}
+    }}
+  ]
+}}
+"#,
+            typed_cell_types_json(),
+            typed_cell_scheduler_plan_json()
+        );
+
+        let requirements =
+            cellscript_typed_cell_scheduler_requirements_from_metadata_json(&metadata, "register_invoice").unwrap().unwrap();
+
+        assert_eq!(requirements.output_configs.len(), 1);
+        assert_eq!(requirements.output_configs[0].binding, "invoice");
+        assert_eq!(requirements.output_configs[0].ty, "Invoice");
+        assert_eq!(requirements.output_configs[0].required_data_len, 32);
+        assert!(requirements.resolved_cell_sidecars.is_empty());
     }
 
     #[test]

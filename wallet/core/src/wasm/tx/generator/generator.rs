@@ -56,6 +56,34 @@ export interface ICellScriptTypedCellResolvedCell {
     data: Uint8Array | HexString;
 }
 
+export interface ICellScriptTypedCellSchedulerAccessRequirement {
+    operation: string;
+    source: "Input" | "CellDep" | "Output";
+    index: number;
+    binding: string;
+    ty: string;
+    conflictKey?: string;
+    conflictKeyFields: string[];
+    conflictKeyEncoding?: string;
+    requiredDataLen: number;
+}
+
+export interface ICellScriptTypedCellSchedulerRequirements {
+    outputConfigs: ICellScriptTypedCellSchedulerAccessRequirement[];
+    resolvedCellSidecars: ICellScriptTypedCellSchedulerAccessRequirement[];
+}
+
+/**
+ * Returns typed-cell builder inputs required by a CellScript action metadata
+ * plan. `outputConfigs` must be supplied through `cellscriptTypedCellOutputs`;
+ * `resolvedCellSidecars` must be supplied through
+ * `cellscriptTypedCellResolvedCells`.
+ */
+export function cellscriptTypedCellSchedulerRequirements(
+    cellscriptMetadata: string | object,
+    cellscriptAction: string
+): ICellScriptTypedCellSchedulerRequirements | null;
+
 /**
  * Configuration for the transaction {@link Generator}. This interface
  * allows you to specify cell sources, transaction outputs, change address,
@@ -350,6 +378,17 @@ impl Generator {
     pub fn stream(&self) -> impl Stream<Item = Result<native::PendingTransaction>> {
         self.inner.stream()
     }
+}
+
+#[wasm_bindgen(js_name = cellscriptTypedCellSchedulerRequirements)]
+pub fn cellscript_typed_cell_scheduler_requirements(cellscript_metadata: JsValue, cellscript_action: String) -> Result<JsValue> {
+    let metadata_json = parse_cellscript_metadata_json(cellscript_metadata)?;
+    let action_name = cellscript_action.trim();
+    if action_name.is_empty() {
+        return Err(Error::custom("cellscriptAction must not be empty"));
+    }
+    let requirements = native::cellscript_typed_cell_scheduler_requirements_from_metadata_json(&metadata_json, action_name)?;
+    Ok(workflow_wasm::serde::to_value(&requirements)?.into())
 }
 
 enum GeneratorSource {
