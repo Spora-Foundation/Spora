@@ -2,7 +2,7 @@
 
 Branch: `spora-typed`
 日期：2026-05-10
-状态：方案形成，CellScript typed-cell profile MVP、profile-gated conflict_key/identity metadata、live scheduler witness plan/builder、Spora compile-metadata acceptance、wallet/action-builder typed-cell scheduler plan 解析、invoice financing action-builder matrix、base/cellscript/production acceptance profiles 已落地
+状态：方案形成，CellScript typed-cell profile MVP、profile-gated conflict_key/identity metadata、live scheduler witness plan/builder、Spora compile-metadata acceptance、wallet/action-builder typed-cell scheduler plan 解析与 live witness helper、invoice financing action-builder matrix、base/cellscript/production acceptance profiles 已落地
 
 ## 结论
 
@@ -15,7 +15,8 @@ CellScript 已重新作为 submodule 接入 Spora，并切到 0.20-based 独立�
 5. Spora devnet builder matrix 已按 typed-cell ABI 重新对齐：cell-bound input/output 的 source/index 顺序、read-ref `CellDep#0`、新增 schema 字段（例如 `wallet_id`、`lock_id`、receipt `state`）均改为以 CellScript metadata 为准。
 6. CellScript typed-cell metadata schema 已升级到 v43，`#[identity(...)]` / `#[conflict_key(...)]` 只在 `target_profile = "typed-cell"` 下生成嵌套 `typed_cell` metadata，并校验 conflict key 字段必须存在且为 fixed-width；CKB profile 不暴露该字段。
 7. CellScript action metadata 现在输出 `typed_cell_scheduler_plan`，并提供 Spora-compatible live witness builder：wallet/tx-builder 传入 type script、conflict_key_value、typed data 后，可按 Spora runtime 固定 vector 派生 `conflict_hash` / `typed_data_hash`。
-8. Spora wallet/action-builder 已开始消费该 plan：typed-cell metadata 解析会校验 scheduler plan ABI/hash domain/source-operation 组合，并把 plan 存入 `GeneratorSettings`，为后续从真实 input/cell_dep/output data 生成 live scheduler witness 做准备。
+8. Spora wallet/action-builder 已开始消费该 plan：typed-cell metadata 解析会校验 scheduler plan ABI/hash domain/source-operation/data-source 组合，补齐 effect/cycles 与 conflict-key field slice，并把 plan 存入 `GeneratorSettings`。
+9. Wallet 已新增 live typed-cell scheduler witness helper：Output 可直接从 `CellTx.outputs/output_data` 抽取 field-slice，Input/CellDep 通过 resolved sidecar 传入完整 type script/data，随后生成并 append Molecule scheduler witness。
 
 因此执行策略是：先闭合 Spora runtime 消费侧，再在 CellScript 增加 typed-cell profile，恢复端到端 acceptance，最后把 metadata plan 下沉到 wallet live tx builder。
 
@@ -36,7 +37,8 @@ CellScript 已重新作为 submodule 接入 Spora，并切到 0.20-based 独立�
 | root workspace member | 暂缓；保持 submodule 边界，避免 CellScript 0.20 workspace 依赖面扩散 |
 | workspace dependency | root workspace 不直接纳入 CellScript；integration crate 通过 path dependency 显式接入 |
 | `spora-testing-integration` dependency | 已接入本地 `cellscript` path dependency，root workspace 显式 exclude nested CellScript workspace |
-| wallet/action-builder metadata | 已解析并校验 `typed_cell_scheduler_plan`，存入 `GeneratorSettings`，暂不直接生成 live witness |
+| wallet/action-builder metadata | 已解析并校验 `typed_cell_scheduler_plan`，存入 `GeneratorSettings`，并补齐 live witness 所需 effect/cycles/field slices |
+| wallet live witness helper | 已支持 Output 真实 tx data、Input/CellDep resolved sidecar、single/composite fixed conflict key extraction、Molecule witness append |
 | acceptance script | `cellscript` profile 已改为通过 submodule manifest 跑 CellScript 测试 |
 | base devnet acceptance | 已恢复，typed-cell action builder matrix 覆盖 token/AMM/NFT/launch/vesting/multisig/timelock/invoice financing |
 
@@ -61,6 +63,7 @@ cargo test --locked -p spora-testing-integration --lib \
   common::cellscript_contracts::tests::all_spora_examples_compile_metadata_acceptance \
   -- --nocapture --test-threads=1
 cargo check --locked -p spora-wallet-core
+cargo test --locked -p spora-wallet-core typed_cell --lib -- --nocapture
 cargo test --locked -p spora-wallet-core cellscript_action --lib
 cargo test --locked -p spora-consensus execution_dag --lib -- --nocapture
 cargo test --locked -p spora-consensus trusted_access_set --lib -- --nocapture
@@ -79,7 +82,7 @@ cargo test --locked --manifest-path /Users/arthur/RustroverProjects/Spora/cellsc
   --test examples -- --nocapture --test-threads=1
 ```
 
-CellScript 检查在 `/Users/arthur/RustroverProjects/Spora/cellscript` / submodule manifest 下通过；Spora compile-metadata、wallet/action-builder metadata parser、consensus、mining、base/full/production devnet 检查在 root 内通过。Focused acceptance profile 通过并生成报告：
+CellScript 检查在 `/Users/arthur/RustroverProjects/Spora/cellscript` / submodule manifest 下通过；Spora compile-metadata、wallet/action-builder metadata parser、wallet live witness helper、consensus、mining、base/full/production devnet 检查在 root 内通过。Focused acceptance profile 通过并生成报告：
 
 ```text
 /Users/arthur/RustroverProjects/Spora/target/devnet-acceptance/20260510-162619-86051
@@ -121,7 +124,7 @@ Production devnet acceptance 通过并生成 production evidence：
 6. CellScript 新增 `#[identity(field(...))]` / `#[conflict_key(...)]` typed-cell attribute 语义，AST/IR/metadata 全链路 profile-gated，invoice financing example 已声明 `invoice_id` 作为 shared/receipt conflict key。
 7. CellScript 新增 `typed_cell_scheduler_plan` 和 live scheduler witness builder，hash helper 已与 Spora `typed_cell_vectors` 中的 conflict hash、typed data hash、Molecule witness 固定向量对齐。
 
-下一阶段重点转为用 `typed_cell_scheduler_plan` 驱动 wallet/action-builder 的 tx skeleton 生成：从真实 input/cell_dep/output data 自动抽取 `conflict_key_value` 与 typed data，调用 CellScript live witness builder，并把 scheduler plan / live witness shape 纳入 production evidence 输出。
+下一阶段重点转为把 wallet live witness helper 接入具体 action-builder tx skeleton：自动提供 Input/CellDep resolved sidecar，确保 typed-cell outputs 携带 type script/data，并把 scheduler plan / live witness shape 纳入 production evidence 输出。
 
 ## 目标
 
@@ -175,7 +178,7 @@ Layer A 不要求 CellScript 编译器产出真实 typed-cell witness。测试�
 | B1 | 新增 profile 枚举 | `cellscript/src/lib.rs`, `cellscript/src/cli/commands.rs`, `cellscript/src/codegen/mod.rs` | `cellc --target-profile typed-cell` 可识别 |
 | B2 | 定义 typed-cell target metadata | `TargetProfile::metadata()` | metadata 中 profile name、scheduler ABI、hash domain 稳定 |
 | B3 | profile-gated typed-cell attributes | parser / AST / IR | 已完成：`#[conflict_key(...)]`, `#[identity(...)]` parse + metadata，不污染 CKB |
-| B4 | conflict key canonical encoding | CellScript lowering / wallet builder | 部分完成：metadata/schema canonical fields、composite helper、live witness builder 已对齐 Spora fixed vector；wallet 已解析 scheduler plan，自动字段抽取仍需接入 |
+| B4 | conflict key canonical encoding | CellScript lowering / wallet builder | 部分完成：metadata/schema canonical fields、composite helper、live witness builder 已对齐 Spora fixed vector；wallet 已解析 scheduler plan 并支持 fixed field-slice 自动抽取，tx skeleton 自动 sidecar 仍需接入 |
 | B5 | 生成 70-byte access record Molecule witness | CellScript metadata/lowering | `scheduler_witness_hex` 可被 Spora decode |
 | B6 | metadata contract 对齐 | `ActionMetadata`, constraints metadata | Spora 不再依赖旧 `constraints.spora` |
 
@@ -256,7 +259,8 @@ cargo test -p spora-mining
 4. 增加 CellScript 自测，验证 7-field Molecule table、70-byte access record、非零 conflict_hash / typed_data_hash。已完成。
 5. profile-gated `conflict_key` / `identity` attribute metadata 已完成，包含 fixed-width 字段校验与 CKB profile 隔离。
 6. 声明式 `conflict_key` 已进入 `typed_cell_scheduler_plan`，live scheduler witness builder 已与 Spora runtime 固定 vector 对齐。
-7. wallet/action-builder 已解析并保存 plan；下一步从真实 input/cell_dep/output data 自动抽取 conflict key 和 typed data。
+7. wallet/action-builder 已解析并保存 plan，live witness helper 已能从真实 Output data 与 resolved Input/CellDep data 自动抽取 conflict key 和 typed data。
+8. 下一步把 helper 接入具体 action-builder tx skeleton，自动提供 resolved sidecar。
 
 交付标准：
 
@@ -272,10 +276,11 @@ cargo check --locked --workspace
 3. 使用 `scheduler_witness_bytes()` 生成 tx witness。已有路径，compile-metadata acceptance 与 focused acceptance profile 已覆盖 witness shape。
 4. wallet metadata parser 接受 `typed-cell` scheduler witness metadata。已完成。
 5. wallet metadata parser 接受并校验 `typed_cell_scheduler_plan`。已完成。
-6. focused `cellscript` acceptance profile。已通过。
-7. base devnet profile。已通过。
-8. full devnet profile。已通过。
-9. production devnet profile 与 production evidence。已通过。
+6. wallet live witness helper 生成并 append typed-cell Molecule witness。已完成基础 API。
+7. focused `cellscript` acceptance profile。已通过。
+8. base devnet profile。已通过。
+9. full devnet profile。已通过。
+10. production devnet profile 与 production evidence。已通过。
 
 交付标准：
 
@@ -338,8 +343,9 @@ scripts/spora_cellscript_acceptance.sh --profile production
 
 MVP 已超过原始最小可交付，typed-cell attribute metadata 与 live scheduler witness builder 已落地。下一步最小可交付只需要继续闭合：
 
-1. wallet/action-builder API 已能从 CellScript metadata 解析并保存 `typed_cell_scheduler_plan`。
-2. builder 下一步从真实 cell data 自动抽取 `conflict_key_value` 与 typed data，并调用 live witness builder。
-3. production evidence 下一步固定 typed-cell metadata、builder matrix、scheduler plan 和 witness shape 的发布口径。
+1. wallet/action-builder API 已能从 CellScript metadata 解析并保存 `typed_cell_scheduler_plan`，包含 effect/cycles 与 conflict-key field slices。
+2. wallet live helper 已能从真实 Output data 与 resolved Input/CellDep data 自动抽取 `conflict_key_value` 与 typed data，并 append live scheduler witness。
+3. builder 下一步把该 helper 接入 invoice financing 等具体 tx skeleton，自动提供 resolved sidecar。
+4. production evidence 下一步固定 typed-cell metadata、builder matrix、scheduler plan 和 witness shape 的发布口径。
 
 这能把当前 parse/metadata 层能力推进到 tx 构造和调度层，再逐步补 `settlement`、accounting、ProofPlan 和更复杂业务约束。

@@ -61,14 +61,25 @@ use crate::cell::{CellContext, CellEntryReference, NetworkParams};
 use crate::imports::*;
 use crate::result::Result;
 use crate::tx::{
-    mass::*, Fees, GeneratorSettings, GeneratorSummary, PaymentDestination, PaymentOutput, PendingTransaction,
-    PendingTransactionIterator, PendingTransactionStream,
+    mass::*, CellScriptTypedCellSchedulerAccessPlan, CellScriptTypedCellSchedulerPlan, Fees, GeneratorSettings, GeneratorSummary,
+    PaymentDestination, PaymentOutput, PendingTransaction, PendingTransactionIterator, PendingTransactionStream,
 };
 use spora_consensus_client::{pay_to_address_lock_script, CellEntry, TransactionInput};
 use spora_consensus_core::block::CellScriptSchedulerAccessList;
 use spora_consensus_core::constants::UNACCEPTED_DAA_SCORE;
 use spora_consensus_core::tx::{TransactionId, TransactionOutpoint};
-use spora_exec::{ckb_apply_type_id_script_to_output_molecule, CellDep, CellInput, CellTx};
+use spora_exec::{
+    celltx::{
+        compute_conflict_hash, compute_typed_data_hash, encode_cellscript_scheduler_witness_molecule,
+        encode_conflict_key_value_composite, CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness,
+        CELLSCRIPT_SCHEDULER_EFFECT_CREATING, CELLSCRIPT_SCHEDULER_EFFECT_DESTROYING, CELLSCRIPT_SCHEDULER_EFFECT_MUTATING,
+        CELLSCRIPT_SCHEDULER_EFFECT_PURE, CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY, CELLSCRIPT_SCHEDULER_OP_CONSUME,
+        CELLSCRIPT_SCHEDULER_OP_CREATE, CELLSCRIPT_SCHEDULER_OP_DESTROY, CELLSCRIPT_SCHEDULER_OP_READ_REF,
+        CELLSCRIPT_SCHEDULER_OP_TRANSFER, CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP, CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
+        CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT, CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+    },
+    ckb_apply_type_id_script_to_output_molecule, CellDep, CellInput, CellTx, Script,
+};
 use std::collections::VecDeque;
 
 use super::SignerT;
@@ -339,6 +350,8 @@ struct Inner {
     // compiled CellScript scheduler witness for the final transaction
     final_cellscript_compiled_scheduler_witness: Option<Vec<u8>>,
     final_cellscript_compiled_scheduler_witness_mass: u64,
+    // parsed CellScript typed-cell scheduler plan for live witness construction
+    cellscript_typed_cell_scheduler_plan: Option<CellScriptTypedCellSchedulerPlan>,
     // Cell dependencies included in each generated transaction.
     cell_deps: Vec<CellDep>,
     // Header dependencies included in each generated transaction.
@@ -374,6 +387,7 @@ impl std::fmt::Debug for Inner {
                 "final_cellscript_compiled_scheduler_witness_mass",
                 &self.final_cellscript_compiled_scheduler_witness_mass,
             )
+            .field("cellscript_typed_cell_scheduler_plan", &self.cellscript_typed_cell_scheduler_plan.is_some())
             .field("cell_deps", &self.cell_deps)
             .field("header_deps", &self.header_deps)
             .field("ckb_type_id_output_indexes", &self.ckb_type_id_output_indexes)
@@ -409,7 +423,7 @@ impl Generator {
             cell_deps,
             header_deps,
             ckb_type_id_output_indexes,
-            cellscript_typed_cell_scheduler_plan: _,
+            cellscript_typed_cell_scheduler_plan,
             destination_cell_context,
         } = settings;
 
@@ -526,6 +540,7 @@ impl Generator {
             final_transaction_payload_mass,
             final_cellscript_compiled_scheduler_witness,
             final_cellscript_compiled_scheduler_witness_mass,
+            cellscript_typed_cell_scheduler_plan,
             cell_deps,
             header_deps,
             ckb_type_id_output_indexes,
@@ -1419,14 +1434,196 @@ fn attach_cellscript_compiled_scheduler_witness(
         .map_err(|err| Error::custom(format!("invalid CellScript scheduler witness for generated transaction: {err}")))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CellScriptTypedCellResolvedCell {
+    pub source: String,
+    pub index: usize,
+    pub type_script: Script,
+    pub data: Vec<u8>,
+}
+
+impl CellScriptTypedCellResolvedCell {
+    pub fn input(index: usize, type_script: Script, data: Vec<u8>) -> Self {
+        Self { source: "Input".to_string(), index, type_script, data }
+    }
+
+    pub fn cell_dep(index: usize, type_script: Script, data: Vec<u8>) -> Self {
+        Self { source: "CellDep".to_string(), index, type_script, data }
+    }
+}
+
+pub fn build_cellscript_typed_cell_scheduler_witness_for_tx(
+    tx: &CellTx,
+    plan: &CellScriptTypedCellSchedulerPlan,
+    resolved_cells: &[CellScriptTypedCellResolvedCell],
+) -> Result<Vec<u8>> {
+    let accesses = plan
+        .accesses
+        .iter()
+        .map(|access| {
+            let operation = cellscript_scheduler_operation_id(&access.operation)?;
+            let source = cellscript_scheduler_source_id(&access.source)?;
+            let index = u32::try_from(access.index)
+                .map_err(|_| Error::custom(format!("CellScript typed-cell scheduler access index {} is too large", access.index)))?;
+            let resolved = resolve_typed_cell_scheduler_access(tx, access, resolved_cells)?;
+            let conflict_key_value = extract_typed_cell_conflict_key_value(access, &resolved.data)?;
+            Ok(CellScriptSchedulerAccessWitness {
+                operation,
+                source,
+                index,
+                conflict_hash: compute_conflict_hash(&resolved.type_script, &conflict_key_value),
+                typed_data_hash: compute_typed_data_hash(&resolved.type_script, &resolved.data),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
+        magic: 0xCE11,
+        version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+        effect_class: cellscript_scheduler_effect_class_id(&plan.effect_class)?,
+        parallelizable: plan.parallelizable,
+        estimated_cycles: plan.estimated_cycles,
+        access_count: accesses.len() as u32,
+        accesses,
+    }))
+}
+
+pub fn attach_cellscript_typed_cell_scheduler_witness(
+    tx: &mut CellTx,
+    plan: &CellScriptTypedCellSchedulerPlan,
+    resolved_cells: &[CellScriptTypedCellResolvedCell],
+) -> Result<CellScriptSchedulerAccessList> {
+    let witness = build_cellscript_typed_cell_scheduler_witness_for_tx(tx, plan, resolved_cells)?;
+    tx.push_cellscript_compiled_scheduler_witness(witness)
+        .map_err(|err| Error::custom(format!("invalid live CellScript typed-cell scheduler witness for generated transaction: {err}")))
+}
+
+struct ResolvedTypedCellAccess {
+    type_script: Script,
+    data: Vec<u8>,
+}
+
+fn resolve_typed_cell_scheduler_access(
+    tx: &CellTx,
+    access: &CellScriptTypedCellSchedulerAccessPlan,
+    resolved_cells: &[CellScriptTypedCellResolvedCell],
+) -> Result<ResolvedTypedCellAccess> {
+    match access.source.as_str() {
+        "Output" => {
+            let output = tx.outputs.get(access.index).ok_or_else(|| {
+                Error::custom(format!(
+                    "CellScript typed-cell scheduler access {} Output#{} is outside transaction outputs",
+                    access.binding, access.index
+                ))
+            })?;
+            let type_script = output.type_.clone().ok_or_else(|| {
+                Error::custom(format!(
+                    "CellScript typed-cell scheduler access {} Output#{} has no type script",
+                    access.binding, access.index
+                ))
+            })?;
+            let data = tx.outputs_data.get(access.index).cloned().ok_or_else(|| {
+                Error::custom(format!(
+                    "CellScript typed-cell scheduler access {} Output#{} has no output data",
+                    access.binding, access.index
+                ))
+            })?;
+            Ok(ResolvedTypedCellAccess { type_script, data })
+        }
+        "Input" | "CellDep" => resolved_cells
+            .iter()
+            .find(|resolved| resolved.source == access.source && resolved.index == access.index)
+            .map(|resolved| ResolvedTypedCellAccess { type_script: resolved.type_script.clone(), data: resolved.data.clone() })
+            .ok_or_else(|| {
+                Error::custom(format!(
+                    "CellScript typed-cell scheduler access {} {}#{} requires resolved type script and data sidecar",
+                    access.binding, access.source, access.index
+                ))
+            }),
+        other => {
+            Err(Error::custom(format!("CellScript typed-cell scheduler access {} has unsupported source {other}", access.binding)))
+        }
+    }
+}
+
+fn extract_typed_cell_conflict_key_value(access: &CellScriptTypedCellSchedulerAccessPlan, data: &[u8]) -> Result<Vec<u8>> {
+    if access.conflict_key.is_none() {
+        return Err(Error::custom(format!("CellScript typed-cell scheduler access {} has no conflict_key metadata", access.binding)));
+    }
+    let fields = access
+        .conflict_key_field_slices
+        .iter()
+        .map(|field| {
+            let end = field
+                .offset
+                .checked_add(field.size)
+                .ok_or_else(|| Error::custom(format!("CellScript typed-cell conflict key field {} offset overflows", field.field)))?;
+            data.get(field.offset..end).ok_or_else(|| {
+                Error::custom(format!(
+                    "CellScript typed-cell conflict key field {} needs bytes [{}..{}), but cell data has {} bytes",
+                    field.field,
+                    field.offset,
+                    end,
+                    data.len()
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    match access.conflict_key_encoding.as_deref() {
+        Some("single-field-fixed-bytes-v1") if fields.len() == 1 => Ok(fields[0].to_vec()),
+        Some("composite-fixed-bytes-v1") if !fields.is_empty() => Ok(encode_conflict_key_value_composite(&fields)),
+        Some(encoding) => Err(Error::custom(format!(
+            "CellScript typed-cell scheduler access {} has unsupported conflict_key_encoding {encoding}",
+            access.binding
+        ))),
+        None => {
+            Err(Error::custom(format!("CellScript typed-cell scheduler access {} is missing conflict_key_encoding", access.binding)))
+        }
+    }
+}
+
+fn cellscript_scheduler_effect_class_id(effect_class: &str) -> Result<u8> {
+    match effect_class {
+        "Pure" => Ok(CELLSCRIPT_SCHEDULER_EFFECT_PURE),
+        "ReadOnly" => Ok(CELLSCRIPT_SCHEDULER_EFFECT_READ_ONLY),
+        "Mutating" => Ok(CELLSCRIPT_SCHEDULER_EFFECT_MUTATING),
+        "Creating" => Ok(CELLSCRIPT_SCHEDULER_EFFECT_CREATING),
+        "Destroying" => Ok(CELLSCRIPT_SCHEDULER_EFFECT_DESTROYING),
+        other => Err(Error::custom(format!("unsupported CellScript scheduler effect_class {other}"))),
+    }
+}
+
+fn cellscript_scheduler_operation_id(operation: &str) -> Result<u8> {
+    match operation {
+        "consume" => Ok(CELLSCRIPT_SCHEDULER_OP_CONSUME),
+        "transfer" => Ok(CELLSCRIPT_SCHEDULER_OP_TRANSFER),
+        "destroy" => Ok(CELLSCRIPT_SCHEDULER_OP_DESTROY),
+        "read_ref" => Ok(CELLSCRIPT_SCHEDULER_OP_READ_REF),
+        "create" => Ok(CELLSCRIPT_SCHEDULER_OP_CREATE),
+        other => Err(Error::custom(format!("unsupported CellScript typed-cell scheduler operation {other}"))),
+    }
+}
+
+fn cellscript_scheduler_source_id(source: &str) -> Result<u8> {
+    match source {
+        "Input" => Ok(CELLSCRIPT_SCHEDULER_SOURCE_INPUT),
+        "CellDep" => Ok(CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP),
+        "Output" => Ok(CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT),
+        other => Err(Error::custom(format!("unsupported CellScript typed-cell scheduler source {other}"))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tx::PaymentOutputs;
     use spora_exec::celltx::{
+        compute_conflict_hash, compute_typed_data_hash, decode_cellscript_scheduler_witness,
         encode_cellscript_scheduler_witness_molecule, CellScriptSchedulerAccessWitness, CellScriptSchedulerWitness,
-        CELLSCRIPT_SCHEDULER_EFFECT_CREATING, CELLSCRIPT_SCHEDULER_OP_CREATE, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT,
-        CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+        CELLSCRIPT_SCHEDULER_EFFECT_CREATING, CELLSCRIPT_SCHEDULER_EFFECT_MUTATING, CELLSCRIPT_SCHEDULER_OP_CONSUME,
+        CELLSCRIPT_SCHEDULER_OP_CREATE, CELLSCRIPT_SCHEDULER_OP_READ_REF, CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP,
+        CELLSCRIPT_SCHEDULER_SOURCE_INPUT, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT, CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
     };
     use spora_exec::{
         ckb_type_id_args, CellDep, CellOutput, CkbSecp256k1Blake160SighashAllLockConfig, DepType, OutPoint, Script,
@@ -1501,6 +1698,143 @@ mod tests {
 
         assert!(error.to_string().contains("invalid CellScript scheduler witness"));
         assert!(tx.witnesses.is_empty());
+    }
+
+    fn typed_cell_scheduler_plan(operation: &str, source: &str, index: usize) -> CellScriptTypedCellSchedulerPlan {
+        CellScriptTypedCellSchedulerPlan {
+            abi: "spora-typed-cell-scheduler-plan-v1".to_string(),
+            conflict_hash_domain: "spora-typed-cell/conflict-hash/v1".to_string(),
+            typed_data_hash_domain: "spora-typed-cell/typed-data-hash/v1".to_string(),
+            effect_class: "Mutating".to_string(),
+            parallelizable: false,
+            estimated_cycles: 500,
+            accesses: vec![CellScriptTypedCellSchedulerAccessPlan {
+                operation: operation.to_string(),
+                source: source.to_string(),
+                index,
+                binding: "invoice".to_string(),
+                ty: "Invoice".to_string(),
+                conflict_key: Some("field(invoice_id)".to_string()),
+                conflict_key_fields: vec!["invoice_id".to_string()],
+                conflict_key_encoding: Some("single-field-fixed-bytes-v1".to_string()),
+                conflict_key_field_slices: vec![crate::tx::CellScriptTypedCellFieldSlice {
+                    field: "invoice_id".to_string(),
+                    offset: 0,
+                    size: 32,
+                }],
+                conflict_key_value_source: format!("transaction-{}-data-conflict-key-fields", source.to_ascii_lowercase()),
+                typed_data_source: format!("transaction-{}-data", source.to_ascii_lowercase()),
+            }],
+        }
+    }
+
+    #[test]
+    fn build_typed_cell_scheduler_witness_uses_output_data_field_slices() {
+        let type_script = Script::new([0x42; 32], 1, b"invoice-script-args".to_vec());
+        let mut data = vec![0xA1; 32];
+        data.extend_from_slice(b"invoice-state:issued:amount=1250000");
+        let tx = CellTx::new(
+            vec![],
+            vec![],
+            vec![CellOutput { lock: Script::new([0x51; 32], 0, vec![]), type_: Some(type_script.clone()), capacity: 1000 }],
+            vec![data.clone()],
+            vec![],
+        )
+        .unwrap();
+        let plan = typed_cell_scheduler_plan("create", "Output", 0);
+
+        let witness_bytes = build_cellscript_typed_cell_scheduler_witness_for_tx(&tx, &plan, &[]).unwrap();
+        let witness = decode_cellscript_scheduler_witness(&witness_bytes).unwrap();
+
+        assert_eq!(witness.effect_class, CELLSCRIPT_SCHEDULER_EFFECT_MUTATING);
+        assert_eq!(witness.estimated_cycles, 500);
+        assert_eq!(witness.access_count, 1);
+        assert_eq!(witness.accesses[0].operation, CELLSCRIPT_SCHEDULER_OP_CREATE);
+        assert_eq!(witness.accesses[0].source, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT);
+        assert_eq!(witness.accesses[0].index, 0);
+        assert_eq!(witness.accesses[0].conflict_hash, compute_conflict_hash(&type_script, &[0xA1; 32]));
+        assert_eq!(witness.accesses[0].typed_data_hash, compute_typed_data_hash(&type_script, &data));
+    }
+
+    #[test]
+    fn attach_typed_cell_scheduler_witness_uses_resolved_input_sidecar() {
+        let type_script = Script::new([0x42; 32], 1, b"invoice-script-args".to_vec());
+        let mut data = vec![0xB2; 32];
+        data.extend_from_slice(b"invoice-state:funded:amount=900000");
+        let mut tx = CellTx::new(vec![CellInput::new(OutPoint::new([0x90; 32], 0), 0)], vec![], vec![], vec![], vec![]).unwrap();
+        let plan = typed_cell_scheduler_plan("consume", "Input", 0);
+
+        let summary = attach_cellscript_typed_cell_scheduler_witness(
+            &mut tx,
+            &plan,
+            &[CellScriptTypedCellResolvedCell::input(0, type_script.clone(), data.clone())],
+        )
+        .unwrap();
+
+        assert_eq!(summary.effect_class, CELLSCRIPT_SCHEDULER_EFFECT_MUTATING);
+        assert_eq!(summary.accesses.len(), 1);
+        assert_eq!(summary.accesses[0].operation, CELLSCRIPT_SCHEDULER_OP_CONSUME);
+        assert_eq!(summary.accesses[0].source, CELLSCRIPT_SCHEDULER_SOURCE_INPUT);
+        assert_eq!(summary.accesses[0].conflict_hash, compute_conflict_hash(&type_script, &[0xB2; 32]));
+        assert_eq!(summary.accesses[0].typed_data_hash, compute_typed_data_hash(&type_script, &data));
+        assert_eq!(tx.witnesses.len(), 1);
+    }
+
+    #[test]
+    fn build_typed_cell_scheduler_witness_uses_resolved_cell_dep_sidecar() {
+        let type_script = Script::new([0x42; 32], 1, b"invoice-script-args".to_vec());
+        let mut data = vec![0xC3; 32];
+        data.extend_from_slice(b"invoice-state:read-only");
+        let tx = CellTx::new(
+            vec![],
+            vec![CellDep { out_point: OutPoint::new([0x77; 32], 1), dep_type: DepType::Code }],
+            vec![],
+            vec![],
+            vec![],
+        )
+        .unwrap();
+        let plan = typed_cell_scheduler_plan("read_ref", "CellDep", 0);
+
+        let witness_bytes = build_cellscript_typed_cell_scheduler_witness_for_tx(
+            &tx,
+            &plan,
+            &[CellScriptTypedCellResolvedCell::cell_dep(0, type_script.clone(), data.clone())],
+        )
+        .unwrap();
+        let witness = decode_cellscript_scheduler_witness(&witness_bytes).unwrap();
+
+        assert_eq!(witness.accesses[0].operation, CELLSCRIPT_SCHEDULER_OP_READ_REF);
+        assert_eq!(witness.accesses[0].source, CELLSCRIPT_SCHEDULER_SOURCE_CELL_DEP);
+        assert_eq!(witness.accesses[0].conflict_hash, compute_conflict_hash(&type_script, &[0xC3; 32]));
+        assert_eq!(witness.accesses[0].typed_data_hash, compute_typed_data_hash(&type_script, &data));
+    }
+
+    #[test]
+    fn build_typed_cell_scheduler_witness_rejects_missing_input_sidecar() {
+        let tx = CellTx::new(vec![CellInput::new(OutPoint::new([0x90; 32], 0), 0)], vec![], vec![], vec![], vec![]).unwrap();
+        let plan = typed_cell_scheduler_plan("consume", "Input", 0);
+
+        let err = build_cellscript_typed_cell_scheduler_witness_for_tx(&tx, &plan, &[]).unwrap_err();
+
+        assert!(err.to_string().contains("requires resolved type script and data sidecar"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn build_typed_cell_scheduler_witness_rejects_short_output_data() {
+        let type_script = Script::new([0x42; 32], 1, b"invoice-script-args".to_vec());
+        let tx = CellTx::new(
+            vec![],
+            vec![],
+            vec![CellOutput { lock: Script::new([0x51; 32], 0, vec![]), type_: Some(type_script), capacity: 1000 }],
+            vec![vec![0xA1; 31]],
+            vec![],
+        )
+        .unwrap();
+        let plan = typed_cell_scheduler_plan("create", "Output", 0);
+
+        let err = build_cellscript_typed_cell_scheduler_witness_for_tx(&tx, &plan, &[]).unwrap_err();
+
+        assert!(err.to_string().contains("needs bytes [0..32)"), "unexpected error: {err}");
     }
 
     #[test]

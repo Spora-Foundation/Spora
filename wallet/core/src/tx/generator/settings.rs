@@ -78,6 +78,9 @@ pub struct CellScriptTypedCellSchedulerPlan {
     pub abi: String,
     pub conflict_hash_domain: String,
     pub typed_data_hash_domain: String,
+    pub effect_class: String,
+    pub parallelizable: bool,
+    pub estimated_cycles: u64,
     pub accesses: Vec<CellScriptTypedCellSchedulerAccessPlan>,
 }
 
@@ -91,8 +94,16 @@ pub struct CellScriptTypedCellSchedulerAccessPlan {
     pub conflict_key: Option<String>,
     pub conflict_key_fields: Vec<String>,
     pub conflict_key_encoding: Option<String>,
+    pub conflict_key_field_slices: Vec<CellScriptTypedCellFieldSlice>,
     pub conflict_key_value_source: String,
     pub typed_data_source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CellScriptTypedCellFieldSlice {
+    pub field: String,
+    pub offset: usize,
+    pub size: usize,
 }
 
 // impl std::fmt::Debug for GeneratorSettings {
@@ -372,7 +383,7 @@ pub fn cellscript_action_generator_plan_from_metadata_json(
         CELLSCRIPT_TARGET_PROFILE_TYPED_CELL | CELLSCRIPT_TARGET_PROFILE_SPORA => {
             plan.final_cellscript_compiled_scheduler_witness = cellscript_spora_scheduler_witness_from_action(action, action_name)?;
             if target_profile == CELLSCRIPT_TARGET_PROFILE_TYPED_CELL {
-                plan.typed_cell_scheduler_plan = cellscript_typed_cell_scheduler_plan_from_action(action, action_name)?;
+                plan.typed_cell_scheduler_plan = cellscript_typed_cell_scheduler_plan_from_action(&metadata, action, action_name)?;
             }
         }
         CELLSCRIPT_TARGET_PROFILE_CKB => {
@@ -448,10 +459,11 @@ pub fn typed_cell_scheduler_plan_from_cellscript_metadata_json(
         )));
     }
     let action = cellscript_metadata_action(&metadata, action_name)?;
-    cellscript_typed_cell_scheduler_plan_from_action(action, action_name)
+    cellscript_typed_cell_scheduler_plan_from_action(&metadata, action, action_name)
 }
 
 fn cellscript_typed_cell_scheduler_plan_from_action(
+    metadata: &serde_json::Value,
     action: &serde_json::Value,
     action_name: &str,
 ) -> Result<Option<CellScriptTypedCellSchedulerPlan>> {
@@ -496,24 +508,31 @@ fn cellscript_typed_cell_scheduler_plan_from_action(
             "CellScript metadata action '{action_name}' typed_cell_scheduler_plan.typed_data_hash_domain '{typed_data_hash_domain}' is unsupported; expected {CELLSCRIPT_TYPED_CELL_TYPED_DATA_HASH_DOMAIN}"
         )));
     }
+    let effect_class = required_action_string_field(action, "effect_class", action_name)?;
+    let parallelizable = required_action_bool_field(action, "parallelizable", action_name)?;
+    let estimated_cycles = required_action_u64_field(action, "estimated_cycles", action_name)?;
     let accesses = plan.get("accesses").and_then(serde_json::Value::as_array).ok_or_else(|| {
         Error::custom(format!("CellScript metadata action '{action_name}' typed_cell_scheduler_plan.accesses must be an array"))
     })?;
     let accesses = accesses
         .iter()
         .enumerate()
-        .map(|(index, access)| cellscript_typed_cell_scheduler_access_plan_from_json(action_name, index, access))
+        .map(|(index, access)| cellscript_typed_cell_scheduler_access_plan_from_json(metadata, action_name, index, access))
         .collect::<Result<Vec<_>>>()?;
 
     Ok(Some(CellScriptTypedCellSchedulerPlan {
         abi: abi.to_string(),
         conflict_hash_domain: conflict_hash_domain.to_string(),
         typed_data_hash_domain: typed_data_hash_domain.to_string(),
+        effect_class: effect_class.to_string(),
+        parallelizable,
+        estimated_cycles,
         accesses,
     }))
 }
 
 fn cellscript_typed_cell_scheduler_access_plan_from_json(
+    metadata: &serde_json::Value,
     action_name: &str,
     access_index: usize,
     access: &serde_json::Value,
@@ -534,8 +553,18 @@ fn cellscript_typed_cell_scheduler_access_plan_from_json(
             "{context} declares conflict_key but is missing conflict_key_fields or conflict_key_encoding"
         )));
     }
+    if conflict_key.is_none() && (!conflict_key_fields.is_empty() || conflict_key_encoding.is_some()) {
+        return Err(Error::custom(format!("{context} declares conflict key fields or encoding without conflict_key")));
+    }
+    validate_typed_cell_conflict_key_encoding(&context, conflict_key_encoding, conflict_key_fields.len())?;
+    let conflict_key_field_slices = if conflict_key.is_some() {
+        typed_cell_conflict_key_field_slices(metadata, ty, &conflict_key_fields, &context)?
+    } else {
+        Vec::new()
+    };
     let conflict_key_value_source = required_string_field(access, "conflict_key_value_source", &context)?;
     let typed_data_source = required_string_field(access, "typed_data_source", &context)?;
+    validate_typed_cell_scheduler_data_sources(&context, source, conflict_key_value_source, typed_data_source)?;
 
     Ok(CellScriptTypedCellSchedulerAccessPlan {
         operation: operation.to_string(),
@@ -546,9 +575,100 @@ fn cellscript_typed_cell_scheduler_access_plan_from_json(
         conflict_key: conflict_key.map(ToOwned::to_owned),
         conflict_key_fields: conflict_key_fields.into_iter().map(ToOwned::to_owned).collect(),
         conflict_key_encoding: conflict_key_encoding.map(ToOwned::to_owned),
+        conflict_key_field_slices,
         conflict_key_value_source: conflict_key_value_source.to_string(),
         typed_data_source: typed_data_source.to_string(),
     })
+}
+
+fn validate_typed_cell_conflict_key_encoding(context: &str, encoding: Option<&str>, field_count: usize) -> Result<()> {
+    match (encoding, field_count) {
+        (None, 0) => Ok(()),
+        (Some("single-field-fixed-bytes-v1"), 1) => Ok(()),
+        (Some("composite-fixed-bytes-v1"), count) if count > 1 => Ok(()),
+        (Some(encoding), count) => Err(Error::custom(format!(
+            "{context}.conflict_key_encoding {encoding} is incompatible with {count} conflict key field(s)"
+        ))),
+        (None, count) => Err(Error::custom(format!("{context} is missing conflict_key_encoding for {count} conflict key field(s)"))),
+    }
+}
+
+fn validate_typed_cell_scheduler_data_sources(
+    context: &str,
+    source: &str,
+    conflict_key_value_source: &str,
+    typed_data_source: &str,
+) -> Result<()> {
+    let (expected_conflict_key_value_source, expected_typed_data_source) = match source {
+        "Input" => ("transaction-input-data-conflict-key-fields", "transaction-input-data"),
+        "CellDep" => ("transaction-cell-dep-data-conflict-key-fields", "transaction-cell-dep-data"),
+        "Output" => ("transaction-output-data-conflict-key-fields", "transaction-output-data"),
+        _ => return Ok(()),
+    };
+    if conflict_key_value_source != expected_conflict_key_value_source {
+        return Err(Error::custom(format!(
+            "{context}.conflict_key_value_source '{conflict_key_value_source}' is unsupported for source {source}; expected {expected_conflict_key_value_source}"
+        )));
+    }
+    if typed_data_source != expected_typed_data_source {
+        return Err(Error::custom(format!(
+            "{context}.typed_data_source '{typed_data_source}' is unsupported for source {source}; expected {expected_typed_data_source}"
+        )));
+    }
+    Ok(())
+}
+
+fn typed_cell_conflict_key_field_slices(
+    metadata: &serde_json::Value,
+    ty: &str,
+    conflict_key_fields: &[&str],
+    context: &str,
+) -> Result<Vec<CellScriptTypedCellFieldSlice>> {
+    let types = metadata
+        .get("types")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| Error::custom("CellScript metadata types must be an array when typed_cell_scheduler_plan is present"))?;
+    let ty_metadata = types
+        .iter()
+        .find(|metadata_type| metadata_type.get("name").and_then(serde_json::Value::as_str) == Some(ty))
+        .ok_or_else(|| Error::custom(format!("{context}.ty '{ty}' is missing from CellScript metadata types")))?;
+    let fields = ty_metadata
+        .get("fields")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| Error::custom(format!("CellScript metadata type '{ty}' fields must be an array")))?;
+
+    conflict_key_fields
+        .iter()
+        .map(|field_name| {
+            let field =
+                fields.iter().find(|field| field.get("name").and_then(serde_json::Value::as_str) == Some(*field_name)).ok_or_else(
+                    || Error::custom(format!("{context}.conflict_key_fields references missing field '{field_name}' on type '{ty}'")),
+                )?;
+            let field_context = format!("CellScript metadata type '{ty}' field '{field_name}'");
+            let fixed_width = required_bool_field(
+                field.as_object().ok_or_else(|| Error::custom(format!("{field_context} must be an object")))?,
+                "fixed_width",
+                &field_context,
+            )?;
+            if !fixed_width {
+                return Err(Error::custom(format!("{field_context} must be fixed-width for typed-cell conflict keys")));
+            }
+            let size = required_usize_field(
+                field.as_object().ok_or_else(|| Error::custom(format!("{field_context} must be an object")))?,
+                "encoded_size",
+                &field_context,
+            )?;
+            Ok(CellScriptTypedCellFieldSlice {
+                field: (*field_name).to_string(),
+                offset: required_usize_field(
+                    field.as_object().ok_or_else(|| Error::custom(format!("{field_context} must be an object")))?,
+                    "offset",
+                    &field_context,
+                )?,
+                size,
+            })
+        })
+        .collect()
 }
 
 fn validate_typed_cell_scheduler_operation_source(
@@ -639,6 +759,32 @@ fn required_string_field<'a>(object: &'a serde_json::Map<String, serde_json::Val
         return Err(Error::custom(format!("{context}.{field} must not be empty")));
     }
     Ok(value)
+}
+
+fn required_action_string_field<'a>(action: &'a serde_json::Value, field: &str, action_name: &str) -> Result<&'a str> {
+    let context = format!("CellScript metadata action '{action_name}'");
+    let action = action.as_object().ok_or_else(|| Error::custom(format!("{context} must be an object")))?;
+    required_string_field(action, field, &context)
+}
+
+fn required_action_bool_field(action: &serde_json::Value, field: &str, action_name: &str) -> Result<bool> {
+    action.get(field).and_then(serde_json::Value::as_bool).ok_or_else(|| {
+        Error::custom(format!(
+            "CellScript metadata action '{action_name}'.{field} must be a boolean when typed_cell_scheduler_plan is present"
+        ))
+    })
+}
+
+fn required_action_u64_field(action: &serde_json::Value, field: &str, action_name: &str) -> Result<u64> {
+    action.get(field).and_then(serde_json::Value::as_u64).ok_or_else(|| {
+        Error::custom(format!(
+            "CellScript metadata action '{action_name}'.{field} must be a non-negative integer when typed_cell_scheduler_plan is present"
+        ))
+    })
+}
+
+fn required_bool_field(object: &serde_json::Map<String, serde_json::Value>, field: &str, context: &str) -> Result<bool> {
+    object.get(field).and_then(serde_json::Value::as_bool).ok_or_else(|| Error::custom(format!("{context}.{field} must be a boolean")))
 }
 
 fn optional_string_field<'a>(
@@ -763,6 +909,25 @@ mod tests {
 "#
     }
 
+    fn typed_cell_types_json() -> &'static str {
+        r#"
+  "types": [
+    {
+      "name": "Invoice",
+      "fields": [
+        {
+          "name": "invoice_id",
+          "ty": "Hash",
+          "offset": 0,
+          "encoded_size": 32,
+          "fixed_width": true
+        }
+      ]
+    }
+  ],
+"#
+    }
+
     #[test]
     fn extracts_ckb_type_id_output_indexes_from_cellscript_metadata_json() {
         let metadata = r#"
@@ -857,9 +1022,13 @@ mod tests {
             r#"
 {{
   "target_profile": {{ "name": "typed-cell" }},
+  {}
   "actions": [
     {{
       "name": "register_invoice",
+      "effect_class": "Creating",
+      "parallelizable": false,
+      "estimated_cycles": 64,
       "scheduler_witness_abi": "molecule",
       "scheduler_witness_hex": "{witness_hex}",
       "create_set": [],
@@ -868,6 +1037,7 @@ mod tests {
   ]
 }}
 "#,
+            typed_cell_types_json(),
             typed_cell_scheduler_plan_json()
         );
 
@@ -879,6 +1049,9 @@ mod tests {
         assert_eq!(typed_plan.abi, "spora-typed-cell-scheduler-plan-v1");
         assert_eq!(typed_plan.conflict_hash_domain, "spora-typed-cell/conflict-hash/v1");
         assert_eq!(typed_plan.typed_data_hash_domain, "spora-typed-cell/typed-data-hash/v1");
+        assert_eq!(typed_plan.effect_class, "Creating");
+        assert!(!typed_plan.parallelizable);
+        assert_eq!(typed_plan.estimated_cycles, 64);
         assert_eq!(typed_plan.accesses.len(), 1);
         let access = &typed_plan.accesses[0];
         assert_eq!(access.operation, "create");
@@ -889,6 +1062,10 @@ mod tests {
         assert_eq!(access.conflict_key.as_deref(), Some("field(invoice_id)"));
         assert_eq!(access.conflict_key_fields, vec!["invoice_id"]);
         assert_eq!(access.conflict_key_encoding.as_deref(), Some("single-field-fixed-bytes-v1"));
+        assert_eq!(access.conflict_key_field_slices.len(), 1);
+        assert_eq!(access.conflict_key_field_slices[0].field, "invoice_id");
+        assert_eq!(access.conflict_key_field_slices[0].offset, 0);
+        assert_eq!(access.conflict_key_field_slices[0].size, 32);
         assert_eq!(access.conflict_key_value_source, "transaction-output-data-conflict-key-fields");
         assert_eq!(access.typed_data_source, "transaction-output-data");
     }
@@ -1093,9 +1270,13 @@ mod tests {
         let typed_cell_metadata = r#"
 {
   "target_profile": { "name": "typed-cell" },
+  __TYPED_CELL_TYPES__
   "actions": [
     {
       "name": "mint",
+      "effect_class": "Creating",
+      "parallelizable": false,
+      "estimated_cycles": 64,
       "scheduler_witness_abi": "molecule",
       "scheduler_witness_hex": "__WITNESS_HEX__",
       "create_set": [],
@@ -1105,6 +1286,7 @@ mod tests {
 }
 "#
         .replace("__WITNESS_HEX__", &witness_hex)
+        .replace("__TYPED_CELL_TYPES__", typed_cell_types_json())
         .replace("__TYPED_CELL_PLAN__", typed_cell_scheduler_plan_json());
         let ckb_metadata = r#"
 {
