@@ -41,6 +41,7 @@ CellScript 已重新作为 submodule 接入 Spora，并切到 0.20-based 独立�
 | wallet/action-builder metadata | 已解析并校验 `typed_cell_scheduler_plan`，存入 `GeneratorSettings`，并补齐 live witness 所需 effect/cycles/field slices |
 | wallet live witness helper | 已支持 Output 真实 tx data、Input/CellDep resolved sidecar、single/composite fixed conflict key extraction、Molecule witness append |
 | devnet invoice live witness | 已把 invoice financing 5 个 action 的 valid/malformed action-builder matrix 切到 concrete cell data -> live typed-cell scheduler witness |
+| production evidence live coverage | 已新增 typed-cell scheduler plan 覆盖数、live typed-cell scheduler witness 覆盖数和 per-action live witness 标记 |
 | acceptance script | `cellscript` profile 已改为通过 submodule manifest 跑 CellScript 测试 |
 | base devnet acceptance | 已恢复，typed-cell action builder matrix 覆盖 token/AMM/NFT/launch/vesting/multisig/timelock/invoice financing |
 
@@ -118,7 +119,7 @@ Production devnet acceptance 通过并生成 production evidence：
 /Users/arthur/RustroverProjects/Spora/target/devnet-acceptance/20260510-173321-15223/production-evidence.json
 ```
 
-最新 production evidence 覆盖 8 个 bundled examples、48 个 required action-specific builders、48 个 scoped action artifacts、48 个 valid builder probes、48 个 malformed rejection probes、48 个 scheduler witness shape probes。
+最新 production evidence 覆盖 8 个 bundled examples、48 个 required action-specific builders、48 个 scoped action artifacts、48 个 valid builder probes、48 个 malformed rejection probes、48 个 scheduler witness shape probes，并开始输出 `typed_cell_scheduler_plan_count`、`live_typed_cell_scheduler_witness_count` 与每个 action 的 live witness 覆盖标记。
 
 当前断点已不再是 `constraints.spora` 编译错误，也不再是 action builder ABI/schema 偏移。runtime fixed vector 与首个业务调度 demo 已补上：
 
@@ -130,7 +131,7 @@ Production devnet acceptance 通过并生成 production evidence：
 6. CellScript 新增 `#[identity(field(...))]` / `#[conflict_key(...)]` typed-cell attribute 语义，AST/IR/metadata 全链路 profile-gated，invoice financing example 已声明 `invoice_id` 作为 shared/receipt conflict key。
 7. CellScript 新增 `typed_cell_scheduler_plan` 和 live scheduler witness builder，hash helper 已与 Spora `typed_cell_vectors` 中的 conflict hash、typed data hash、Molecule witness 固定向量对齐。
 
-下一阶段重点转为把 wallet live witness helper 接入具体 action-builder tx skeleton，并把 live witness 覆盖从 invoice financing 推广到更多 typed-cell examples：自动提供 Input/CellDep resolved sidecar，确保 typed-cell outputs 携带 type script/data，并把 scheduler plan / live witness shape 纳入 production evidence 输出。
+下一阶段重点转为把 wallet live witness helper 接入具体 action-builder tx skeleton，并把 live witness 覆盖从 invoice financing 推广到更多 typed-cell examples：自动提供 Input/CellDep resolved sidecar，确保 typed-cell outputs 携带 type script/data；production evidence 已能追踪 scheduler plan / live witness 覆盖缺口。
 
 ## 目标
 

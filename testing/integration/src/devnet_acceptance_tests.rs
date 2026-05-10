@@ -9153,6 +9153,7 @@ async fn run_invoice_financing_action_builder_matrix(
     for action in ["register_invoice", "approve_drawdown", "inspect_invoice", "settle_invoice", "cancel_invoice"] {
         coverage.valid.insert(("invoice_financing.cell".to_string(), action.to_string()));
         coverage.malformed.insert(("invoice_financing.cell".to_string(), action.to_string()));
+        coverage.live_typed_cell_scheduler_witness.insert(("invoice_financing.cell".to_string(), action.to_string()));
     }
     coverage
 }
@@ -9597,6 +9598,7 @@ struct CellScriptExampleDeployment {
 struct SporaActionBuilderMatrixCoverage {
     valid: HashSet<(String, String)>,
     malformed: HashSet<(String, String)>,
+    live_typed_cell_scheduler_witness: HashSet<(String, String)>,
 }
 
 #[derive(Serialize)]
@@ -9668,9 +9670,11 @@ struct SporaProductionGateReport {
     scoped_action_standard_relay_ready: bool,
     requires_action_specific_builders: bool,
     scoped_action_artifact_count: usize,
+    typed_cell_scheduler_plan_count: usize,
     scheduler_witness_shape_count: usize,
     scheduler_witness_shape_malformed_count: usize,
     valid_action_specific_builder_count: usize,
+    live_typed_cell_scheduler_witness_count: usize,
     required_action_specific_builder_count: usize,
     malformed_action_matrix_count: usize,
     bundled_example_deployment_probe_count: usize,
@@ -9699,10 +9703,13 @@ struct SporaActionBuilderCoverageReport {
     scoped_action_artifact_bytes: usize,
     scoped_action_artifact_hash: String,
     builder_requirements: SporaActionBuilderRequirementsReport,
+    typed_cell_scheduler_plan_covered: bool,
+    typed_cell_scheduler_plan_access_count: usize,
     scheduler_witness_shape_covered: bool,
     scheduler_witness_shape_malformed_covered: bool,
     scheduler_witness_shape_error: Option<String>,
     valid_action_specific_builder_covered: bool,
+    live_typed_cell_scheduler_witness_covered: bool,
     malformed_action_matrix_covered: bool,
 }
 
@@ -9753,6 +9760,8 @@ fn build_spora_production_gate(
         .flat_map(|deployment| {
             deployment.action_artifacts.iter().map(|action_artifact| {
                 let scheduler_shape = verify_action_scheduler_witness_shape(&action_artifact.action);
+                let typed_cell_scheduler_plan_access_count =
+                    action_artifact.action.typed_cell_scheduler_plan.as_ref().map(|plan| plan.accesses.len()).unwrap_or(0);
                 SporaActionBuilderCoverageReport {
                     example: deployment.name,
                     action: action_artifact.name.clone(),
@@ -9767,11 +9776,16 @@ fn build_spora_production_gate(
                         &scheduler_shape,
                         action_artifact.artifact_bytes.len(),
                     ),
+                    typed_cell_scheduler_plan_covered: typed_cell_scheduler_plan_access_count > 0,
+                    typed_cell_scheduler_plan_access_count,
                     scheduler_witness_shape_covered: scheduler_shape.valid_shape_covered,
                     scheduler_witness_shape_malformed_covered: scheduler_shape.malformed_shape_covered,
                     scheduler_witness_shape_error: scheduler_shape.error,
                     valid_action_specific_builder_covered: action_builder_matrix
                         .valid
+                        .contains(&(deployment.name.to_string(), action_artifact.name.clone())),
+                    live_typed_cell_scheduler_witness_covered: action_builder_matrix
+                        .live_typed_cell_scheduler_witness
                         .contains(&(deployment.name.to_string(), action_artifact.name.clone())),
                     malformed_action_matrix_covered: action_builder_matrix
                         .malformed
@@ -9783,12 +9797,16 @@ fn build_spora_production_gate(
     let required_action_specific_builder_count = action_builder_coverage.len();
     let scoped_action_artifact_count =
         action_builder_coverage.iter().filter(|coverage| coverage.scoped_action_artifact_covered).count();
+    let typed_cell_scheduler_plan_count =
+        action_builder_coverage.iter().filter(|coverage| coverage.typed_cell_scheduler_plan_covered).count();
     let scheduler_witness_shape_count =
         action_builder_coverage.iter().filter(|coverage| coverage.scheduler_witness_shape_covered).count();
     let scheduler_witness_shape_malformed_count =
         action_builder_coverage.iter().filter(|coverage| coverage.scheduler_witness_shape_malformed_covered).count();
     let valid_action_specific_builder_count =
         action_builder_coverage.iter().filter(|coverage| coverage.valid_action_specific_builder_covered).count();
+    let live_typed_cell_scheduler_witness_count =
+        action_builder_coverage.iter().filter(|coverage| coverage.live_typed_cell_scheduler_witness_covered).count();
     let malformed_action_matrix_count =
         action_builder_coverage.iter().filter(|coverage| coverage.malformed_action_matrix_covered).count();
     let standard_relay_incompatible_examples = deployments
@@ -9847,6 +9865,16 @@ fn build_spora_production_gate(
             "missing malformed scheduler witness transaction-shape rejection coverage: {scheduler_witness_shape_malformed_count}/{required_action_specific_builder_count}"
         ));
     }
+    if typed_cell_scheduler_plan_count != required_action_specific_builder_count {
+        advisories.push(format!(
+            "typed-cell scheduler plan metadata coverage incomplete: {typed_cell_scheduler_plan_count}/{required_action_specific_builder_count} scoped actions"
+        ));
+    }
+    if live_typed_cell_scheduler_witness_count != required_action_specific_builder_count {
+        advisories.push(format!(
+            "live typed-cell scheduler witness builder coverage incomplete: {live_typed_cell_scheduler_witness_count}/{required_action_specific_builder_count} scoped actions"
+        ));
+    }
     if malformed_action_matrix_count != required_action_specific_builder_count {
         blockers.push(format!(
             "malformed action-specific Spora rejection matrix coverage incomplete: {malformed_action_matrix_count}/{required_action_specific_builder_count}"
@@ -9868,9 +9896,11 @@ fn build_spora_production_gate(
         scoped_action_standard_relay_ready,
         requires_action_specific_builders: true,
         scoped_action_artifact_count,
+        typed_cell_scheduler_plan_count,
         scheduler_witness_shape_count,
         scheduler_witness_shape_malformed_count,
         valid_action_specific_builder_count,
+        live_typed_cell_scheduler_witness_count,
         required_action_specific_builder_count,
         malformed_action_matrix_count,
         bundled_example_deployment_probe_count: deployments.len(),
