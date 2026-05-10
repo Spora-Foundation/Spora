@@ -341,6 +341,7 @@ pub fn psst_to_pending_transaction(
         header_deps: signed_tx.header_deps.clone(),
         ckb_type_id_output_indexes: Vec::new(),
         cellscript_typed_cell_scheduler_plan: None,
+        cellscript_typed_cell_resolved_cells: Vec::new(),
     };
 
     // Create the Generator

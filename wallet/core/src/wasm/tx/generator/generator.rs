@@ -221,6 +221,7 @@ impl Generator {
             cell_deps,
             ckb_type_id_output_indexes,
             final_cellscript_compiled_scheduler_witness,
+            cellscript_typed_cell_scheduler_plan,
         } = settings;
 
         let mut settings = match source {
@@ -266,6 +267,9 @@ impl Generator {
         .with_header_deps(header_deps)
         .with_cell_deps(cell_deps)
         .with_ckb_type_id_output_indexes(ckb_type_id_output_indexes);
+        if let Some(plan) = cellscript_typed_cell_scheduler_plan {
+            settings = settings.with_cellscript_typed_cell_scheduler_plan(plan)?;
+        }
         if let Some(witness) = final_cellscript_compiled_scheduler_witness {
             settings = settings.try_with_cellscript_compiled_scheduler_witness(witness)?;
         }
@@ -330,6 +334,7 @@ struct GeneratorSettings {
     pub cell_deps: Vec<CellDep>,
     pub ckb_type_id_output_indexes: Vec<usize>,
     pub final_cellscript_compiled_scheduler_witness: Option<Vec<u8>>,
+    pub cellscript_typed_cell_scheduler_plan: Option<native::CellScriptTypedCellSchedulerPlan>,
 }
 
 impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
@@ -371,6 +376,7 @@ impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
         let mut ckb_type_id_output_indexes =
             args.try_get_value("ckbTypeIdOutputs")?.map(parse_ckb_type_id_output_indexes).transpose()?.unwrap_or_default();
         let mut final_cellscript_compiled_scheduler_witness = None;
+        let mut cellscript_typed_cell_scheduler_plan = None;
         let cellscript_metadata_json = args.try_get_value("cellscriptMetadata")?.map(parse_cellscript_metadata_json).transpose()?;
         let cellscript_action = args.try_get_value("cellscriptAction")?.map(parse_cellscript_action_name).transpose()?;
         match (cellscript_metadata_json, cellscript_action) {
@@ -378,6 +384,7 @@ impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
                 let plan = native::cellscript_action_generator_plan_from_metadata_json(&metadata_json, &action_name)?;
                 final_cellscript_compiled_scheduler_witness = plan.final_cellscript_compiled_scheduler_witness;
                 ckb_type_id_output_indexes.extend(plan.ckb_type_id_output_indexes);
+                cellscript_typed_cell_scheduler_plan = plan.typed_cell_scheduler_plan;
             }
             (Some(_), None) => {
                 return Err(Error::custom("cellscriptAction is required when cellscriptMetadata is supplied"));
@@ -403,6 +410,7 @@ impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
             cell_deps,
             ckb_type_id_output_indexes,
             final_cellscript_compiled_scheduler_witness,
+            cellscript_typed_cell_scheduler_plan,
         };
 
         Ok(settings)

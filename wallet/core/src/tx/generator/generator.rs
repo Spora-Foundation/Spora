@@ -61,8 +61,9 @@ use crate::cell::{CellContext, CellEntryReference, NetworkParams};
 use crate::imports::*;
 use crate::result::Result;
 use crate::tx::{
-    mass::*, CellScriptTypedCellSchedulerAccessPlan, CellScriptTypedCellSchedulerPlan, Fees, GeneratorSettings, GeneratorSummary,
-    PaymentDestination, PaymentOutput, PendingTransaction, PendingTransactionIterator, PendingTransactionStream,
+    mass::*, CellScriptTypedCellResolvedCell, CellScriptTypedCellSchedulerAccessPlan, CellScriptTypedCellSchedulerPlan, Fees,
+    GeneratorSettings, GeneratorSummary, PaymentDestination, PaymentOutput, PendingTransaction, PendingTransactionIterator,
+    PendingTransactionStream,
 };
 use spora_consensus_client::{pay_to_address_lock_script, CellEntry, TransactionInput};
 use spora_consensus_core::block::CellScriptSchedulerAccessList;
@@ -352,6 +353,8 @@ struct Inner {
     final_cellscript_compiled_scheduler_witness_mass: u64,
     // parsed CellScript typed-cell scheduler plan for live witness construction
     cellscript_typed_cell_scheduler_plan: Option<CellScriptTypedCellSchedulerPlan>,
+    // resolved sidecars for live typed-cell scheduler witness construction
+    cellscript_typed_cell_resolved_cells: Vec<CellScriptTypedCellResolvedCell>,
     // Cell dependencies included in each generated transaction.
     cell_deps: Vec<CellDep>,
     // Header dependencies included in each generated transaction.
@@ -388,6 +391,7 @@ impl std::fmt::Debug for Inner {
                 &self.final_cellscript_compiled_scheduler_witness_mass,
             )
             .field("cellscript_typed_cell_scheduler_plan", &self.cellscript_typed_cell_scheduler_plan.is_some())
+            .field("cellscript_typed_cell_resolved_cells", &self.cellscript_typed_cell_resolved_cells.len())
             .field("cell_deps", &self.cell_deps)
             .field("header_deps", &self.header_deps)
             .field("ckb_type_id_output_indexes", &self.ckb_type_id_output_indexes)
@@ -424,6 +428,7 @@ impl Generator {
             header_deps,
             ckb_type_id_output_indexes,
             cellscript_typed_cell_scheduler_plan,
+            cellscript_typed_cell_resolved_cells,
             destination_cell_context,
         } = settings;
 
@@ -475,10 +480,14 @@ impl Generator {
             + mass_calculator.calc_compute_mass_for_ckb_type_id_output_scripts(ckb_type_id_output_indexes.len());
         let final_transaction_payload = final_transaction_payload.unwrap_or_default();
         let final_transaction_payload_mass = mass_calculator.calc_compute_mass_for_payload(final_transaction_payload.len());
-        let final_cellscript_compiled_scheduler_witness_mass = final_cellscript_compiled_scheduler_witness
-            .as_ref()
-            .map(|witness| mass_calculator.calc_compute_mass_for_payload(witness.len()))
-            .unwrap_or_default();
+        let final_cellscript_compiled_scheduler_witness_mass =
+            if let Some(witness) = final_cellscript_compiled_scheduler_witness.as_ref() {
+                mass_calculator.calc_compute_mass_for_payload(witness.len())
+            } else if let Some(plan) = cellscript_typed_cell_scheduler_plan.as_ref() {
+                typed_cell_scheduler_witness_mass_for_plan(plan, &mass_calculator)?
+            } else {
+                0
+            };
         let final_transaction_outputs_harmonic = mass_calculator
             .calc_storage_mass_payment_output_harmonic(&final_transaction_outputs)
             .ok_or(Error::MassCalculationError)?;
@@ -541,6 +550,7 @@ impl Generator {
             final_cellscript_compiled_scheduler_witness,
             final_cellscript_compiled_scheduler_witness_mass,
             cellscript_typed_cell_scheduler_plan,
+            cellscript_typed_cell_resolved_cells,
             cell_deps,
             header_deps,
             ckb_type_id_output_indexes,
@@ -1199,10 +1209,18 @@ impl Generator {
                 let mut tx =
                     self.build_unsigned_cell_transaction(inputs, final_outputs, self.inner.final_transaction_payload.clone())?;
                 apply_ckb_type_id_output_scripts(&mut tx, &self.inner.ckb_type_id_output_indexes)?;
-                let cellscript_scheduler_accesses = attach_cellscript_compiled_scheduler_witness(
-                    &mut tx,
-                    self.inner.final_cellscript_compiled_scheduler_witness.clone(),
-                )?;
+                let cellscript_scheduler_accesses = if let Some(plan) = self.inner.cellscript_typed_cell_scheduler_plan.as_ref() {
+                    Some(attach_cellscript_typed_cell_scheduler_witness(
+                        &mut tx,
+                        plan,
+                        &self.inner.cellscript_typed_cell_resolved_cells,
+                    )?)
+                } else {
+                    attach_cellscript_compiled_scheduler_witness(
+                        &mut tx,
+                        self.inner.final_cellscript_compiled_scheduler_witness.clone(),
+                    )?
+                };
 
                 let transaction_mass = self.inner.mass_calculator.calc_overall_mass_for_unsigned_consensus_transaction(
                     &tx,
@@ -1434,22 +1452,39 @@ fn attach_cellscript_compiled_scheduler_witness(
         .map_err(|err| Error::custom(format!("invalid CellScript scheduler witness for generated transaction: {err}")))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CellScriptTypedCellResolvedCell {
-    pub source: String,
-    pub index: usize,
-    pub type_script: Script,
-    pub data: Vec<u8>,
+fn typed_cell_scheduler_witness_mass_for_plan(
+    plan: &CellScriptTypedCellSchedulerPlan,
+    mass_calculator: &MassCalculator,
+) -> Result<u64> {
+    let witness = typed_cell_scheduler_shape_witness_for_plan(plan)?;
+    Ok(mass_calculator.calc_compute_mass_for_payload(witness.len()))
 }
 
-impl CellScriptTypedCellResolvedCell {
-    pub fn input(index: usize, type_script: Script, data: Vec<u8>) -> Self {
-        Self { source: "Input".to_string(), index, type_script, data }
-    }
-
-    pub fn cell_dep(index: usize, type_script: Script, data: Vec<u8>) -> Self {
-        Self { source: "CellDep".to_string(), index, type_script, data }
-    }
+fn typed_cell_scheduler_shape_witness_for_plan(plan: &CellScriptTypedCellSchedulerPlan) -> Result<Vec<u8>> {
+    let accesses = plan
+        .accesses
+        .iter()
+        .map(|access| {
+            Ok(CellScriptSchedulerAccessWitness {
+                operation: cellscript_scheduler_operation_id(&access.operation)?,
+                source: cellscript_scheduler_source_id(&access.source)?,
+                index: u32::try_from(access.index).map_err(|_| {
+                    Error::custom(format!("CellScript typed-cell scheduler access index {} is too large", access.index))
+                })?,
+                conflict_hash: [0u8; 32],
+                typed_data_hash: [0u8; 32],
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
+        magic: 0xCE11,
+        version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+        effect_class: cellscript_scheduler_effect_class_id(&plan.effect_class)?,
+        parallelizable: plan.parallelizable,
+        estimated_cycles: plan.estimated_cycles,
+        access_count: accesses.len() as u32,
+        accesses,
+    }))
 }
 
 pub fn build_cellscript_typed_cell_scheduler_witness_for_tx(
@@ -1728,6 +1763,79 @@ mod tests {
         }
     }
 
+    fn bytes_to_hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    fn typed_cell_input_scheduler_witness_with_hash(conflict_hash: [u8; 32]) -> Vec<u8> {
+        encode_cellscript_scheduler_witness_molecule(&CellScriptSchedulerWitness {
+            magic: 0xCE11,
+            version: CELLSCRIPT_SCHEDULER_WITNESS_VERSION,
+            effect_class: CELLSCRIPT_SCHEDULER_EFFECT_MUTATING,
+            parallelizable: false,
+            estimated_cycles: 500,
+            access_count: 1,
+            accesses: vec![CellScriptSchedulerAccessWitness {
+                operation: CELLSCRIPT_SCHEDULER_OP_CONSUME,
+                source: CELLSCRIPT_SCHEDULER_SOURCE_INPUT,
+                index: 0,
+                conflict_hash,
+                typed_data_hash: [0xDD; 32],
+            }],
+        })
+    }
+
+    fn typed_cell_input_action_metadata_json(witness_hex: &str) -> String {
+        format!(
+            r#"{{
+  "target_profile": {{ "name": "typed-cell" }},
+  "types": [
+    {{
+      "name": "Invoice",
+      "fields": [
+        {{
+          "name": "invoice_id",
+          "ty": "Hash",
+          "offset": 0,
+          "encoded_size": 32,
+          "fixed_width": true
+        }}
+      ]
+    }}
+  ],
+  "actions": [
+    {{
+      "name": "settle_invoice",
+      "effect_class": "Mutating",
+      "parallelizable": false,
+      "estimated_cycles": 500,
+      "scheduler_witness_abi": "molecule",
+      "scheduler_witness_hex": "{witness_hex}",
+      "typed_cell_scheduler_plan": {{
+        "abi": "spora-typed-cell-scheduler-plan-v1",
+        "conflict_hash_domain": "spora-typed-cell/conflict-hash/v1",
+        "typed_data_hash_domain": "spora-typed-cell/typed-data-hash/v1",
+        "accesses": [
+          {{
+            "operation": "consume",
+            "source": "Input",
+            "index": 0,
+            "binding": "invoice",
+            "ty": "Invoice",
+            "conflict_key": "field(invoice_id)",
+            "conflict_key_fields": ["invoice_id"],
+            "conflict_key_encoding": "single-field-fixed-bytes-v1",
+            "conflict_key_value_source": "transaction-input-data-conflict-key-fields",
+            "typed_data_source": "transaction-input-data"
+          }}
+        ]
+      }}
+    }}
+  ]
+}}"#
+        )
+    }
+
     #[test]
     fn build_typed_cell_scheduler_witness_uses_output_data_field_slices() {
         let type_script = Script::new([0x42; 32], 1, b"invoice-script-args".to_vec());
@@ -1835,6 +1943,88 @@ mod tests {
         let err = build_cellscript_typed_cell_scheduler_witness_for_tx(&tx, &plan, &[]).unwrap_err();
 
         assert!(err.to_string().contains("needs bytes [0..32)"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn generator_attaches_live_typed_cell_scheduler_witness_from_metadata_plan() {
+        let source_address = Address::new_std_single(Prefix::Testnet, &[0x21; 32]).unwrap();
+        let change_address = Address::new_std_single(Prefix::Testnet, &[0x22; 32]).unwrap();
+        let recipient = Address::new_std_single(Prefix::Testnet, &[0x23; 32]).unwrap();
+        let cell = CellEntryReference::simulated_with_address(20_000_000_000, &source_address);
+        let outputs = PaymentOutputs { outputs: vec![PaymentOutput::new(recipient, 5_000_000_000)] };
+        let stale_compiled_witness = typed_cell_input_scheduler_witness_with_hash([0xEE; 32]);
+        let metadata = typed_cell_input_action_metadata_json(&bytes_to_hex(&stale_compiled_witness));
+        let type_script = Script::new([0x42; 32], 1, b"invoice-script-args".to_vec());
+        let mut data = vec![0xD4; 32];
+        data.extend_from_slice(b"invoice-state:settle-input");
+        let settings = GeneratorSettings::try_new_with_iterator(
+            NetworkId::with_suffix(NetworkType::Testnet, 10),
+            Box::new(vec![cell].into_iter()),
+            None,
+            change_address,
+            1,
+            PaymentDestination::PaymentOutputs(outputs),
+            None,
+            Fees::SenderPays(0),
+            None,
+            None,
+        )
+        .unwrap()
+        .with_cellscript_action_metadata_json(&metadata, "settle_invoice")
+        .unwrap()
+        .with_cellscript_typed_cell_resolved_cell(CellScriptTypedCellResolvedCell::input(
+            0,
+            type_script.clone(),
+            data.clone(),
+        ));
+        let generator = Generator::try_new(settings, None, None).unwrap();
+
+        let pending = generator.generate_transaction().unwrap().expect("final transaction");
+        let tx = pending.transaction();
+        let witness = decode_cellscript_scheduler_witness(tx.witnesses.last().expect("scheduler witness")).unwrap();
+
+        assert_eq!(witness.effect_class, CELLSCRIPT_SCHEDULER_EFFECT_MUTATING);
+        assert_eq!(witness.estimated_cycles, 500);
+        assert_eq!(witness.access_count, 1);
+        assert_eq!(witness.accesses[0].operation, CELLSCRIPT_SCHEDULER_OP_CONSUME);
+        assert_eq!(witness.accesses[0].source, CELLSCRIPT_SCHEDULER_SOURCE_INPUT);
+        assert_eq!(witness.accesses[0].conflict_hash, compute_conflict_hash(&type_script, &[0xD4; 32]));
+        assert_eq!(witness.accesses[0].typed_data_hash, compute_typed_data_hash(&type_script, &data));
+        assert_ne!(witness.accesses[0].conflict_hash, [0xEE; 32]);
+    }
+
+    #[test]
+    fn generator_rejects_typed_cell_plan_without_resolved_input_sidecar() {
+        let source_address = Address::new_std_single(Prefix::Testnet, &[0x24; 32]).unwrap();
+        let change_address = Address::new_std_single(Prefix::Testnet, &[0x25; 32]).unwrap();
+        let recipient = Address::new_std_single(Prefix::Testnet, &[0x26; 32]).unwrap();
+        let cell = CellEntryReference::simulated_with_address(20_000_000_000, &source_address);
+        let outputs = PaymentOutputs { outputs: vec![PaymentOutput::new(recipient, 5_000_000_000)] };
+        let stale_compiled_witness = typed_cell_input_scheduler_witness_with_hash([0xEE; 32]);
+        let metadata = typed_cell_input_action_metadata_json(&bytes_to_hex(&stale_compiled_witness));
+        let settings = GeneratorSettings::try_new_with_iterator(
+            NetworkId::with_suffix(NetworkType::Testnet, 10),
+            Box::new(vec![cell].into_iter()),
+            None,
+            change_address,
+            1,
+            PaymentDestination::PaymentOutputs(outputs),
+            None,
+            Fees::SenderPays(0),
+            None,
+            None,
+        )
+        .unwrap()
+        .with_cellscript_action_metadata_json(&metadata, "settle_invoice")
+        .unwrap();
+        let generator = Generator::try_new(settings, None, None).unwrap();
+
+        let err = match generator.generate_transaction() {
+            Ok(_) => panic!("typed-cell scheduler plan without resolved input sidecar should fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("requires resolved type script and data sidecar"), "unexpected error: {err}");
     }
 
     #[test]

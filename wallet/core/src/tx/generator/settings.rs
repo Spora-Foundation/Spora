@@ -9,7 +9,9 @@ use crate::imports::*;
 use crate::result::Result;
 use crate::tx::{Fees, PaymentDestination};
 use spora_addresses::Address;
-use spora_exec::{celltx::decode_cellscript_scheduler_witness, CellDep, CkbSecp256k1Blake160SighashAllLockConfig, DepType, OutPoint};
+use spora_exec::{
+    celltx::decode_cellscript_scheduler_witness, CellDep, CkbSecp256k1Blake160SighashAllLockConfig, DepType, OutPoint, Script,
+};
 use workflow_core::channel::Multiplexer;
 
 const CELLSCRIPT_TARGET_PROFILE_SPORA: &str = "spora";
@@ -61,6 +63,9 @@ pub struct GeneratorSettings {
     // Builders use this to map transaction input/cell_dep/output data into
     // live conflict_hash / typed_data_hash scheduler witnesses.
     pub cellscript_typed_cell_scheduler_plan: Option<CellScriptTypedCellSchedulerPlan>,
+    // Resolved typed cells for scheduler accesses that cannot be derived from
+    // final transaction outputs, currently Input and CellDep sources.
+    pub cellscript_typed_cell_resolved_cells: Vec<CellScriptTypedCellResolvedCell>,
     // transaction is a transfer between accounts
     pub destination_cell_context: Option<CellContext>,
 }
@@ -104,6 +109,24 @@ pub struct CellScriptTypedCellFieldSlice {
     pub field: String,
     pub offset: usize,
     pub size: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CellScriptTypedCellResolvedCell {
+    pub source: String,
+    pub index: usize,
+    pub type_script: Script,
+    pub data: Vec<u8>,
+}
+
+impl CellScriptTypedCellResolvedCell {
+    pub fn input(index: usize, type_script: Script, data: Vec<u8>) -> Self {
+        Self { source: "Input".to_string(), index, type_script, data }
+    }
+
+    pub fn cell_dep(index: usize, type_script: Script, data: Vec<u8>) -> Self {
+        Self { source: "CellDep".to_string(), index, type_script, data }
+    }
 }
 
 // impl std::fmt::Debug for GeneratorSettings {
@@ -155,6 +178,7 @@ impl GeneratorSettings {
             header_deps: Vec::new(),
             ckb_type_id_output_indexes: Vec::new(),
             cellscript_typed_cell_scheduler_plan: None,
+            cellscript_typed_cell_resolved_cells: Vec::new(),
             destination_cell_context: None,
         };
 
@@ -191,6 +215,7 @@ impl GeneratorSettings {
             header_deps: Vec::new(),
             ckb_type_id_output_indexes: Vec::new(),
             cellscript_typed_cell_scheduler_plan: None,
+            cellscript_typed_cell_resolved_cells: Vec::new(),
             destination_cell_context: None,
         };
 
@@ -227,6 +252,7 @@ impl GeneratorSettings {
             header_deps: Vec::new(),
             ckb_type_id_output_indexes: Vec::new(),
             cellscript_typed_cell_scheduler_plan: None,
+            cellscript_typed_cell_resolved_cells: Vec::new(),
             destination_cell_context: None,
         };
 
@@ -280,6 +306,38 @@ impl GeneratorSettings {
             }
         }
         Ok(self)
+    }
+
+    /// Configure a parsed CellScript typed-cell scheduler plan directly.
+    ///
+    /// Most callers should use [`with_cellscript_action_metadata_json`] so the
+    /// plan remains tied to the exact CellScript action metadata. This direct
+    /// form is for action-specific builders that already persisted the parsed
+    /// plan.
+    pub fn with_cellscript_typed_cell_scheduler_plan(
+        mut self,
+        typed_cell_scheduler_plan: CellScriptTypedCellSchedulerPlan,
+    ) -> Result<Self> {
+        if let Some(existing) = &self.cellscript_typed_cell_scheduler_plan {
+            if existing != &typed_cell_scheduler_plan {
+                return Err(Error::custom("CellScript typed-cell scheduler plan is already configured with different metadata"));
+            }
+        } else {
+            self.cellscript_typed_cell_scheduler_plan = Some(typed_cell_scheduler_plan);
+        }
+        Ok(self)
+    }
+
+    /// Configure all resolved typed cells needed by live CellScript scheduler witness generation.
+    pub fn with_cellscript_typed_cell_resolved_cells(mut self, resolved_cells: Vec<CellScriptTypedCellResolvedCell>) -> Self {
+        self.cellscript_typed_cell_resolved_cells = resolved_cells;
+        self
+    }
+
+    /// Add one resolved typed cell needed by live CellScript scheduler witness generation.
+    pub fn with_cellscript_typed_cell_resolved_cell(mut self, resolved_cell: CellScriptTypedCellResolvedCell) -> Self {
+        self.cellscript_typed_cell_resolved_cells.push(resolved_cell);
+        self
     }
 
     pub fn with_cell_deps(mut self, cell_deps: Vec<CellDep>) -> Self {
