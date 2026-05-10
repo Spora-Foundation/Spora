@@ -28,6 +28,7 @@ impl From<Arc<RpcCoreMock>> for Rpc {
 pub struct RpcCoreMock {
     ctl: RpcCtl,
     core_notifier: Arc<RpcCoreNotifier>,
+    transactions: Arc<Mutex<HashMap<TransactionId, RpcTransaction>>>,
     _sync_receiver: Receiver<()>,
 }
 
@@ -45,7 +46,7 @@ impl RpcCoreMock {
             policies,
             Some(sync_sender),
         ));
-        Self { core_notifier, _sync_receiver: sync_receiver, ctl: RpcCtl::new() }
+        Self { core_notifier, transactions: Arc::new(Mutex::new(HashMap::new())), _sync_receiver: sync_receiver, ctl: RpcCtl::new() }
     }
 
     pub fn core_notifier(&self) -> Arc<RpcCoreNotifier> {
@@ -65,6 +66,10 @@ impl RpcCoreMock {
 
     pub fn start(&self) {
         self.core_notifier.clone().start();
+    }
+
+    pub fn insert_transaction(&self, hash: TransactionId, transaction: RpcTransaction) {
+        self.transactions.lock().unwrap().insert(hash, transaction);
     }
 
     pub async fn join(&self) {
@@ -238,9 +243,16 @@ impl RpcApi for RpcCoreMock {
     async fn get_transaction_call(
         &self,
         _connection: Option<&DynRpcConnection>,
-        _request: GetTransactionRequest,
+        request: GetTransactionRequest,
     ) -> RpcResult<GetTransactionResponse> {
-        Err(RpcError::NotImplemented)
+        let transaction = self
+            .transactions
+            .lock()
+            .unwrap()
+            .get(&request.hash)
+            .cloned()
+            .ok_or_else(|| RpcError::TransactionNotFound(request.hash))?;
+        Ok(GetTransactionResponse { transaction })
     }
 
     async fn get_virtual_chain_from_block_call(

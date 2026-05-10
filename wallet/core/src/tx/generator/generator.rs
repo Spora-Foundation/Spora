@@ -81,6 +81,7 @@ use spora_exec::{
     },
     ckb_apply_type_id_script_to_output_molecule, CellDep, CellInput, CellTx, Script,
 };
+use spora_rpc_core::RpcTransactionOutput;
 use std::collections::VecDeque;
 
 use super::SignerT;
@@ -1703,6 +1704,38 @@ pub fn attach_cellscript_typed_cell_scheduler_witness(
         .map_err(|err| Error::custom(format!("invalid live CellScript typed-cell scheduler witness for generated transaction: {err}")))
 }
 
+pub async fn resolve_cellscript_typed_cell_resolved_cells_from_rpc(
+    rpc: &Arc<DynRpcApi>,
+    tx: &CellTx,
+    plan: &CellScriptTypedCellSchedulerPlan,
+) -> Result<Vec<CellScriptTypedCellResolvedCell>> {
+    let mut resolved_cells = Vec::new();
+    let mut resolved_bindings = HashSet::new();
+
+    for access in &plan.accesses {
+        let Some(outpoint) = typed_cell_scheduler_access_outpoint(tx, access)? else {
+            continue;
+        };
+        if !resolved_bindings.insert((access.source.clone(), access.index)) {
+            continue;
+        }
+        let resolved = resolve_typed_cell_scheduler_access_from_rpc(rpc, access, outpoint).await?;
+        let resolved_cell = match access.source.as_str() {
+            "Input" => CellScriptTypedCellResolvedCell::input(access.index, resolved.type_script, resolved.data),
+            "CellDep" => CellScriptTypedCellResolvedCell::cell_dep(access.index, resolved.type_script, resolved.data),
+            other => {
+                return Err(Error::custom(format!(
+                    "CellScript typed-cell scheduler access {} has unsupported sidecar source {other}",
+                    access.binding
+                )));
+            }
+        };
+        resolved_cells.push(resolved_cell);
+    }
+
+    Ok(resolved_cells)
+}
+
 struct ResolvedTypedCellAccess {
     type_script: Script,
     data: Vec<u8>,
@@ -1749,6 +1782,79 @@ fn resolve_typed_cell_scheduler_access(
             Err(Error::custom(format!("CellScript typed-cell scheduler access {} has unsupported source {other}", access.binding)))
         }
     }
+}
+
+fn typed_cell_scheduler_access_outpoint(
+    tx: &CellTx,
+    access: &CellScriptTypedCellSchedulerAccessPlan,
+) -> Result<Option<TransactionOutpoint>> {
+    match access.source.as_str() {
+        "Output" => Ok(None),
+        "Input" => tx.inputs.get(access.index).map(|input| Some(input.previous_output)).ok_or_else(|| {
+            Error::custom(format!(
+                "CellScript typed-cell scheduler access {} Input#{} is outside transaction inputs",
+                access.binding, access.index
+            ))
+        }),
+        "CellDep" => tx.cell_deps.get(access.index).map(|cell_dep| Some(cell_dep.out_point)).ok_or_else(|| {
+            Error::custom(format!(
+                "CellScript typed-cell scheduler access {} CellDep#{} is outside transaction cell deps",
+                access.binding, access.index
+            ))
+        }),
+        other => {
+            Err(Error::custom(format!("CellScript typed-cell scheduler access {} has unsupported source {other}", access.binding)))
+        }
+    }
+}
+
+async fn resolve_typed_cell_scheduler_access_from_rpc(
+    rpc: &Arc<DynRpcApi>,
+    access: &CellScriptTypedCellSchedulerAccessPlan,
+    outpoint: TransactionOutpoint,
+) -> Result<ResolvedTypedCellAccess> {
+    let transaction = rpc.get_transaction(TransactionId::from_bytes(outpoint.tx_hash)).await?;
+    let output = transaction.outputs.get(outpoint.index as usize).ok_or_else(|| {
+        Error::custom(format!(
+            "CellScript typed-cell scheduler access {} {}#{} points to missing source output {}#{}",
+            access.binding,
+            access.source,
+            access.index,
+            TransactionId::from_bytes(outpoint.tx_hash),
+            outpoint.index
+        ))
+    })?;
+    resolve_typed_cell_scheduler_access_from_rpc_output(access, outpoint, output)
+}
+
+fn resolve_typed_cell_scheduler_access_from_rpc_output(
+    access: &CellScriptTypedCellSchedulerAccessPlan,
+    outpoint: TransactionOutpoint,
+    output: &RpcTransactionOutput,
+) -> Result<ResolvedTypedCellAccess> {
+    let type_script = output.type_script.clone().map(Script::from).ok_or_else(|| {
+        Error::custom(format!(
+            "CellScript typed-cell scheduler access {} {}#{} source output {}#{} has no type script",
+            access.binding,
+            access.source,
+            access.index,
+            TransactionId::from_bytes(outpoint.tx_hash),
+            outpoint.index
+        ))
+    })?;
+    let data = output.output_data.clone().unwrap_or_default();
+    if output.data_bytes.unwrap_or(0) as usize != data.len() {
+        return Err(Error::custom(format!(
+            "CellScript typed-cell scheduler access {} {}#{} source output {}#{} has incomplete RPC output data",
+            access.binding,
+            access.source,
+            access.index,
+            TransactionId::from_bytes(outpoint.tx_hash),
+            outpoint.index
+        )));
+    }
+    extract_typed_cell_conflict_key_value(access, &data)?;
+    Ok(ResolvedTypedCellAccess { type_script, data })
 }
 
 fn extract_typed_cell_conflict_key_value(access: &CellScriptTypedCellSchedulerAccessPlan, data: &[u8]) -> Result<Vec<u8>> {
@@ -1834,6 +1940,7 @@ mod tests {
         ckb_type_id_args, CellDep, CellOutput, CkbSecp256k1Blake160SighashAllLockConfig, DepType, OutPoint, Script,
         CKB_SCRIPT_HASH_TYPE_TYPE, CKB_TYPE_ID_CODE_HASH,
     };
+    use spora_rpc_core::RpcTransaction;
 
     #[test]
     fn test_attach_cellscript_compiled_scheduler_witness_returns_trusted_summary() {
@@ -1913,23 +2020,32 @@ mod tests {
             effect_class: "Mutating".to_string(),
             parallelizable: false,
             estimated_cycles: 500,
-            accesses: vec![CellScriptTypedCellSchedulerAccessPlan {
-                operation: operation.to_string(),
-                source: source.to_string(),
-                index,
-                binding: "invoice".to_string(),
-                ty: "Invoice".to_string(),
-                conflict_key: Some("field(invoice_id)".to_string()),
-                conflict_key_fields: vec!["invoice_id".to_string()],
-                conflict_key_encoding: Some("single-field-fixed-bytes-v1".to_string()),
-                conflict_key_field_slices: vec![crate::tx::CellScriptTypedCellFieldSlice {
-                    field: "invoice_id".to_string(),
-                    offset: 0,
-                    size: 32,
-                }],
-                conflict_key_value_source: format!("transaction-{}-data-conflict-key-fields", source.to_ascii_lowercase()),
-                typed_data_source: format!("transaction-{}-data", source.to_ascii_lowercase()),
+            accesses: vec![typed_cell_scheduler_access(operation, source, index, "invoice")],
+        }
+    }
+
+    fn typed_cell_scheduler_access(
+        operation: &str,
+        source: &str,
+        index: usize,
+        binding: &str,
+    ) -> CellScriptTypedCellSchedulerAccessPlan {
+        CellScriptTypedCellSchedulerAccessPlan {
+            operation: operation.to_string(),
+            source: source.to_string(),
+            index,
+            binding: binding.to_string(),
+            ty: "Invoice".to_string(),
+            conflict_key: Some("field(invoice_id)".to_string()),
+            conflict_key_fields: vec!["invoice_id".to_string()],
+            conflict_key_encoding: Some("single-field-fixed-bytes-v1".to_string()),
+            conflict_key_field_slices: vec![crate::tx::CellScriptTypedCellFieldSlice {
+                field: "invoice_id".to_string(),
+                offset: 0,
+                size: 32,
             }],
+            conflict_key_value_source: format!("transaction-{}-data-conflict-key-fields", source.to_ascii_lowercase()),
+            typed_data_source: format!("transaction-{}-data", source.to_ascii_lowercase()),
         }
     }
 
@@ -2025,6 +2141,29 @@ mod tests {
             None,
         )
         .unwrap()
+    }
+
+    fn rpc_transaction_with_typed_output(output_index: usize, type_script: Script, data: Vec<u8>) -> RpcTransaction {
+        let outputs = (0..=output_index)
+            .map(|index| {
+                let output_type_script = (index == output_index).then(|| type_script.clone());
+                let output_data = if index == output_index { data.as_slice() } else { &[] };
+                RpcTransactionOutput::from_cell_output(
+                    &CellOutput { lock: Script::new([0x51; 32], 0, vec![]), type_: output_type_script, capacity: 1000 },
+                    output_data,
+                )
+            })
+            .collect();
+        RpcTransaction {
+            version: 0,
+            inputs: vec![],
+            cell_deps: vec![],
+            header_deps: vec![],
+            outputs,
+            payload: vec![],
+            mass: 0,
+            verbose_data: None,
+        }
     }
 
     #[test]
@@ -2134,6 +2273,46 @@ mod tests {
         let err = build_cellscript_typed_cell_scheduler_witness_for_tx(&tx, &plan, &[]).unwrap_err();
 
         assert!(err.to_string().contains("needs bytes [0..32)"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn resolve_typed_cell_scheduler_sidecars_from_rpc_uses_input_and_cell_dep_outpoints() {
+        let rpc_core = Arc::new(crate::tests::RpcCoreMock::new());
+        let rpc: Arc<DynRpcApi> = rpc_core.clone();
+        let input_type_script = Script::new([0x42; 32], 1, b"invoice-input-script-args".to_vec());
+        let dep_type_script = Script::new([0x43; 32], 1, b"invoice-dep-script-args".to_vec());
+        let mut input_data = vec![0x11; 32];
+        input_data.extend_from_slice(b"invoice-state:funded");
+        let mut dep_data = vec![0x22; 32];
+        dep_data.extend_from_slice(b"invoice-state:registry");
+        rpc_core.insert_transaction(
+            TransactionId::from_bytes([0xA1; 32]),
+            rpc_transaction_with_typed_output(0, input_type_script.clone(), input_data.clone()),
+        );
+        rpc_core.insert_transaction(
+            TransactionId::from_bytes([0xB2; 32]),
+            rpc_transaction_with_typed_output(1, dep_type_script.clone(), dep_data.clone()),
+        );
+        let tx = CellTx::new(
+            vec![CellInput::new(OutPoint::new([0xA1; 32], 0), 0)],
+            vec![CellDep { out_point: OutPoint::new([0xB2; 32], 1), dep_type: DepType::Code }],
+            vec![],
+            vec![],
+            vec![],
+        )
+        .unwrap();
+        let mut plan = typed_cell_scheduler_plan("consume", "Input", 0);
+        plan.accesses.push(typed_cell_scheduler_access("read_ref", "CellDep", 0, "invoice_registry"));
+
+        let resolved = resolve_cellscript_typed_cell_resolved_cells_from_rpc(&rpc, &tx, &plan).await.unwrap();
+
+        assert_eq!(
+            resolved,
+            vec![
+                CellScriptTypedCellResolvedCell::input(0, input_type_script, input_data),
+                CellScriptTypedCellResolvedCell::cell_dep(0, dep_type_script, dep_data),
+            ]
+        );
     }
 
     #[test]
