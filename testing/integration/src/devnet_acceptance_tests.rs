@@ -9007,7 +9007,7 @@ async fn run_invoice_financing_action_builder_matrix(
         settle_artifact,
         &[
             live_typed_cell("Input", 0, settle_before_invoice_data.clone()),
-            live_typed_cell("Input", 1, settle_before_position_data.clone()),
+            live_typed_cell_with_type_script("Input", 1, position_type.clone(), settle_before_position_data.clone()),
             live_typed_cell("Output", 0, settle_after_data.clone()),
             live_typed_cell("Output", 1, malformed_settle_receipt_data),
         ],
@@ -9048,7 +9048,7 @@ async fn run_invoice_financing_action_builder_matrix(
         settle_artifact,
         &[
             live_typed_cell("Input", 0, settle_before_invoice_data),
-            live_typed_cell("Input", 1, settle_before_position_data),
+            live_typed_cell_with_type_script("Input", 1, position_type.clone(), settle_before_position_data),
             live_typed_cell("Output", 0, settle_after_data),
             live_typed_cell("Output", 1, valid_settle_receipt_data),
         ],
@@ -10006,11 +10006,21 @@ fn with_compiled_action_scheduler_witness(mut tx: CellTx, action: &cellscript::A
 struct LiveTypedCellSchedulerCell {
     source: &'static str,
     index: usize,
+    type_script: Option<Script>,
     data: Vec<u8>,
 }
 
 fn live_typed_cell(source: &'static str, index: usize, data: Vec<u8>) -> LiveTypedCellSchedulerCell {
-    LiveTypedCellSchedulerCell { source, index, data }
+    LiveTypedCellSchedulerCell { source, index, type_script: None, data }
+}
+
+fn live_typed_cell_with_type_script(
+    source: &'static str,
+    index: usize,
+    type_script: Script,
+    data: Vec<u8>,
+) -> LiveTypedCellSchedulerCell {
+    LiveTypedCellSchedulerCell { source, index, type_script: Some(type_script), data }
 }
 
 fn with_live_typed_cell_action_scheduler_witness(
@@ -10040,7 +10050,7 @@ fn with_live_typed_cell_action_scheduler_witness(
                 operation: access.operation.clone(),
                 source: access.source.clone(),
                 index,
-                type_script: live_typed_cell_scheduler_type_script(&access.ty),
+                type_script: live_typed_cell_type_script_for_access(&tx, access, cell, context),
                 conflict_key_value: live_typed_cell_conflict_key(type_metadata, access, &cell.data, context),
                 typed_data: cell.data.clone(),
             }
@@ -10057,6 +10067,32 @@ fn with_live_typed_cell_action_scheduler_witness(
         "{context} typed-cell scheduler witness cycle estimate must match action metadata"
     );
     tx
+}
+
+fn live_typed_cell_type_script_for_access(
+    tx: &CellTx,
+    access: &cellscript::TypedCellSchedulerAccessPlanMetadata,
+    cell: &LiveTypedCellSchedulerCell,
+    context: &str,
+) -> cellscript::TypedCellTypeScriptInput {
+    if let Some(type_script) = cell.type_script.as_ref() {
+        return spora_script_to_cellscript_type_script(type_script);
+    }
+    if access.source == "Output" {
+        if let Some(type_script) = tx.outputs.get(access.index).and_then(|output| output.type_.as_ref()) {
+            return spora_script_to_cellscript_type_script(type_script);
+        }
+    }
+    synthetic_live_typed_cell_type_script(&access.ty, context)
+}
+
+fn spora_script_to_cellscript_type_script(script: &Script) -> cellscript::TypedCellTypeScriptInput {
+    cellscript::TypedCellTypeScriptInput::new(script.code_hash, script.hash_type, script.args.clone())
+}
+
+fn synthetic_live_typed_cell_type_script(ty: &str, context: &str) -> cellscript::TypedCellTypeScriptInput {
+    assert!(!ty.is_empty(), "{context} synthetic typed-cell type script fallback requires a non-empty CellScript type name");
+    live_typed_cell_scheduler_type_script(ty)
 }
 
 fn live_typed_cell_scheduler_type_script(ty: &str) -> cellscript::TypedCellTypeScriptInput {

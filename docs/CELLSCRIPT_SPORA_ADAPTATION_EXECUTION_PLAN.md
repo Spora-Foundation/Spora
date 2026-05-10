@@ -17,7 +17,7 @@ CellScript 已重新作为 submodule 接入 Spora，并切到 0.20-based 独立�
 7. CellScript action metadata 现在输出 `typed_cell_scheduler_plan`，并提供 Spora-compatible live witness builder：wallet/tx-builder 传入 type script、conflict_key_value、typed data 后，可按 Spora runtime 固定 vector 派生 `conflict_hash` / `typed_data_hash`。
 8. Spora wallet/action-builder 已开始消费该 plan：typed-cell metadata 解析会校验 scheduler plan ABI/hash domain/source-operation/data-source 组合，补齐 effect/cycles 与 conflict-key field slice，并把 plan 存入 `GeneratorSettings`。
 9. Wallet 已新增 live typed-cell scheduler witness helper：Output 可直接从 `CellTx.outputs/output_data` 抽取 field-slice，Input/CellDep 通过 resolved sidecar 传入完整 type script/data，随后生成并 append Molecule scheduler witness。
-10. Spora devnet invoice financing matrix 已从静态 `scheduler_witness_hex` 切到 live witness：测试按 CellScript `typed_cell_scheduler_plan` 读取 source/index/type，并通过 scoped action artifact 中的 `TypeMetadata.fields` 自动按 offset/encoded_size/fixed_width 抽取 conflict key，再生成 Molecule scheduler witness 并提交到 devnet valid/malformed 路径。
+10. Spora devnet invoice financing matrix 已从静态 `scheduler_witness_hex` 切到 live witness：测试按 CellScript `typed_cell_scheduler_plan` 读取 source/index/type，通过 scoped action artifact 中的 `TypeMetadata.fields` 自动按 offset/encoded_size/fixed_width 抽取 conflict key，并优先使用真实 Output type script 或 sidecar type script 生成 Molecule scheduler witness。
 
 因此执行策略是：先闭合 Spora runtime 消费侧，再在 CellScript 增加 typed-cell profile，恢复端到端 acceptance，最后把 metadata plan 下沉到 wallet live tx builder。
 
@@ -40,7 +40,7 @@ CellScript 已重新作为 submodule 接入 Spora，并切到 0.20-based 独立�
 | `spora-testing-integration` dependency | 已接入本地 `cellscript` path dependency，root workspace 显式 exclude nested CellScript workspace |
 | wallet/action-builder metadata | 已解析并校验 `typed_cell_scheduler_plan`，存入 `GeneratorSettings`，并补齐 live witness 所需 effect/cycles/field slices |
 | wallet live witness helper | 已支持 Output 真实 tx data、Input/CellDep resolved sidecar、single/composite fixed conflict key extraction、Molecule witness append |
-| devnet live witness helper | 已把 invoice financing 5 个 action 的 valid/malformed action-builder matrix 切到 concrete cell data -> metadata-driven live typed-cell scheduler witness，支持 single/composite fixed conflict key |
+| devnet live witness helper | 已把 invoice financing 5 个 action 的 valid/malformed action-builder matrix 切到 concrete cell data -> metadata-driven live typed-cell scheduler witness，支持真实 Output/sidecar type script、single/composite fixed conflict key |
 | production evidence live coverage | 已新增 typed-cell scheduler plan 覆盖数、live typed-cell scheduler witness 覆盖数和 per-action live witness 标记 |
 | acceptance script | `cellscript` profile 已改为通过 submodule manifest 跑 CellScript 测试 |
 | base devnet acceptance | 已恢复，typed-cell action builder matrix 覆盖 token/AMM/NFT/launch/vesting/multisig/timelock/invoice financing |
@@ -127,7 +127,7 @@ Production devnet acceptance 通过并生成 production evidence：
 2. CellScript typed-cell profile 新增完整 `scheduler_witness_hex` 固定向量，防止 profile/schema/hash 规则漂移。
 3. `ExecutionDAG` 新增 invoice financing 场景：同 invoice 写写串行、不同 invoice 写写并行、同 invoice 读读并行、读写串行。
 4. CellScript 新增 bundled `invoice_financing` source example，并纳入 example compile、ELF budget、backend shape baseline、schema manifest 和 scheduler metadata 测试。
-5. Spora devnet action-builder matrix 新增 invoice financing 端到端覆盖：`register_invoice`、`approve_drawdown`、`inspect_invoice`、`settle_invoice`、`cancel_invoice`，包含 valid path、malformed rejection、scheduler witness shape 和 scoped action artifact coverage；当前 invoice matrix 已使用 concrete cell data 和 CellScript type field layout 生成 live typed-cell scheduler witness。
+5. Spora devnet action-builder matrix 新增 invoice financing 端到端覆盖：`register_invoice`、`approve_drawdown`、`inspect_invoice`、`settle_invoice`、`cancel_invoice`，包含 valid path、malformed rejection、scheduler witness shape 和 scoped action artifact coverage；当前 invoice matrix 已使用 concrete cell data、真实可用的 type script 和 CellScript type field layout 生成 live typed-cell scheduler witness。
 6. CellScript 新增 `#[identity(field(...))]` / `#[conflict_key(...)]` typed-cell attribute 语义，AST/IR/metadata 全链路 profile-gated，invoice financing example 已声明 `invoice_id` 作为 shared/receipt conflict key。
 7. CellScript 新增 `typed_cell_scheduler_plan` 和 live scheduler witness builder，hash helper 已与 Spora `typed_cell_vectors` 中的 conflict hash、typed data hash、Molecule witness 固定向量对齐。
 
