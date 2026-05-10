@@ -2,7 +2,7 @@
 
 Branch: `spora-typed`
 日期：2026-05-10
-状态：方案形成，CellScript typed-cell profile MVP、Spora compile-metadata acceptance、invoice financing action-builder matrix、base/cellscript/production acceptance profiles 已落地
+状态：方案形成，CellScript typed-cell profile MVP、profile-gated conflict_key/identity metadata、Spora compile-metadata acceptance、invoice financing action-builder matrix、base/cellscript/production acceptance profiles 已落地
 
 ## 结论
 
@@ -13,6 +13,7 @@ CellScript 已重新作为 submodule 接入 Spora，并切到 0.20-based 独立�
 3. `metadata.constraints.spora` 的硬依赖已从 integration helper 中移除；typed-cell contract 迁移到 action scheduler witness / typed-cell metadata，不做假兼容字段。
 4. 双方已经具备可对接的核心桥：CellScript 有 `ActionMetadata::scheduler_witness_bytes()`；Spora runtime 有 `CellTx::push_cellscript_compiled_scheduler_witness()`、trusted summary、`BlockAccessSummary` 和 conflict-hash 调度路径。
 5. Spora devnet builder matrix 已按 typed-cell ABI 重新对齐：cell-bound input/output 的 source/index 顺序、read-ref `CellDep#0`、新增 schema 字段（例如 `wallet_id`、`lock_id`、receipt `state`）均改为以 CellScript metadata 为准。
+6. CellScript typed-cell metadata schema 已升级到 v42，`#[identity(...)]` / `#[conflict_key(...)]` 只在 `target_profile = "typed-cell"` 下生成嵌套 `typed_cell` metadata，并校验 conflict key 字段必须存在且为 fixed-width；CKB profile 不暴露该字段。
 
 因此执行策略是：先闭合 Spora runtime 消费侧，再在 CellScript 增加 typed-cell profile，最后恢复端到端 acceptance。
 
@@ -26,10 +27,10 @@ CellScript 已重新作为 submodule 接入 Spora，并切到 0.20-based 独立�
 | submodule branch | `arthur/typed-cell-profile-v020` |
 | submodule base | `origin/v0.20.0` |
 | submodule base commit | `d9f8ec63d400eda0c17b6391cc51032baa515217` |
-| submodule typed-cell commit | `10535caa23b6a3860aba83010e5ae30a5e23ea92` |
-| submodule worktree | typed-cell MVP、scheduler witness vector、invoice financing example 已提交，当前分支 ahead `origin/v0.20.0` 3 commits |
+| submodule typed-cell commit | `6005ef6c369c60b9b2fd394c17274ea7a30b5217` |
+| submodule worktree | typed-cell MVP、scheduler witness vector、invoice financing example、typed-cell conflict key metadata 已提交，当前分支 ahead `origin/v0.20.0` 4 commits |
 | 0.20 local prerequisite | 已将 `cellscript-ckb-adapter` 的 `ckb-sdk` 改为 git tag `v5.1.0` |
-| typed-cell profile MVP | 已新增 profile、metadata、ELF trailer、7-field scheduler witness 和 70-byte access record |
+| typed-cell profile MVP | 已新增 profile、metadata、ELF trailer、7-field scheduler witness、70-byte access record、profile-gated conflict key metadata |
 | root workspace member | 暂缓；保持 submodule 边界，避免 CellScript 0.20 workspace 依赖面扩散 |
 | workspace dependency | root workspace 不直接纳入 CellScript；integration crate 通过 path dependency 显式接入 |
 | `spora-testing-integration` dependency | 已接入本地 `cellscript` path dependency，root workspace 显式 exclude nested CellScript workspace |
@@ -40,10 +41,15 @@ CellScript 已重新作为 submodule 接入 Spora，并切到 0.20-based 独立�
 
 ```bash
 cargo test --locked -p cellscript typed_cell --lib
+cargo test --locked -p cellscript \
+  test_parse_typed_cell_identity_and_conflict_key_attributes --lib -- --nocapture
+cargo test --locked -p cellscript compile_typed_cell_conflict_key --lib -- --nocapture
 cargo check --locked -p cellscript
 cargo check --locked --workspace
 cargo test --locked --manifest-path /Users/arthur/RustroverProjects/Spora/cellscript/Cargo.toml \
   -p cellscript --test examples -- --nocapture --test-threads=1
+cargo test --locked -p cellscript --test examples \
+  invoice_financing_actions_expose_scheduler_metadata -- --nocapture
 cargo check --locked -p spora-testing-integration --features "integration-tests devnet-prealloc vm"
 cargo test --locked -p spora-testing-integration --lib \
   --features "integration-tests devnet-prealloc vm" \
@@ -106,8 +112,9 @@ Production devnet acceptance 通过并生成 production evidence：
 3. `ExecutionDAG` 新增 invoice financing 场景：同 invoice 写写串行、不同 invoice 写写并行、同 invoice 读读并行、读写串行。
 4. CellScript 新增 bundled `invoice_financing` source example，并纳入 example compile、ELF budget、backend shape baseline、schema manifest 和 scheduler metadata 测试。
 5. Spora devnet action-builder matrix 新增 invoice financing 端到端覆盖：`register_invoice`、`approve_drawdown`、`inspect_invoice`、`settle_invoice`、`cancel_invoice`，包含 valid path、malformed rejection、scheduler witness shape 和 scoped action artifact coverage。
+6. CellScript 新增 `#[identity(field(...))]` / `#[conflict_key(...)]` typed-cell attribute 语义，AST/IR/metadata 全链路 profile-gated，invoice financing example 已声明 `invoice_id` 作为 shared/receipt conflict key。
 
-下一阶段重点转为 profile-gated typed-cell attribute 语义、wallet/action-builder API 产品化，以及 typed-cell production evidence 的发布口径固化。
+下一阶段重点转为把声明式 `conflict_key` 接入 live scheduler witness / conflict hash 派生，继续推进 wallet/action-builder API 产品化，以及 typed-cell production evidence 的发布口径固化。
 
 ## 目标
 
@@ -160,8 +167,8 @@ Layer A 不要求 CellScript 编译器产出真实 typed-cell witness。测试�
 |------|------|----------|------|
 | B1 | 新增 profile 枚举 | `cellscript/src/lib.rs`, `cellscript/src/cli/commands.rs`, `cellscript/src/codegen/mod.rs` | `cellc --target-profile typed-cell` 可识别 |
 | B2 | 定义 typed-cell target metadata | `TargetProfile::metadata()` | metadata 中 profile name、scheduler ABI、hash domain 稳定 |
-| B3 | profile-gated typed-cell attributes | parser / AST / IR | `#[conflict_key(...)]`, `#[identity(...)]` 先 parse + metadata，不污染 CKB |
-| B4 | conflict key canonical encoding | CellScript lowering | field/composite 编码与 Spora runtime 规则一致 |
+| B3 | profile-gated typed-cell attributes | parser / AST / IR | 已完成：`#[conflict_key(...)]`, `#[identity(...)]` parse + metadata，不污染 CKB |
+| B4 | conflict key canonical encoding | CellScript lowering | 部分完成：metadata/schema canonical fields 已落地；live conflict hash 派生仍需接入 Spora runtime vector |
 | B5 | 生成 70-byte access record Molecule witness | CellScript metadata/lowering | `scheduler_witness_hex` 可被 Spora decode |
 | B6 | metadata contract 对齐 | `ActionMetadata`, constraints metadata | Spora 不再依赖旧 `constraints.spora` |
 
@@ -240,7 +247,8 @@ cargo test -p spora-mining
 2. 新增 metadata target contract，不先引入 deployment backend。已完成。
 3. 让简单 action 能输出合法 typed-cell scheduler witness。已完成。
 4. 增加 CellScript 自测，验证 7-field Molecule table、70-byte access record、非零 conflict_hash / typed_data_hash。已完成。
-5. 下一步补 profile-gated `conflict_key` / `identity` attribute 与 Spora runtime 固定 vector 对齐。
+5. profile-gated `conflict_key` / `identity` attribute metadata 已完成，包含 fixed-width 字段校验与 CKB profile 隔离。
+6. 下一步把声明式 `conflict_key` 输入实际 scheduler witness / live conflict hash 派生，并继续与 Spora runtime 固定 vector 对齐。
 
 交付标准：
 
@@ -319,12 +327,11 @@ scripts/spora_cellscript_acceptance.sh --profile production
 
 ## 最小可交付版本
 
-MVP 不需要完成所有 typed-cell attribute 语义。最小可交付只需要：
+MVP 已超过原始最小可交付，typed-cell attribute metadata 已落地。下一步最小可交付只需要继续闭合：
 
-1. `TargetProfile::TypedCell` 可编译。
-2. 一个 action 可输出合法 scheduler witness。
-3. `conflict_hash` 和 `typed_data_hash` 与 Spora runtime vector 一致。
-4. Spora tx builder 能 append witness 并拿到 trusted summary。
-5. 两笔同 conflict key 的 tx 在 DAG 中串行。
+1. 声明式 `conflict_key` 直接驱动 action 的 scheduler witness。
+2. `conflict_hash` 和 `typed_data_hash` 的 live 派生与 Spora runtime vector 一致。
+3. wallet/action-builder API 可从 CellScript metadata 生成完整 typed-cell tx skeleton。
+4. production evidence 固定 typed-cell metadata、builder matrix 和 witness shape 的发布口径。
 
-这能证明核心闭环，再逐步补 `identity`、`settlement`、accounting、ProofPlan 和更复杂业务约束。
+这能把当前 parse/metadata 层能力推进到 tx 构造和调度层，再逐步补 `settlement`、accounting、ProofPlan 和更复杂业务约束。
