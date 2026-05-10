@@ -409,6 +409,7 @@ impl Generator {
             cell_deps,
             header_deps,
             ckb_type_id_output_indexes,
+            cellscript_typed_cell_scheduler_plan: _,
             destination_cell_context,
         } = settings;
 
