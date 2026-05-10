@@ -25,7 +25,10 @@ use spora_exec::celltx::{
 };
 use spora_exec::scripts::{always_success_code_hash, ALWAYS_SUCCESS_SCRIPT};
 use spora_rpc_core::api::rpc::RpcApi;
-use std::collections::{HashSet, VecDeque};
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::Arc,
+};
 
 const DEVNET_ACCEPTANCE_BLOCK_MAX_MASS: u64 = 100_000_000;
 const SPORA_STANDARD_RELAY_MAX_TX_MASS: u64 = 500_000;
@@ -8788,12 +8791,13 @@ async fn run_invoice_financing_action_builder_matrix(
         vec![approve_witness],
     )
     .expect("valid invoice approve_drawdown transaction must be structurally valid");
-    let valid_approve_tx = with_live_typed_cell_action_scheduler_witness_from_registry(
+    let valid_approve_tx = with_wallet_rpc_typed_cell_action_scheduler_witness(
         valid_approve_tx,
         approve_artifact,
-        &typed_cell_registry,
+        rpc_client,
         "valid invoice approve_drawdown transaction",
-    );
+    )
+    .await;
     let valid_approve_tx_id = spora_hashes::Hash::from_bytes(valid_approve_tx.id());
     rpc_client
         .submit_transaction((&valid_approve_tx).into(), false)
@@ -8888,12 +8892,13 @@ async fn run_invoice_financing_action_builder_matrix(
         vec![inspect_witness],
     )
     .expect("valid invoice inspect_invoice transaction must be structurally valid");
-    let valid_inspect_tx = with_live_typed_cell_action_scheduler_witness_from_registry(
+    let valid_inspect_tx = with_wallet_rpc_typed_cell_action_scheduler_witness(
         valid_inspect_tx,
         inspect_artifact,
-        &typed_cell_registry,
+        rpc_client,
         "valid invoice inspect_invoice transaction",
-    );
+    )
+    .await;
     let valid_inspect_tx_id = spora_hashes::Hash::from_bytes(valid_inspect_tx.id());
     rpc_client
         .submit_transaction((&valid_inspect_tx).into(), false)
@@ -10111,6 +10116,38 @@ fn with_live_typed_cell_action_scheduler_witness_from_registry(
         .unwrap_or_else(|| panic!("{context} must have typed-cell scheduler plan metadata"));
     let sidecars = registry.sidecars_for_tx(&tx, plan, context);
     with_live_typed_cell_action_scheduler_witness(tx, action_artifact, &sidecars, context)
+}
+
+async fn with_wallet_rpc_typed_cell_action_scheduler_witness(
+    mut tx: CellTx,
+    action_artifact: &CompiledCellScriptActionArtifact,
+    rpc_client: &spora_grpc_client::GrpcClient,
+    context: &str,
+) -> CellTx {
+    let rpc: Arc<spora_wallet_core::rpc::DynRpcApi> = Arc::new(rpc_client.clone());
+    let metadata_json = scoped_typed_cell_action_metadata_json(action_artifact, context);
+    let summary = spora_wallet_core::tx::attach_cellscript_typed_cell_scheduler_witness_from_metadata_json_and_rpc(
+        &rpc,
+        &mut tx,
+        &metadata_json,
+        &action_artifact.action.name,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("{context} wallet RPC typed-cell scheduler witness attach must succeed: {error}"));
+    assert_eq!(
+        summary.estimated_cycles, action_artifact.action.estimated_cycles,
+        "{context} wallet RPC typed-cell scheduler witness cycle estimate must match action metadata"
+    );
+    tx
+}
+
+fn scoped_typed_cell_action_metadata_json(action_artifact: &CompiledCellScriptActionArtifact, context: &str) -> String {
+    serde_json::to_string(&serde_json::json!({
+        "target_profile": { "name": "typed-cell" },
+        "types": action_artifact.types,
+        "actions": [action_artifact.action],
+    }))
+    .unwrap_or_else(|error| panic!("{context} scoped typed-cell metadata JSON must serialize: {error}"))
 }
 
 fn validate_live_typed_cell_scheduler_cells(
