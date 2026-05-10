@@ -73,6 +73,7 @@ impl ExecutionDAG {
 mod tests {
     use super::*;
     use spora_consensus_core::tx::TransactionOutpoint;
+    use spora_exec::celltx::{compute_conflict_hash, Script};
     use spora_hashes::Hash;
 
     fn outpoint(tx: u8, idx: u32) -> TransactionOutpoint {
@@ -81,6 +82,12 @@ mod tests {
 
     fn hash(v: u8) -> Hash {
         Hash::from_bytes([v; 32])
+    }
+
+    fn invoice_conflict_hash(invoice_id: &str) -> Hash {
+        let type_script = Script::new([0x42; 32], 1, b"invoice-financing".to_vec());
+        let conflict_key = format!("invoice:{invoice_id}");
+        Hash::from_bytes(compute_conflict_hash(&type_script, conflict_key.as_bytes()))
     }
 
     fn make_summary(
@@ -286,5 +293,44 @@ mod tests {
         let dag = ExecutionDAG::build(&[first, second]);
         assert_eq!(dag.layers.len(), 1);
         assert_eq!(dag.layers, vec![vec![0, 1]]);
+    }
+
+    #[test]
+    fn invoice_financing_same_invoice_writes_are_serialized() {
+        let invoice = invoice_conflict_hash("INV-2026-0001");
+        let approve_drawdown = make_shared_summary(1, &[], &[invoice]);
+        let sell_participation = make_shared_summary(2, &[], &[invoice]);
+
+        let dag = ExecutionDAG::build(&[approve_drawdown, sell_participation]);
+        assert_eq!(dag.layers, vec![vec![0], vec![1]]);
+    }
+
+    #[test]
+    fn invoice_financing_different_invoice_writes_can_share_layer() {
+        let approve_first = make_shared_summary(1, &[], &[invoice_conflict_hash("INV-2026-0001")]);
+        let approve_second = make_shared_summary(2, &[], &[invoice_conflict_hash("INV-2026-0002")]);
+
+        let dag = ExecutionDAG::build(&[approve_first, approve_second]);
+        assert_eq!(dag.layers, vec![vec![0, 1]]);
+    }
+
+    #[test]
+    fn invoice_financing_audit_reads_share_layer() {
+        let invoice = invoice_conflict_hash("INV-2026-0001");
+        let auditor_a = make_shared_summary(1, &[invoice], &[]);
+        let auditor_b = make_shared_summary(2, &[invoice], &[]);
+
+        let dag = ExecutionDAG::build(&[auditor_a, auditor_b]);
+        assert_eq!(dag.layers, vec![vec![0, 1]]);
+    }
+
+    #[test]
+    fn invoice_financing_read_write_is_serialized() {
+        let invoice = invoice_conflict_hash("INV-2026-0001");
+        let audit = make_shared_summary(1, &[invoice], &[]);
+        let approve_drawdown = make_shared_summary(2, &[], &[invoice]);
+
+        let dag = ExecutionDAG::build(&[audit, approve_drawdown]);
+        assert_eq!(dag.layers, vec![vec![0], vec![1]]);
     }
 }

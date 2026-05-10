@@ -59,6 +59,10 @@ scripts/spora_cellscript_acceptance.sh --profile cellscript
 scripts/spora_cellscript_acceptance.sh --profile base
 scripts/spora_cellscript_acceptance.sh --profile full
 scripts/spora_cellscript_acceptance.sh --profile production
+cargo test --locked -p spora-exec --test typed_cell_vectors -- --nocapture
+cargo test --locked -p spora-consensus invoice_financing --lib -- --nocapture
+cargo test --locked --manifest-path /Users/arthur/RustroverProjects/Spora/cellscript/Cargo.toml \
+  typed_cell_profile_emits_spora_scheduler_witness_shape --lib -- --nocapture
 ```
 
 CellScript 检查在 `/Users/arthur/RustroverProjects/Spora/cellscript` / submodule manifest 下通过；Spora compile-metadata、wallet、consensus、mining、base/full/production devnet 检查在 root 内通过。Focused acceptance profile 通过并生成报告：
@@ -86,7 +90,13 @@ Production devnet acceptance 通过并生成 production evidence：
 /Users/arthur/RustroverProjects/Spora/target/devnet-acceptance/20260510-163653-95485/production-evidence.json
 ```
 
-当前断点已不再是 `constraints.spora` 编译错误，也不再是 action builder ABI/schema 偏移；下一阶段重点转为 profile-gated typed-cell attribute 语义、runtime fixed vector 对齐和业务 demo。
+当前断点已不再是 `constraints.spora` 编译错误，也不再是 action builder ABI/schema 偏移。runtime fixed vector 与首个业务调度 demo 已补上：
+
+1. `spora-exec` 新增 typed-cell `conflict_hash`、`typed_data_hash`、composite key encoding、scheduler witness Molecule hex 固定向量。
+2. CellScript typed-cell profile 新增完整 `scheduler_witness_hex` 固定向量，防止 profile/schema/hash 规则漂移。
+3. `ExecutionDAG` 新增 invoice financing 场景：同 invoice 写写串行、不同 invoice 写写并行、同 invoice 读读并行、读写串行。
+
+下一阶段重点转为 profile-gated typed-cell attribute 语义，以及把 invoice financing 从 runtime DAG demo 提升为 CellScript source + action-specific builder 的端到端 demo。
 
 ## 目标
 
@@ -255,10 +265,11 @@ scripts/spora_cellscript_acceptance.sh --profile production
 
 ### 第 4 批：业务 demo
 
-1. 新增 invoice financing `.cell` example。
-2. 生成 typed-cell scheduler witness。
-3. 构造同 conflict key / 不同 conflict key 的交易矩阵。
-4. 跑 template selection + virtual processor 验证。
+1. 新增 invoice financing runtime DAG demo。已完成。
+2. 新增 invoice financing `.cell` example。
+3. 生成 typed-cell scheduler witness。
+4. 构造同 conflict key / 不同 conflict key 的交易矩阵。
+5. 跑 template selection + virtual processor 验证。
 
 交付标准：
 
