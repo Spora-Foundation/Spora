@@ -2,7 +2,7 @@
 
 Branch: `spora-typed`
 日期：2026-05-10
-状态：方案形成，CellScript typed-cell profile MVP、Spora compile-metadata acceptance、base/cellscript/full/production acceptance profiles 已落地
+状态：方案形成，CellScript typed-cell profile MVP、Spora compile-metadata acceptance、invoice financing action-builder matrix、base/cellscript/production acceptance profiles 已落地
 
 ## 结论
 
@@ -27,14 +27,14 @@ CellScript 已重新作为 submodule 接入 Spora，并切到 0.20-based 独立�
 | submodule base | `origin/v0.20.0` |
 | submodule base commit | `d9f8ec63d400eda0c17b6391cc51032baa515217` |
 | submodule typed-cell commit | `10535caa23b6a3860aba83010e5ae30a5e23ea92` |
-| submodule worktree | typed-cell MVP 已提交，当前分支 ahead `origin/v0.20.0` 1 commit |
+| submodule worktree | typed-cell MVP、scheduler witness vector、invoice financing example 已提交，当前分支 ahead `origin/v0.20.0` 3 commits |
 | 0.20 local prerequisite | 已将 `cellscript-ckb-adapter` 的 `ckb-sdk` 改为 git tag `v5.1.0` |
 | typed-cell profile MVP | 已新增 profile、metadata、ELF trailer、7-field scheduler witness 和 70-byte access record |
 | root workspace member | 暂缓；保持 submodule 边界，避免 CellScript 0.20 workspace 依赖面扩散 |
 | workspace dependency | root workspace 不直接纳入 CellScript；integration crate 通过 path dependency 显式接入 |
 | `spora-testing-integration` dependency | 已接入本地 `cellscript` path dependency，root workspace 显式 exclude nested CellScript workspace |
 | acceptance script | `cellscript` profile 已改为通过 submodule manifest 跑 CellScript 测试 |
-| base devnet acceptance | 已恢复，typed-cell action builder matrix 覆盖 token/AMM/NFT/launch/vesting/multisig/timelock |
+| base devnet acceptance | 已恢复，typed-cell action builder matrix 覆盖 token/AMM/NFT/launch/vesting/multisig/timelock/invoice financing |
 
 当前验证：
 
@@ -72,12 +72,14 @@ CellScript 检查在 `/Users/arthur/RustroverProjects/Spora/cellscript` / submod
 ```text
 /Users/arthur/RustroverProjects/Spora/target/devnet-acceptance/20260510-162619-86051
 /Users/arthur/RustroverProjects/Spora/target/devnet-acceptance/20260510-170309-58882
+/Users/arthur/RustroverProjects/Spora/target/devnet-acceptance/20260510-172842-7647
 ```
 
 Base devnet acceptance 通过并生成报告：
 
 ```text
 /Users/arthur/RustroverProjects/Spora/target/devnet-acceptance/20260510-162538-85342
+/Users/arthur/RustroverProjects/Spora/target/devnet-acceptance/20260510-172720-5305
 ```
 
 Full devnet acceptance 通过并生成报告：
@@ -91,7 +93,11 @@ Production devnet acceptance 通过并生成 production evidence：
 ```text
 /Users/arthur/RustroverProjects/Spora/target/devnet-acceptance/20260510-163653-95485
 /Users/arthur/RustroverProjects/Spora/target/devnet-acceptance/20260510-163653-95485/production-evidence.json
+/Users/arthur/RustroverProjects/Spora/target/devnet-acceptance/20260510-173321-15223
+/Users/arthur/RustroverProjects/Spora/target/devnet-acceptance/20260510-173321-15223/production-evidence.json
 ```
+
+最新 production evidence 覆盖 8 个 bundled examples、48 个 required action-specific builders、48 个 scoped action artifacts、48 个 valid builder probes、48 个 malformed rejection probes、48 个 scheduler witness shape probes。
 
 当前断点已不再是 `constraints.spora` 编译错误，也不再是 action builder ABI/schema 偏移。runtime fixed vector 与首个业务调度 demo 已补上：
 
@@ -99,8 +105,9 @@ Production devnet acceptance 通过并生成 production evidence：
 2. CellScript typed-cell profile 新增完整 `scheduler_witness_hex` 固定向量，防止 profile/schema/hash 规则漂移。
 3. `ExecutionDAG` 新增 invoice financing 场景：同 invoice 写写串行、不同 invoice 写写并行、同 invoice 读读并行、读写串行。
 4. CellScript 新增 bundled `invoice_financing` source example，并纳入 example compile、ELF budget、backend shape baseline、schema manifest 和 scheduler metadata 测试。
+5. Spora devnet action-builder matrix 新增 invoice financing 端到端覆盖：`register_invoice`、`approve_drawdown`、`inspect_invoice`、`settle_invoice`、`cancel_invoice`，包含 valid path、malformed rejection、scheduler witness shape 和 scoped action artifact coverage。
 
-下一阶段重点转为 profile-gated typed-cell attribute 语义，以及把 invoice financing 从 CellScript source demo 提升为 Spora action-specific builder + devnet acceptance 的端到端 demo。
+下一阶段重点转为 profile-gated typed-cell attribute 语义、wallet/action-builder API 产品化，以及 typed-cell production evidence 的发布口径固化。
 
 ## 目标
 
@@ -272,16 +279,14 @@ scripts/spora_cellscript_acceptance.sh --profile production
 1. 新增 invoice financing runtime DAG demo。已完成。
 2. 新增 invoice financing `.cell` example。已完成。
 3. 生成 typed-cell scheduler witness。已由 CellScript example metadata 覆盖。
-4. 构造同 conflict key / 不同 conflict key 的交易矩阵。runtime DAG demo 已完成；Spora action builder 待补。
-5. 跑 template selection + virtual processor 验证。待补。
+4. 构造同 conflict key / 不同 conflict key 的交易矩阵。runtime DAG demo 已完成。
+5. 补 Spora action-specific builder + devnet acceptance。已完成，覆盖 invoice financing 5 个 action。
+6. 跑 production devnet profile 与 evidence validation。已完成，production evidence 覆盖 8 个 bundled examples / 48 个 action-specific builders。
 
 交付标准：
 
 ```bash
-cargo test -p spora-testing-integration --lib \
-  --features "integration-tests devnet-prealloc vm" \
-  invoice_financing_typed_cell_demo \
-  -- --nocapture --test-threads=1
+scripts/spora_cellscript_acceptance.sh --profile production
 ```
 
 ## 风险与处理

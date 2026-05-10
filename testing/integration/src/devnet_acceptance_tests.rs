@@ -5,7 +5,7 @@ use crate::common::{
     args::ArgsBuilder,
     cellscript_contracts::{
         compile_all_spora_example_contracts, compile_fixed_output_spora_contract, compile_noop_spora_lock_contract,
-        compile_parameterized_amount_spora_contract,
+        compile_parameterized_amount_spora_contract, CompiledCellScriptActionArtifact,
     },
     daemon::Daemon,
     devnet_bootstrap::{generate_devnet_bootstrap, DEFAULT_PREALLOC_AMOUNT_SAU},
@@ -1020,6 +1020,17 @@ async fn devnet_acceptance_base() {
     .await;
     action_builder_matrix.valid.extend(timelock_action_builder_matrix.valid);
     action_builder_matrix.malformed.extend(timelock_action_builder_matrix.malformed);
+    let invoice_action_builder_matrix = run_invoice_financing_action_builder_matrix(
+        &rpc_client,
+        &miner_address,
+        prealloc_schnorr_key,
+        &prealloc_address,
+        &code_outpoint,
+        &example_deployments,
+    )
+    .await;
+    action_builder_matrix.valid.extend(invoice_action_builder_matrix.valid);
+    action_builder_matrix.malformed.extend(invoice_action_builder_matrix.malformed);
     base_report.production_gate = build_spora_production_gate(&example_deployments, standard_mass_policy, &action_builder_matrix);
 
     let vm_spend_output_capacity =
@@ -1388,6 +1399,37 @@ fn pop_code_deploy_cells(
     }
 }
 
+async fn deploy_cellscript_action_artifact(
+    rpc_client: &spora_grpc_client::GrpcClient,
+    miner_address: &Address,
+    prealloc_schnorr_key: secp256k1::Keypair,
+    prealloc_address: &Address,
+    spendable_cells: &mut VecDeque<(TransactionOutpoint, spora_consensus_core::cell_diff::CellMeta)>,
+    artifact: &CompiledCellScriptActionArtifact,
+    context: &str,
+) -> TransactionOutpoint {
+    let deploy_input = pop_code_deploy_cells(spendable_cells, prealloc_address, artifact.artifact_bytes.len(), context);
+    let deploy_input_capacity = deploy_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let code_cell_capacity = deploy_input_capacity
+        .checked_sub(required_fee(deploy_input.len(), 1).saturating_add(100_000))
+        .unwrap_or_else(|| panic!("{context} scoped action deployment must leave capacity for code cell"));
+    let deploy_tx = generate_signed_cell_tx(
+        prealloc_schnorr_key,
+        &deploy_input,
+        vec![],
+        vec![CellOutput { capacity: code_cell_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None }],
+        vec![artifact.artifact_bytes.clone()],
+    );
+    let deploy_tx_id = spora_hashes::Hash::from_bytes(deploy_tx.id());
+    let code_outpoint = TransactionOutpoint::new(deploy_tx.id(), 0);
+    rpc_client
+        .submit_transaction((&deploy_tx).into(), false)
+        .await
+        .unwrap_or_else(|error| panic!("{context} scoped action deployment must be accepted: {error}"));
+    submit_next_template_containing(rpc_client, miner_address, deploy_tx_id, &format!("{context} scoped action deployment")).await;
+    code_outpoint
+}
+
 async fn prepare_action_builder_funding_cells(
     rpc_client: &spora_grpc_client::GrpcClient,
     miner_address: &Address,
@@ -1395,7 +1437,7 @@ async fn prepare_action_builder_funding_cells(
     prealloc_address: &Address,
     standard_mass_policy: bool,
 ) {
-    const ACTION_BUILDER_FUNDING_OUTPUTS: u64 = 96;
+    const ACTION_BUILDER_FUNDING_OUTPUTS: u64 = 112;
     const STANDARD_ACTION_BUILDER_FUNDING_OUTPUTS_PER_TX: u64 = 16;
     let spendable_cells = fetch_spendable_cells(rpc_client, prealloc_address.clone(), DEVNET_PARAMS.coinbase_maturity())
         .await
@@ -8480,6 +8522,609 @@ async fn run_timelock_action_builder_matrix(
     coverage
 }
 
+async fn run_invoice_financing_action_builder_matrix(
+    rpc_client: &spora_grpc_client::GrpcClient,
+    miner_address: &Address,
+    prealloc_schnorr_key: secp256k1::Keypair,
+    prealloc_address: &Address,
+    always_success_code_outpoint: &TransactionOutpoint,
+    deployments: &[CellScriptExampleDeployment],
+) -> SporaActionBuilderMatrixCoverage {
+    let Some(invoice_deployment) = deployments.iter().find(|deployment| deployment.name == "invoice_financing.cell") else {
+        return SporaActionBuilderMatrixCoverage::default();
+    };
+    let Some(register_artifact) = invoice_deployment.action_artifacts.iter().find(|artifact| artifact.name == "register_invoice")
+    else {
+        return SporaActionBuilderMatrixCoverage::default();
+    };
+    let Some(approve_artifact) = invoice_deployment.action_artifacts.iter().find(|artifact| artifact.name == "approve_drawdown")
+    else {
+        return SporaActionBuilderMatrixCoverage::default();
+    };
+    let Some(inspect_artifact) = invoice_deployment.action_artifacts.iter().find(|artifact| artifact.name == "inspect_invoice") else {
+        return SporaActionBuilderMatrixCoverage::default();
+    };
+    let Some(settle_artifact) = invoice_deployment.action_artifacts.iter().find(|artifact| artifact.name == "settle_invoice") else {
+        return SporaActionBuilderMatrixCoverage::default();
+    };
+    let Some(cancel_artifact) = invoice_deployment.action_artifacts.iter().find(|artifact| artifact.name == "cancel_invoice") else {
+        return SporaActionBuilderMatrixCoverage::default();
+    };
+
+    submit_empty_blocks(rpc_client, miner_address, 10).await;
+    let mut spendable_cells = fetch_spendable_cells(rpc_client, prealloc_address.clone(), DEVNET_PARAMS.coinbase_maturity())
+        .await
+        .into_iter()
+        .filter(|(_, meta)| meta.data_bytes == 0 && meta.type_hash.is_none())
+        .collect::<VecDeque<_>>();
+    assert!(
+        spendable_cells.len() >= 12,
+        "invoice financing action builder matrix needs twelve matured plain prealloc cells for scoped deploys and executable fixtures"
+    );
+
+    let register_code_outpoint = deploy_cellscript_action_artifact(
+        rpc_client,
+        miner_address,
+        prealloc_schnorr_key,
+        prealloc_address,
+        &mut spendable_cells,
+        register_artifact,
+        "invoice register_invoice",
+    )
+    .await;
+    let register_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "invoice register_invoice fixture");
+    let register_fixture_input_capacity = register_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let register_lock = Script::new(register_artifact.code_hash, 0, vec![]);
+    let register_fixture_capacity = register_fixture_input_capacity
+        .checked_sub(required_fee(register_fixture_input.len(), 1).saturating_add(100_000))
+        .expect("invoice register_invoice fixture transaction must leave capacity");
+    let register_fixture_tx = generate_signed_cell_tx(
+        prealloc_schnorr_key,
+        &register_fixture_input,
+        vec![],
+        vec![CellOutput { capacity: register_fixture_capacity, lock: register_lock.clone(), type_: None }],
+        vec![vec![]],
+    );
+    let register_fixture_tx_id = spora_hashes::Hash::from_bytes(register_fixture_tx.id());
+    let register_input = TransactionOutpoint::new(register_fixture_tx.id(), 0);
+    rpc_client
+        .submit_transaction((&register_fixture_tx).into(), false)
+        .await
+        .expect("invoice register_invoice fixture cell must be accepted");
+    submit_next_template_containing(rpc_client, miner_address, register_fixture_tx_id, "invoice register_invoice fixture cell").await;
+
+    let seller_address =
+        Address::new_std_single(NetworkType::Devnet.into(), &[201; 32]).expect("invoice seller address must be valid");
+    let buyer_address = Address::new_std_single(NetworkType::Devnet.into(), &[202; 32]).expect("invoice buyer address must be valid");
+    let seller_lock = pay_to_acceptance_owner(&seller_address);
+    let buyer_lock = pay_to_acceptance_owner(&buyer_address);
+    let seller = seller_lock.hash();
+    let buyer = buyer_lock.hash();
+    let invoice_id = [0xA1; 32];
+    let face_value = 1_250_000;
+    let due_timepoint = 9_000;
+    let register_witness = register_artifact
+        .action
+        .entry_witness_args(&[
+            cellscript::EntryWitnessArg::Hash(invoice_id),
+            cellscript::EntryWitnessArg::Address(seller),
+            cellscript::EntryWitnessArg::Address(buyer),
+            cellscript::EntryWitnessArg::U64(face_value),
+            cellscript::EntryWitnessArg::U64(due_timepoint),
+        ])
+        .expect("invoice register_invoice witness must encode invoice fields");
+    let register_output_capacity = register_fixture_capacity
+        .checked_sub(required_fee(1, 1).saturating_add(100_000))
+        .expect("invoice register_invoice action must leave fee");
+    let malformed_register_tx = with_compiled_action_scheduler_witness(
+        CellTx::new(
+            vec![CellInput::new(OutPoint::new(register_input.tx_hash, register_input.index), 0)],
+            vec![CellDep {
+                out_point: OutPoint::new(register_code_outpoint.tx_hash, register_code_outpoint.index),
+                dep_type: DepType::Code,
+            }],
+            vec![CellOutput { capacity: register_output_capacity, lock: seller_lock.clone(), type_: None }],
+            vec![invoice_cell_data(invoice_id, seller, buyer, face_value.saturating_add(1), 0, due_timepoint, INVOICE_STATE_ISSUED)],
+            vec![register_witness.clone()],
+        )
+        .expect("malformed invoice register_invoice transaction must be structurally valid"),
+        &register_artifact.action,
+        "malformed invoice register_invoice transaction",
+    );
+    let malformed_register_reason = rpc_client
+        .submit_transaction((&malformed_register_tx).into(), false)
+        .await
+        .expect_err("malformed invoice register_invoice must be rejected by the scoped action verifier")
+        .to_string();
+    assert_action_malformed_rejection(&malformed_register_reason, "invoice register_invoice");
+
+    let valid_register_tx = with_compiled_action_scheduler_witness(
+        CellTx::new(
+            vec![CellInput::new(OutPoint::new(register_input.tx_hash, register_input.index), 0)],
+            vec![CellDep {
+                out_point: OutPoint::new(register_code_outpoint.tx_hash, register_code_outpoint.index),
+                dep_type: DepType::Code,
+            }],
+            vec![CellOutput { capacity: register_output_capacity, lock: seller_lock.clone(), type_: None }],
+            vec![invoice_cell_data(invoice_id, seller, buyer, face_value, 0, due_timepoint, INVOICE_STATE_ISSUED)],
+            vec![register_witness],
+        )
+        .expect("valid invoice register_invoice transaction must be structurally valid"),
+        &register_artifact.action,
+        "valid invoice register_invoice transaction",
+    );
+    let valid_register_tx_id = spora_hashes::Hash::from_bytes(valid_register_tx.id());
+    rpc_client
+        .submit_transaction((&valid_register_tx).into(), false)
+        .await
+        .expect("valid invoice register_invoice must be accepted by the scoped action verifier");
+    submit_next_template_containing(rpc_client, miner_address, valid_register_tx_id, "valid invoice register_invoice action").await;
+
+    let approve_code_outpoint = deploy_cellscript_action_artifact(
+        rpc_client,
+        miner_address,
+        prealloc_schnorr_key,
+        prealloc_address,
+        &mut spendable_cells,
+        approve_artifact,
+        "invoice approve_drawdown",
+    )
+    .await;
+    let approve_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "invoice approve_drawdown fixture");
+    let approve_fixture_input_capacity = approve_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let approve_lock = Script::new(approve_artifact.code_hash, 0, vec![]);
+    let approve_invoice_capacity = approve_fixture_input_capacity
+        .checked_sub(required_fee(approve_fixture_input.len(), 1).saturating_add(100_000))
+        .expect("invoice approve_drawdown fixture transaction must leave invoice capacity");
+    let approve_invoice_id = [0xA2; 32];
+    let approve_fixture_tx = generate_signed_cell_tx(
+        prealloc_schnorr_key,
+        &approve_fixture_input,
+        vec![],
+        vec![CellOutput { capacity: approve_invoice_capacity, lock: approve_lock.clone(), type_: None }],
+        vec![invoice_cell_data(approve_invoice_id, seller, buyer, face_value, 0, due_timepoint, INVOICE_STATE_ISSUED)],
+    );
+    let approve_fixture_tx_id = spora_hashes::Hash::from_bytes(approve_fixture_tx.id());
+    let approve_invoice_input = TransactionOutpoint::new(approve_fixture_tx.id(), 0);
+    rpc_client
+        .submit_transaction((&approve_fixture_tx).into(), false)
+        .await
+        .expect("invoice approve_drawdown fixture invoice cell must be accepted");
+    submit_next_template_containing(rpc_client, miner_address, approve_fixture_tx_id, "invoice approve_drawdown fixture invoice cell")
+        .await;
+
+    let lender_address =
+        Address::new_std_single(NetworkType::Devnet.into(), &[203; 32]).expect("invoice lender address must be valid");
+    let lender_lock = pay_to_acceptance_owner(&lender_address);
+    let lender = lender_lock.hash();
+    let position_type = Script::new(always_success_code_hash(), 0, b"invoice-position".to_vec());
+    let principal = 900_000;
+    let discount_bps = 275;
+    let malformed_discount_bps = 10_001;
+    let approve_witness = approve_artifact
+        .action
+        .entry_witness_args(&[
+            cellscript::EntryWitnessArg::Address(lender),
+            cellscript::EntryWitnessArg::U64(principal),
+            cellscript::EntryWitnessArg::U16(discount_bps),
+        ])
+        .expect("invoice approve_drawdown witness must encode lender, principal, and discount");
+    let malformed_approve_witness = approve_artifact
+        .action
+        .entry_witness_args(&[
+            cellscript::EntryWitnessArg::Address(lender),
+            cellscript::EntryWitnessArg::U64(principal),
+            cellscript::EntryWitnessArg::U16(malformed_discount_bps),
+        ])
+        .expect("invoice malformed approve_drawdown witness must encode lender, principal, and discount");
+    let approve_position_capacity = approve_invoice_capacity / 3;
+    let approve_invoice_output_capacity = approve_invoice_capacity
+        .checked_sub(approve_position_capacity)
+        .and_then(|value| value.checked_sub(required_fee(1, 2).saturating_add(100_000)))
+        .expect("invoice approve_drawdown action must leave invoice output capacity");
+    let approve_after_data =
+        invoice_cell_data(approve_invoice_id, seller, buyer, face_value, principal, due_timepoint, INVOICE_STATE_FUNDED);
+    let malformed_approve_tx = with_compiled_action_scheduler_witness(
+        CellTx::new(
+            vec![CellInput::new(OutPoint::new(approve_invoice_input.tx_hash, approve_invoice_input.index), 0)],
+            vec![
+                CellDep {
+                    out_point: OutPoint::new(approve_code_outpoint.tx_hash, approve_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+                CellDep {
+                    out_point: OutPoint::new(always_success_code_outpoint.tx_hash, always_success_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+            ],
+            vec![
+                CellOutput { capacity: approve_invoice_output_capacity, lock: approve_lock.clone(), type_: None },
+                CellOutput { capacity: approve_position_capacity, lock: lender_lock.clone(), type_: Some(position_type.clone()) },
+            ],
+            vec![
+                approve_after_data.clone(),
+                financing_position_cell_data(approve_invoice_id, lender, principal, malformed_discount_bps, INVOICE_STATE_FUNDED),
+            ],
+            vec![malformed_approve_witness],
+        )
+        .expect("malformed invoice approve_drawdown transaction must be structurally valid"),
+        &approve_artifact.action,
+        "malformed invoice approve_drawdown transaction",
+    );
+    let malformed_approve_reason = rpc_client
+        .submit_transaction((&malformed_approve_tx).into(), false)
+        .await
+        .expect_err("malformed invoice approve_drawdown must be rejected by the scoped action verifier")
+        .to_string();
+    assert_action_malformed_rejection(&malformed_approve_reason, "invoice approve_drawdown");
+
+    let valid_approve_tx = with_compiled_action_scheduler_witness(
+        CellTx::new(
+            vec![CellInput::new(OutPoint::new(approve_invoice_input.tx_hash, approve_invoice_input.index), 0)],
+            vec![
+                CellDep {
+                    out_point: OutPoint::new(approve_code_outpoint.tx_hash, approve_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+                CellDep {
+                    out_point: OutPoint::new(always_success_code_outpoint.tx_hash, always_success_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+            ],
+            vec![
+                CellOutput { capacity: approve_invoice_output_capacity, lock: approve_lock.clone(), type_: None },
+                CellOutput { capacity: approve_position_capacity, lock: lender_lock.clone(), type_: Some(position_type.clone()) },
+            ],
+            vec![
+                approve_after_data,
+                financing_position_cell_data(approve_invoice_id, lender, principal, discount_bps, INVOICE_STATE_FUNDED),
+            ],
+            vec![approve_witness],
+        )
+        .expect("valid invoice approve_drawdown transaction must be structurally valid"),
+        &approve_artifact.action,
+        "valid invoice approve_drawdown transaction",
+    );
+    let valid_approve_tx_id = spora_hashes::Hash::from_bytes(valid_approve_tx.id());
+    rpc_client
+        .submit_transaction((&valid_approve_tx).into(), false)
+        .await
+        .expect("valid invoice approve_drawdown must be accepted by the scoped action verifier");
+    submit_next_template_containing(rpc_client, miner_address, valid_approve_tx_id, "valid invoice approve_drawdown action").await;
+
+    let inspect_code_outpoint = deploy_cellscript_action_artifact(
+        rpc_client,
+        miner_address,
+        prealloc_schnorr_key,
+        prealloc_address,
+        &mut spendable_cells,
+        inspect_artifact,
+        "invoice inspect_invoice",
+    )
+    .await;
+    let inspect_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "invoice inspect_invoice fixture");
+    let inspect_fixture_input_capacity = inspect_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let inspect_lock = Script::new(inspect_artifact.code_hash, 0, vec![]);
+    let inspect_cell_capacity = inspect_fixture_input_capacity / 4;
+    let inspect_change_capacity = inspect_fixture_input_capacity
+        .checked_sub(inspect_cell_capacity.saturating_mul(3))
+        .and_then(|value| value.checked_sub(required_fee(inspect_fixture_input.len(), 4).saturating_add(100_000)))
+        .expect("invoice inspect_invoice fixture transaction must leave change");
+    let inspect_active_invoice_id = [0xA3; 32];
+    let inspect_inactive_invoice_id = [0xA4; 32];
+    let inspect_fixture_tx = generate_signed_cell_tx(
+        prealloc_schnorr_key,
+        &inspect_fixture_input,
+        vec![],
+        vec![
+            CellOutput { capacity: inspect_cell_capacity, lock: inspect_lock.clone(), type_: None },
+            CellOutput { capacity: inspect_cell_capacity, lock: seller_lock.clone(), type_: None },
+            CellOutput { capacity: inspect_cell_capacity, lock: seller_lock.clone(), type_: None },
+            CellOutput { capacity: inspect_change_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
+        ],
+        vec![
+            vec![],
+            invoice_cell_data(inspect_active_invoice_id, seller, buyer, 0, 0, due_timepoint, INVOICE_STATE_ISSUED),
+            invoice_cell_data(inspect_inactive_invoice_id, seller, buyer, 0, 0, due_timepoint, INVOICE_STATE_CANCELLED),
+            vec![],
+        ],
+    );
+    let inspect_fixture_tx_id = spora_hashes::Hash::from_bytes(inspect_fixture_tx.id());
+    let inspect_action_input = TransactionOutpoint::new(inspect_fixture_tx.id(), 0);
+    let inspect_active_dep = TransactionOutpoint::new(inspect_fixture_tx.id(), 1);
+    let inspect_inactive_dep = TransactionOutpoint::new(inspect_fixture_tx.id(), 2);
+    rpc_client
+        .submit_transaction((&inspect_fixture_tx).into(), false)
+        .await
+        .expect("invoice inspect_invoice fixture cells must be accepted");
+    submit_next_template_containing(rpc_client, miner_address, inspect_fixture_tx_id, "invoice inspect_invoice fixture cells").await;
+
+    let inspect_witness =
+        inspect_artifact.action.entry_witness_args(&[]).expect("invoice inspect_invoice witness must encode empty args");
+    let inspect_output_capacity = inspect_cell_capacity
+        .checked_sub(required_fee(1, 1).saturating_add(100_000))
+        .expect("invoice inspect_invoice action must leave change");
+    let malformed_inspect_tx = with_compiled_action_scheduler_witness(
+        CellTx::new(
+            vec![CellInput::new(OutPoint::new(inspect_action_input.tx_hash, inspect_action_input.index), 0)],
+            vec![
+                CellDep {
+                    out_point: OutPoint::new(inspect_inactive_dep.tx_hash, inspect_inactive_dep.index),
+                    dep_type: DepType::Code,
+                },
+                CellDep {
+                    out_point: OutPoint::new(inspect_code_outpoint.tx_hash, inspect_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+            ],
+            vec![CellOutput { capacity: inspect_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None }],
+            vec![vec![]],
+            vec![inspect_witness.clone()],
+        )
+        .expect("malformed invoice inspect_invoice transaction must be structurally valid"),
+        &inspect_artifact.action,
+        "malformed invoice inspect_invoice transaction",
+    );
+    let malformed_inspect_reason = rpc_client
+        .submit_transaction((&malformed_inspect_tx).into(), false)
+        .await
+        .expect_err("malformed invoice inspect_invoice must be rejected by the scoped action verifier")
+        .to_string();
+    assert_action_malformed_rejection(&malformed_inspect_reason, "invoice inspect_invoice");
+
+    let valid_inspect_tx = with_compiled_action_scheduler_witness(
+        CellTx::new(
+            vec![CellInput::new(OutPoint::new(inspect_action_input.tx_hash, inspect_action_input.index), 0)],
+            vec![
+                CellDep { out_point: OutPoint::new(inspect_active_dep.tx_hash, inspect_active_dep.index), dep_type: DepType::Code },
+                CellDep {
+                    out_point: OutPoint::new(inspect_code_outpoint.tx_hash, inspect_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+            ],
+            vec![CellOutput { capacity: inspect_output_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None }],
+            vec![vec![]],
+            vec![inspect_witness],
+        )
+        .expect("valid invoice inspect_invoice transaction must be structurally valid"),
+        &inspect_artifact.action,
+        "valid invoice inspect_invoice transaction",
+    );
+    let valid_inspect_tx_id = spora_hashes::Hash::from_bytes(valid_inspect_tx.id());
+    rpc_client
+        .submit_transaction((&valid_inspect_tx).into(), false)
+        .await
+        .expect("valid invoice inspect_invoice must be accepted by the scoped action verifier");
+    submit_next_template_containing(rpc_client, miner_address, valid_inspect_tx_id, "valid invoice inspect_invoice action").await;
+
+    let settle_code_outpoint = deploy_cellscript_action_artifact(
+        rpc_client,
+        miner_address,
+        prealloc_schnorr_key,
+        prealloc_address,
+        &mut spendable_cells,
+        settle_artifact,
+        "invoice settle_invoice",
+    )
+    .await;
+    let settle_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "invoice settle_invoice fixture");
+    let settle_fixture_input_capacity = settle_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let settle_lock = Script::new(settle_artifact.code_hash, 0, vec![]);
+    let settle_input_capacity = settle_fixture_input_capacity / 3;
+    let settle_change_capacity = settle_fixture_input_capacity
+        .checked_sub(settle_input_capacity.saturating_mul(2))
+        .and_then(|value| value.checked_sub(required_fee(settle_fixture_input.len(), 3).saturating_add(100_000)))
+        .expect("invoice settle_invoice fixture transaction must leave change");
+    let settle_invoice_id = [0xA5; 32];
+    let settle_fixture_tx = generate_signed_cell_tx(
+        prealloc_schnorr_key,
+        &settle_fixture_input,
+        vec![CellDep {
+            out_point: OutPoint::new(always_success_code_outpoint.tx_hash, always_success_code_outpoint.index),
+            dep_type: DepType::Code,
+        }],
+        vec![
+            CellOutput { capacity: settle_input_capacity, lock: settle_lock.clone(), type_: None },
+            CellOutput { capacity: settle_input_capacity, lock: settle_lock.clone(), type_: Some(position_type.clone()) },
+            CellOutput { capacity: settle_change_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
+        ],
+        vec![
+            invoice_cell_data(settle_invoice_id, seller, buyer, face_value, principal, due_timepoint, INVOICE_STATE_FUNDED),
+            financing_position_cell_data(settle_invoice_id, lender, principal, discount_bps, INVOICE_STATE_FUNDED),
+            vec![],
+        ],
+    );
+    let settle_fixture_tx_id = spora_hashes::Hash::from_bytes(settle_fixture_tx.id());
+    let settle_invoice_input = TransactionOutpoint::new(settle_fixture_tx.id(), 0);
+    let settle_position_input = TransactionOutpoint::new(settle_fixture_tx.id(), 1);
+    rpc_client
+        .submit_transaction((&settle_fixture_tx).into(), false)
+        .await
+        .expect("invoice settle_invoice fixture cells must be accepted");
+    submit_next_template_containing(rpc_client, miner_address, settle_fixture_tx_id, "invoice settle_invoice fixture cells").await;
+
+    let payer_address = Address::new_std_single(NetworkType::Devnet.into(), &[204; 32]).expect("invoice payer address must be valid");
+    let payer_lock = pay_to_acceptance_owner(&payer_address);
+    let payer = payer_lock.hash();
+    let paid_amount = principal;
+    let malformed_paid_amount = principal.saturating_sub(1);
+    let settle_witness = settle_artifact
+        .action
+        .entry_witness_args(&[cellscript::EntryWitnessArg::Address(payer), cellscript::EntryWitnessArg::U64(paid_amount)])
+        .expect("invoice settle_invoice witness must encode payer and paid amount");
+    let malformed_settle_witness = settle_artifact
+        .action
+        .entry_witness_args(&[cellscript::EntryWitnessArg::Address(payer), cellscript::EntryWitnessArg::U64(malformed_paid_amount)])
+        .expect("invoice malformed settle_invoice witness must encode payer and paid amount");
+    let receipt_output_capacity = settle_input_capacity / 3;
+    let settle_invoice_output_capacity = settle_input_capacity
+        .saturating_add(settle_input_capacity)
+        .checked_sub(receipt_output_capacity)
+        .and_then(|value| value.checked_sub(required_fee(2, 2).saturating_add(100_000)))
+        .expect("invoice settle_invoice action must leave invoice output capacity");
+    let settle_after_data =
+        invoice_cell_data(settle_invoice_id, seller, buyer, face_value, principal, due_timepoint, INVOICE_STATE_SETTLED);
+    let malformed_settle_tx = with_compiled_action_scheduler_witness(
+        CellTx::new(
+            vec![
+                CellInput::new(OutPoint::new(settle_invoice_input.tx_hash, settle_invoice_input.index), 0),
+                CellInput::new(OutPoint::new(settle_position_input.tx_hash, settle_position_input.index), 0),
+            ],
+            vec![
+                CellDep {
+                    out_point: OutPoint::new(settle_code_outpoint.tx_hash, settle_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+                CellDep {
+                    out_point: OutPoint::new(always_success_code_outpoint.tx_hash, always_success_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+            ],
+            vec![
+                CellOutput { capacity: settle_invoice_output_capacity, lock: settle_lock.clone(), type_: None },
+                CellOutput { capacity: receipt_output_capacity, lock: lender_lock.clone(), type_: None },
+            ],
+            vec![
+                settle_after_data.clone(),
+                settlement_receipt_cell_data(settle_invoice_id, payer, malformed_paid_amount, INVOICE_STATE_SETTLED),
+            ],
+            vec![malformed_settle_witness, vec![]],
+        )
+        .expect("malformed invoice settle_invoice transaction must be structurally valid"),
+        &settle_artifact.action,
+        "malformed invoice settle_invoice transaction",
+    );
+    let malformed_settle_reason = rpc_client
+        .submit_transaction((&malformed_settle_tx).into(), false)
+        .await
+        .expect_err("malformed invoice settle_invoice must be rejected by the scoped action verifier")
+        .to_string();
+    assert_action_malformed_rejection(&malformed_settle_reason, "invoice settle_invoice");
+
+    let valid_settle_tx = with_compiled_action_scheduler_witness(
+        CellTx::new(
+            vec![
+                CellInput::new(OutPoint::new(settle_invoice_input.tx_hash, settle_invoice_input.index), 0),
+                CellInput::new(OutPoint::new(settle_position_input.tx_hash, settle_position_input.index), 0),
+            ],
+            vec![
+                CellDep {
+                    out_point: OutPoint::new(settle_code_outpoint.tx_hash, settle_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+                CellDep {
+                    out_point: OutPoint::new(always_success_code_outpoint.tx_hash, always_success_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+            ],
+            vec![
+                CellOutput { capacity: settle_invoice_output_capacity, lock: settle_lock.clone(), type_: None },
+                CellOutput { capacity: receipt_output_capacity, lock: lender_lock.clone(), type_: None },
+            ],
+            vec![settle_after_data, settlement_receipt_cell_data(settle_invoice_id, payer, paid_amount, INVOICE_STATE_SETTLED)],
+            vec![settle_witness, vec![]],
+        )
+        .expect("valid invoice settle_invoice transaction must be structurally valid"),
+        &settle_artifact.action,
+        "valid invoice settle_invoice transaction",
+    );
+    let valid_settle_tx_id = spora_hashes::Hash::from_bytes(valid_settle_tx.id());
+    rpc_client
+        .submit_transaction((&valid_settle_tx).into(), false)
+        .await
+        .expect("valid invoice settle_invoice must be accepted by the scoped action verifier");
+    submit_next_template_containing(rpc_client, miner_address, valid_settle_tx_id, "valid invoice settle_invoice action").await;
+
+    let cancel_code_outpoint = deploy_cellscript_action_artifact(
+        rpc_client,
+        miner_address,
+        prealloc_schnorr_key,
+        prealloc_address,
+        &mut spendable_cells,
+        cancel_artifact,
+        "invoice cancel_invoice",
+    )
+    .await;
+    let cancel_fixture_input = pop_plain_cells(&mut spendable_cells, 1, "invoice cancel_invoice fixture");
+    let cancel_fixture_input_capacity = cancel_fixture_input.iter().map(|(_, meta)| meta.capacity()).sum::<u64>();
+    let cancel_lock = Script::new(cancel_artifact.code_hash, 0, vec![]);
+    let cancel_invoice_capacity = cancel_fixture_input_capacity
+        .checked_sub(required_fee(cancel_fixture_input.len(), 1).saturating_add(100_000))
+        .expect("invoice cancel_invoice fixture transaction must leave invoice capacity");
+    let cancel_invoice_id = [0xA6; 32];
+    let cancel_fixture_tx = generate_signed_cell_tx(
+        prealloc_schnorr_key,
+        &cancel_fixture_input,
+        vec![],
+        vec![CellOutput { capacity: cancel_invoice_capacity, lock: cancel_lock.clone(), type_: None }],
+        vec![invoice_cell_data(cancel_invoice_id, seller, buyer, face_value, 0, due_timepoint, INVOICE_STATE_ISSUED)],
+    );
+    let cancel_fixture_tx_id = spora_hashes::Hash::from_bytes(cancel_fixture_tx.id());
+    let cancel_invoice_input = TransactionOutpoint::new(cancel_fixture_tx.id(), 0);
+    rpc_client
+        .submit_transaction((&cancel_fixture_tx).into(), false)
+        .await
+        .expect("invoice cancel_invoice fixture invoice cell must be accepted");
+    submit_next_template_containing(rpc_client, miner_address, cancel_fixture_tx_id, "invoice cancel_invoice fixture invoice cell")
+        .await;
+
+    let cancel_witness =
+        cancel_artifact.action.entry_witness_args(&[]).expect("invoice cancel_invoice witness must encode empty args");
+    let cancel_output_capacity = cancel_invoice_capacity
+        .checked_sub(required_fee(1, 1).saturating_add(100_000))
+        .expect("invoice cancel_invoice action must leave fee");
+    let malformed_cancel_tx = with_compiled_action_scheduler_witness(
+        CellTx::new(
+            vec![CellInput::new(OutPoint::new(cancel_invoice_input.tx_hash, cancel_invoice_input.index), 0)],
+            vec![CellDep {
+                out_point: OutPoint::new(cancel_code_outpoint.tx_hash, cancel_code_outpoint.index),
+                dep_type: DepType::Code,
+            }],
+            vec![CellOutput { capacity: cancel_output_capacity, lock: cancel_lock.clone(), type_: None }],
+            vec![invoice_cell_data(cancel_invoice_id, seller, buyer, face_value, 0, due_timepoint, INVOICE_STATE_FUNDED)],
+            vec![cancel_witness.clone()],
+        )
+        .expect("malformed invoice cancel_invoice transaction must be structurally valid"),
+        &cancel_artifact.action,
+        "malformed invoice cancel_invoice transaction",
+    );
+    let malformed_cancel_reason = rpc_client
+        .submit_transaction((&malformed_cancel_tx).into(), false)
+        .await
+        .expect_err("malformed invoice cancel_invoice must be rejected by the scoped action verifier")
+        .to_string();
+    assert_action_malformed_rejection(&malformed_cancel_reason, "invoice cancel_invoice");
+
+    let valid_cancel_tx = with_compiled_action_scheduler_witness(
+        CellTx::new(
+            vec![CellInput::new(OutPoint::new(cancel_invoice_input.tx_hash, cancel_invoice_input.index), 0)],
+            vec![CellDep {
+                out_point: OutPoint::new(cancel_code_outpoint.tx_hash, cancel_code_outpoint.index),
+                dep_type: DepType::Code,
+            }],
+            vec![CellOutput { capacity: cancel_output_capacity, lock: cancel_lock, type_: None }],
+            vec![invoice_cell_data(cancel_invoice_id, seller, buyer, face_value, 0, due_timepoint, INVOICE_STATE_CANCELLED)],
+            vec![cancel_witness],
+        )
+        .expect("valid invoice cancel_invoice transaction must be structurally valid"),
+        &cancel_artifact.action,
+        "valid invoice cancel_invoice transaction",
+    );
+    let valid_cancel_tx_id = spora_hashes::Hash::from_bytes(valid_cancel_tx.id());
+    rpc_client
+        .submit_transaction((&valid_cancel_tx).into(), false)
+        .await
+        .expect("valid invoice cancel_invoice must be accepted by the scoped action verifier");
+    submit_next_template_containing(rpc_client, miner_address, valid_cancel_tx_id, "valid invoice cancel_invoice action").await;
+
+    let mut coverage = SporaActionBuilderMatrixCoverage::default();
+    for action in ["register_invoice", "approve_drawdown", "inspect_invoice", "settle_invoice", "cancel_invoice"] {
+        coverage.valid.insert(("invoice_financing.cell".to_string(), action.to_string()));
+        coverage.malformed.insert(("invoice_financing.cell".to_string(), action.to_string()));
+    }
+    coverage
+}
+
 async fn submit_next_template_containing(
     rpc_client: &spora_grpc_client::GrpcClient,
     miner_address: &Address,
@@ -8590,6 +9235,47 @@ fn vesting_grant_cell_data(
     data.extend_from_slice(&cliff_daa_score.to_le_bytes());
     data.extend_from_slice(&end_daa_score.to_le_bytes());
     data.extend_from_slice(&token_symbol);
+    data
+}
+
+const INVOICE_STATE_ISSUED: u8 = 0;
+const INVOICE_STATE_FUNDED: u8 = 1;
+const INVOICE_STATE_SETTLED: u8 = 2;
+const INVOICE_STATE_CANCELLED: u8 = 3;
+
+fn invoice_cell_data(
+    invoice_id: [u8; 32],
+    seller: [u8; 32],
+    buyer: [u8; 32],
+    face_value: u64,
+    financed_amount: u64,
+    due_timepoint: u64,
+    state: u8,
+) -> Vec<u8> {
+    let mut data = invoice_id.to_vec();
+    data.extend_from_slice(&seller);
+    data.extend_from_slice(&buyer);
+    data.extend_from_slice(&face_value.to_le_bytes());
+    data.extend_from_slice(&financed_amount.to_le_bytes());
+    data.extend_from_slice(&due_timepoint.to_le_bytes());
+    data.push(state);
+    data
+}
+
+fn financing_position_cell_data(invoice_id: [u8; 32], lender: [u8; 32], principal: u64, discount_bps: u16, state: u8) -> Vec<u8> {
+    let mut data = invoice_id.to_vec();
+    data.extend_from_slice(&lender);
+    data.extend_from_slice(&principal.to_le_bytes());
+    data.extend_from_slice(&discount_bps.to_le_bytes());
+    data.push(state);
+    data
+}
+
+fn settlement_receipt_cell_data(invoice_id: [u8; 32], payer: [u8; 32], paid_amount: u64, state: u8) -> Vec<u8> {
+    let mut data = invoice_id.to_vec();
+    data.extend_from_slice(&payer);
+    data.extend_from_slice(&paid_amount.to_le_bytes());
+    data.push(state);
     data
 }
 

@@ -4,8 +4,16 @@ use cellscript::{
     EntryWitnessArg,
 };
 
-pub const BUNDLED_CELLSCRIPT_EXAMPLES: [&str; 7] =
-    ["amm_pool.cell", "launch.cell", "multisig.cell", "nft.cell", "timelock.cell", "token.cell", "vesting.cell"];
+pub const BUNDLED_CELLSCRIPT_EXAMPLES: [&str; 8] = [
+    "amm_pool.cell",
+    "invoice_financing.cell",
+    "launch.cell",
+    "multisig.cell",
+    "nft.cell",
+    "timelock.cell",
+    "token.cell",
+    "vesting.cell",
+];
 const CELLSCRIPT_TARGET_PROFILE_TYPED_CELL: &str = "typed-cell";
 
 pub struct CompiledCellScriptContract {

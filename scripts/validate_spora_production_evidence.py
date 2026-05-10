@@ -14,9 +14,8 @@ EXPECTED_PROFILE = "production"
 EXPECTED_STATUS = "passed"
 EXPECTED_STANDARD_BLOCK_MAX_MASS = 2_000_000
 EXPECTED_STANDARD_RELAY_MAX_TX_MASS = 500_000
-EXPECTED_SCOPED_ACTION_COUNT = 43
-EXPECTED_MALFORMED_ACTION_COUNT = 43
-EXPECTED_BUNDLED_EXAMPLE_COUNT = 7
+EXPECTED_MIN_SCOPED_ACTION_COUNT = 48
+EXPECTED_MIN_BUNDLED_EXAMPLE_COUNT = 8
 
 REQUIRED_CHECKS = [
     "production_gate_passed",
@@ -62,6 +61,24 @@ def require_field(mapping: dict[str, Any], key: str, expected: Any) -> None:
     )
 
 
+def require_int_at_least(mapping: dict[str, Any], key: str, minimum: int) -> int:
+    actual = mapping.get(key)
+    require(
+        isinstance(actual, int) and not isinstance(actual, bool),
+        f"{key} must be an integer, got {actual!r}",
+    )
+    require(actual >= minimum, f"{key} must be at least {minimum}, got {actual}")
+    return actual
+
+
+def require_field_equal_to(mapping: dict[str, Any], key: str, expected_key: str, expected: Any) -> None:
+    actual = mapping.get(key)
+    require(
+        actual == expected,
+        f"{key} must match {expected_key}={expected!r}, got {actual!r}",
+    )
+
+
 def resolve_artifact_path(raw: Any, evidence_dir: Path) -> Path:
     require(isinstance(raw, str) and raw, "artifact path must be a non-empty string")
     path = Path(raw)
@@ -95,11 +112,39 @@ def validate_gate(gate: dict[str, Any]) -> None:
     require_field(gate, "standard_mass_policy_used", True)
     require_field(gate, "standard_block_max_mass", EXPECTED_STANDARD_BLOCK_MAX_MASS)
     require_field(gate, "standard_relay_max_tx_mass", EXPECTED_STANDARD_RELAY_MAX_TX_MASS)
-    require_field(gate, "scoped_action_artifact_count", EXPECTED_SCOPED_ACTION_COUNT)
-    require_field(gate, "valid_action_specific_builder_count", EXPECTED_SCOPED_ACTION_COUNT)
-    require_field(gate, "malformed_action_matrix_count", EXPECTED_MALFORMED_ACTION_COUNT)
-    require_field(gate, "standard_relay_deploy_compatible_example_count", EXPECTED_BUNDLED_EXAMPLE_COUNT)
-    require_field(gate, "bundled_example_count", EXPECTED_BUNDLED_EXAMPLE_COUNT)
+
+    required_action_count = require_int_at_least(
+        gate,
+        "required_action_specific_builder_count",
+        EXPECTED_MIN_SCOPED_ACTION_COUNT,
+    )
+    for field in [
+        "scoped_action_artifact_count",
+        "valid_action_specific_builder_count",
+        "malformed_action_matrix_count",
+        "scheduler_witness_shape_count",
+        "scheduler_witness_shape_malformed_count",
+        "standard_relay_deploy_compatible_action_count",
+    ]:
+        require_field_equal_to(gate, field, "required_action_specific_builder_count", required_action_count)
+
+    bundled_example_count = require_int_at_least(
+        gate,
+        "bundled_example_count",
+        EXPECTED_MIN_BUNDLED_EXAMPLE_COUNT,
+    )
+    require_field_equal_to(
+        gate,
+        "standard_relay_deploy_compatible_example_count",
+        "bundled_example_count",
+        bundled_example_count,
+    )
+    require_field_equal_to(
+        gate,
+        "bundled_example_deployment_probe_count",
+        "bundled_example_count",
+        bundled_example_count,
+    )
     require_field(gate, "scoped_action_standard_relay_ready", True)
     require_field(gate, "full_file_monolith_standard_relay_ready", True)
     require_field(gate, "standard_relay_incompatible_examples", [])
@@ -120,9 +165,14 @@ def validate_against_base_report(evidence_gate: dict[str, Any], base_report_path
         "standard_mass_policy_used",
         "standard_block_max_mass",
         "standard_relay_max_tx_mass",
+        "required_action_specific_builder_count",
         "scoped_action_artifact_count",
         "valid_action_specific_builder_count",
         "malformed_action_matrix_count",
+        "scheduler_witness_shape_count",
+        "scheduler_witness_shape_malformed_count",
+        "standard_relay_deploy_compatible_action_count",
+        "bundled_example_deployment_probe_count",
         "standard_relay_deploy_compatible_example_count",
         "bundled_example_count",
         "scoped_action_standard_relay_ready",
@@ -137,11 +187,7 @@ def validate_against_base_report(evidence_gate: dict[str, Any], base_report_path
             f"production_gate.{field} differs between evidence and base report",
         )
 
-    require_field(base_gate, "required_action_specific_builder_count", EXPECTED_SCOPED_ACTION_COUNT)
-    require_field(base_gate, "standard_relay_deploy_compatible_action_count", EXPECTED_SCOPED_ACTION_COUNT)
-    require_field(base_gate, "scheduler_witness_shape_count", EXPECTED_SCOPED_ACTION_COUNT)
-    require_field(base_gate, "scheduler_witness_shape_malformed_count", EXPECTED_SCOPED_ACTION_COUNT)
-    require_field(base_gate, "bundled_example_deployment_probe_count", EXPECTED_BUNDLED_EXAMPLE_COUNT)
+    validate_gate(base_gate)
 
 
 def validate_acceptance_report(acceptance_report_path: Path, evidence: dict[str, Any]) -> None:

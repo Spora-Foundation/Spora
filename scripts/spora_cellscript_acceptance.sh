@@ -119,6 +119,7 @@ with open(path, "r", encoding="utf-8") as fh:
 
 expected_examples = [
     "amm_pool.cell",
+    "invoice_financing.cell",
     "launch.cell",
     "multisig.cell",
     "nft.cell",
@@ -639,9 +640,14 @@ evidence = {
         "standard_mass_policy_used": gate.get("standard_mass_policy_used"),
         "standard_block_max_mass": gate.get("standard_block_max_mass"),
         "standard_relay_max_tx_mass": gate.get("standard_relay_max_tx_mass"),
+        "required_action_specific_builder_count": gate.get("required_action_specific_builder_count"),
         "scoped_action_artifact_count": gate.get("scoped_action_artifact_count"),
         "valid_action_specific_builder_count": gate.get("valid_action_specific_builder_count"),
         "malformed_action_matrix_count": gate.get("malformed_action_matrix_count"),
+        "scheduler_witness_shape_count": gate.get("scheduler_witness_shape_count"),
+        "scheduler_witness_shape_malformed_count": gate.get("scheduler_witness_shape_malformed_count"),
+        "standard_relay_deploy_compatible_action_count": gate.get("standard_relay_deploy_compatible_action_count"),
+        "bundled_example_deployment_probe_count": gate.get("bundled_example_deployment_probe_count"),
         "standard_relay_deploy_compatible_example_count": gate.get("standard_relay_deploy_compatible_example_count"),
         "bundled_example_count": gate.get("bundled_example_count"),
         "scoped_action_standard_relay_ready": gate.get("scoped_action_standard_relay_ready"),
