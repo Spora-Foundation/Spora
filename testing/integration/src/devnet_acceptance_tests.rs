@@ -8600,6 +8600,10 @@ async fn run_invoice_financing_action_builder_matrix(
     let buyer_lock = pay_to_acceptance_owner(&buyer_address);
     let seller = seller_lock.hash();
     let buyer = buyer_lock.hash();
+    let always_success_dep = code_cell_dep(always_success_code_outpoint);
+    let invoice_type = invoice_typed_cell_type_script("invoice");
+    let position_type = invoice_typed_cell_type_script("position");
+    let receipt_type = invoice_typed_cell_type_script("receipt");
     let invoice_id = [0xA1; 32];
     let face_value = 1_250_000;
     let due_timepoint = 9_000;
@@ -8621,11 +8625,14 @@ async fn run_invoice_financing_action_builder_matrix(
     let malformed_register_tx = with_live_typed_cell_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(OutPoint::new(register_input.tx_hash, register_input.index), 0)],
-            vec![CellDep {
-                out_point: OutPoint::new(register_code_outpoint.tx_hash, register_code_outpoint.index),
-                dep_type: DepType::Code,
-            }],
-            vec![CellOutput { capacity: register_output_capacity, lock: seller_lock.clone(), type_: None }],
+            vec![
+                CellDep {
+                    out_point: OutPoint::new(register_code_outpoint.tx_hash, register_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+                always_success_dep.clone(),
+            ],
+            vec![CellOutput { capacity: register_output_capacity, lock: seller_lock.clone(), type_: Some(invoice_type.clone()) }],
             vec![malformed_register_data.clone()],
             vec![register_witness.clone()],
         )
@@ -8645,11 +8652,14 @@ async fn run_invoice_financing_action_builder_matrix(
     let valid_register_tx = with_live_typed_cell_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(OutPoint::new(register_input.tx_hash, register_input.index), 0)],
-            vec![CellDep {
-                out_point: OutPoint::new(register_code_outpoint.tx_hash, register_code_outpoint.index),
-                dep_type: DepType::Code,
-            }],
-            vec![CellOutput { capacity: register_output_capacity, lock: seller_lock.clone(), type_: None }],
+            vec![
+                CellDep {
+                    out_point: OutPoint::new(register_code_outpoint.tx_hash, register_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+                always_success_dep.clone(),
+            ],
+            vec![CellOutput { capacity: register_output_capacity, lock: seller_lock.clone(), type_: Some(invoice_type.clone()) }],
             vec![valid_register_data.clone()],
             vec![register_witness],
         )
@@ -8686,8 +8696,8 @@ async fn run_invoice_financing_action_builder_matrix(
     let approve_fixture_tx = generate_signed_cell_tx(
         prealloc_schnorr_key,
         &approve_fixture_input,
-        vec![],
-        vec![CellOutput { capacity: approve_invoice_capacity, lock: approve_lock.clone(), type_: None }],
+        vec![always_success_dep.clone()],
+        vec![CellOutput { capacity: approve_invoice_capacity, lock: approve_lock.clone(), type_: Some(invoice_type.clone()) }],
         vec![approve_before_data.clone()],
     );
     let approve_fixture_tx_id = spora_hashes::Hash::from_bytes(approve_fixture_tx.id());
@@ -8703,7 +8713,6 @@ async fn run_invoice_financing_action_builder_matrix(
         Address::new_std_single(NetworkType::Devnet.into(), &[203; 32]).expect("invoice lender address must be valid");
     let lender_lock = pay_to_acceptance_owner(&lender_address);
     let lender = lender_lock.hash();
-    let position_type = Script::new(always_success_code_hash(), 0, b"invoice-position".to_vec());
     let principal = 900_000;
     let discount_bps = 275;
     let malformed_discount_bps = 10_001;
@@ -8740,13 +8749,14 @@ async fn run_invoice_financing_action_builder_matrix(
                     out_point: OutPoint::new(approve_code_outpoint.tx_hash, approve_code_outpoint.index),
                     dep_type: DepType::Code,
                 },
-                CellDep {
-                    out_point: OutPoint::new(always_success_code_outpoint.tx_hash, always_success_code_outpoint.index),
-                    dep_type: DepType::Code,
-                },
+                always_success_dep.clone(),
             ],
             vec![
-                CellOutput { capacity: approve_invoice_output_capacity, lock: approve_lock.clone(), type_: None },
+                CellOutput {
+                    capacity: approve_invoice_output_capacity,
+                    lock: approve_lock.clone(),
+                    type_: Some(invoice_type.clone()),
+                },
                 CellOutput { capacity: approve_position_capacity, lock: lender_lock.clone(), type_: Some(position_type.clone()) },
             ],
             vec![approve_after_data.clone(), malformed_approve_position_data.clone()],
@@ -8754,7 +8764,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("malformed invoice approve_drawdown transaction must be structurally valid"),
         approve_artifact,
-        &[live_typed_cell("Input", 0, approve_before_data.clone())],
+        &[live_typed_cell_with_type_script("Input", 0, invoice_type.clone(), approve_before_data.clone())],
         "malformed invoice approve_drawdown transaction",
     );
     let malformed_approve_reason = rpc_client
@@ -8774,13 +8784,14 @@ async fn run_invoice_financing_action_builder_matrix(
                     out_point: OutPoint::new(approve_code_outpoint.tx_hash, approve_code_outpoint.index),
                     dep_type: DepType::Code,
                 },
-                CellDep {
-                    out_point: OutPoint::new(always_success_code_outpoint.tx_hash, always_success_code_outpoint.index),
-                    dep_type: DepType::Code,
-                },
+                always_success_dep.clone(),
             ],
             vec![
-                CellOutput { capacity: approve_invoice_output_capacity, lock: approve_lock.clone(), type_: None },
+                CellOutput {
+                    capacity: approve_invoice_output_capacity,
+                    lock: approve_lock.clone(),
+                    type_: Some(invoice_type.clone()),
+                },
                 CellOutput { capacity: approve_position_capacity, lock: lender_lock.clone(), type_: Some(position_type.clone()) },
             ],
             vec![approve_after_data.clone(), valid_approve_position_data.clone()],
@@ -8788,7 +8799,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("valid invoice approve_drawdown transaction must be structurally valid"),
         approve_artifact,
-        &[live_typed_cell("Input", 0, approve_before_data)],
+        &[live_typed_cell_with_type_script("Input", 0, invoice_type.clone(), approve_before_data)],
         "valid invoice approve_drawdown transaction",
     );
     let valid_approve_tx_id = spora_hashes::Hash::from_bytes(valid_approve_tx.id());
@@ -8824,11 +8835,11 @@ async fn run_invoice_financing_action_builder_matrix(
     let inspect_fixture_tx = generate_signed_cell_tx(
         prealloc_schnorr_key,
         &inspect_fixture_input,
-        vec![],
+        vec![always_success_dep.clone()],
         vec![
             CellOutput { capacity: inspect_cell_capacity, lock: inspect_lock.clone(), type_: None },
-            CellOutput { capacity: inspect_cell_capacity, lock: seller_lock.clone(), type_: None },
-            CellOutput { capacity: inspect_cell_capacity, lock: seller_lock.clone(), type_: None },
+            CellOutput { capacity: inspect_cell_capacity, lock: seller_lock.clone(), type_: Some(invoice_type.clone()) },
+            CellOutput { capacity: inspect_cell_capacity, lock: seller_lock.clone(), type_: Some(invoice_type.clone()) },
             CellOutput { capacity: inspect_change_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
         ],
         vec![vec![], inspect_active_data.clone(), inspect_inactive_data.clone(), vec![]],
@@ -8867,7 +8878,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("malformed invoice inspect_invoice transaction must be structurally valid"),
         inspect_artifact,
-        &[live_typed_cell("CellDep", 0, inspect_inactive_data)],
+        &[live_typed_cell_with_type_script("CellDep", 0, invoice_type.clone(), inspect_inactive_data)],
         "malformed invoice inspect_invoice transaction",
     );
     let malformed_inspect_reason = rpc_client
@@ -8893,7 +8904,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("valid invoice inspect_invoice transaction must be structurally valid"),
         inspect_artifact,
-        &[live_typed_cell("CellDep", 0, inspect_active_data)],
+        &[live_typed_cell_with_type_script("CellDep", 0, invoice_type.clone(), inspect_active_data)],
         "valid invoice inspect_invoice transaction",
     );
     let valid_inspect_tx_id = spora_hashes::Hash::from_bytes(valid_inspect_tx.id());
@@ -8929,12 +8940,9 @@ async fn run_invoice_financing_action_builder_matrix(
     let settle_fixture_tx = generate_signed_cell_tx(
         prealloc_schnorr_key,
         &settle_fixture_input,
-        vec![CellDep {
-            out_point: OutPoint::new(always_success_code_outpoint.tx_hash, always_success_code_outpoint.index),
-            dep_type: DepType::Code,
-        }],
+        vec![always_success_dep.clone()],
         vec![
-            CellOutput { capacity: settle_input_capacity, lock: settle_lock.clone(), type_: None },
+            CellOutput { capacity: settle_input_capacity, lock: settle_lock.clone(), type_: Some(invoice_type.clone()) },
             CellOutput { capacity: settle_input_capacity, lock: settle_lock.clone(), type_: Some(position_type.clone()) },
             CellOutput { capacity: settle_change_capacity, lock: pay_to_acceptance_owner(prealloc_address), type_: None },
         ],
@@ -8983,14 +8991,11 @@ async fn run_invoice_financing_action_builder_matrix(
                     out_point: OutPoint::new(settle_code_outpoint.tx_hash, settle_code_outpoint.index),
                     dep_type: DepType::Code,
                 },
-                CellDep {
-                    out_point: OutPoint::new(always_success_code_outpoint.tx_hash, always_success_code_outpoint.index),
-                    dep_type: DepType::Code,
-                },
+                always_success_dep.clone(),
             ],
             vec![
-                CellOutput { capacity: settle_invoice_output_capacity, lock: settle_lock.clone(), type_: None },
-                CellOutput { capacity: receipt_output_capacity, lock: lender_lock.clone(), type_: None },
+                CellOutput { capacity: settle_invoice_output_capacity, lock: settle_lock.clone(), type_: Some(invoice_type.clone()) },
+                CellOutput { capacity: receipt_output_capacity, lock: lender_lock.clone(), type_: Some(receipt_type.clone()) },
             ],
             vec![settle_after_data.clone(), malformed_settle_receipt_data.clone()],
             vec![malformed_settle_witness, vec![]],
@@ -8998,7 +9003,7 @@ async fn run_invoice_financing_action_builder_matrix(
         .expect("malformed invoice settle_invoice transaction must be structurally valid"),
         settle_artifact,
         &[
-            live_typed_cell("Input", 0, settle_before_invoice_data.clone()),
+            live_typed_cell_with_type_script("Input", 0, invoice_type.clone(), settle_before_invoice_data.clone()),
             live_typed_cell_with_type_script("Input", 1, position_type.clone(), settle_before_position_data.clone()),
         ],
         "malformed invoice settle_invoice transaction",
@@ -9022,14 +9027,11 @@ async fn run_invoice_financing_action_builder_matrix(
                     out_point: OutPoint::new(settle_code_outpoint.tx_hash, settle_code_outpoint.index),
                     dep_type: DepType::Code,
                 },
-                CellDep {
-                    out_point: OutPoint::new(always_success_code_outpoint.tx_hash, always_success_code_outpoint.index),
-                    dep_type: DepType::Code,
-                },
+                always_success_dep.clone(),
             ],
             vec![
-                CellOutput { capacity: settle_invoice_output_capacity, lock: settle_lock.clone(), type_: None },
-                CellOutput { capacity: receipt_output_capacity, lock: lender_lock.clone(), type_: None },
+                CellOutput { capacity: settle_invoice_output_capacity, lock: settle_lock.clone(), type_: Some(invoice_type.clone()) },
+                CellOutput { capacity: receipt_output_capacity, lock: lender_lock.clone(), type_: Some(receipt_type.clone()) },
             ],
             vec![settle_after_data.clone(), valid_settle_receipt_data.clone()],
             vec![settle_witness, vec![]],
@@ -9037,7 +9039,7 @@ async fn run_invoice_financing_action_builder_matrix(
         .expect("valid invoice settle_invoice transaction must be structurally valid"),
         settle_artifact,
         &[
-            live_typed_cell("Input", 0, settle_before_invoice_data),
+            live_typed_cell_with_type_script("Input", 0, invoice_type.clone(), settle_before_invoice_data),
             live_typed_cell_with_type_script("Input", 1, position_type.clone(), settle_before_position_data),
         ],
         "valid invoice settle_invoice transaction",
@@ -9070,8 +9072,8 @@ async fn run_invoice_financing_action_builder_matrix(
     let cancel_fixture_tx = generate_signed_cell_tx(
         prealloc_schnorr_key,
         &cancel_fixture_input,
-        vec![],
-        vec![CellOutput { capacity: cancel_invoice_capacity, lock: cancel_lock.clone(), type_: None }],
+        vec![always_success_dep.clone()],
+        vec![CellOutput { capacity: cancel_invoice_capacity, lock: cancel_lock.clone(), type_: Some(invoice_type.clone()) }],
         vec![cancel_before_data.clone()],
     );
     let cancel_fixture_tx_id = spora_hashes::Hash::from_bytes(cancel_fixture_tx.id());
@@ -9093,17 +9095,20 @@ async fn run_invoice_financing_action_builder_matrix(
     let malformed_cancel_tx = with_live_typed_cell_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(OutPoint::new(cancel_invoice_input.tx_hash, cancel_invoice_input.index), 0)],
-            vec![CellDep {
-                out_point: OutPoint::new(cancel_code_outpoint.tx_hash, cancel_code_outpoint.index),
-                dep_type: DepType::Code,
-            }],
-            vec![CellOutput { capacity: cancel_output_capacity, lock: cancel_lock.clone(), type_: None }],
+            vec![
+                CellDep {
+                    out_point: OutPoint::new(cancel_code_outpoint.tx_hash, cancel_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+                always_success_dep.clone(),
+            ],
+            vec![CellOutput { capacity: cancel_output_capacity, lock: cancel_lock.clone(), type_: Some(invoice_type.clone()) }],
             vec![malformed_cancel_data.clone()],
             vec![cancel_witness.clone()],
         )
         .expect("malformed invoice cancel_invoice transaction must be structurally valid"),
         cancel_artifact,
-        &[live_typed_cell("Input", 0, cancel_before_data.clone())],
+        &[live_typed_cell_with_type_script("Input", 0, invoice_type.clone(), cancel_before_data.clone())],
         "malformed invoice cancel_invoice transaction",
     );
     let malformed_cancel_reason = rpc_client
@@ -9117,17 +9122,20 @@ async fn run_invoice_financing_action_builder_matrix(
     let valid_cancel_tx = with_live_typed_cell_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(OutPoint::new(cancel_invoice_input.tx_hash, cancel_invoice_input.index), 0)],
-            vec![CellDep {
-                out_point: OutPoint::new(cancel_code_outpoint.tx_hash, cancel_code_outpoint.index),
-                dep_type: DepType::Code,
-            }],
-            vec![CellOutput { capacity: cancel_output_capacity, lock: cancel_lock, type_: None }],
+            vec![
+                CellDep {
+                    out_point: OutPoint::new(cancel_code_outpoint.tx_hash, cancel_code_outpoint.index),
+                    dep_type: DepType::Code,
+                },
+                always_success_dep.clone(),
+            ],
+            vec![CellOutput { capacity: cancel_output_capacity, lock: cancel_lock, type_: Some(invoice_type.clone()) }],
             vec![valid_cancel_data.clone()],
             vec![cancel_witness],
         )
         .expect("valid invoice cancel_invoice transaction must be structurally valid"),
         cancel_artifact,
-        &[live_typed_cell("Input", 0, cancel_before_data)],
+        &[live_typed_cell_with_type_script("Input", 0, invoice_type.clone(), cancel_before_data)],
         "valid invoice cancel_invoice transaction",
     );
     let valid_cancel_tx_id = spora_hashes::Hash::from_bytes(valid_cancel_tx.id());
@@ -9998,10 +10006,6 @@ struct LiveTypedCellSchedulerCell {
     data: Vec<u8>,
 }
 
-fn live_typed_cell(source: &'static str, index: usize, data: Vec<u8>) -> LiveTypedCellSchedulerCell {
-    LiveTypedCellSchedulerCell { source, index, type_script: None, data }
-}
-
 fn live_typed_cell_with_type_script(
     source: &'static str,
     index: usize,
@@ -10009,6 +10013,14 @@ fn live_typed_cell_with_type_script(
     data: Vec<u8>,
 ) -> LiveTypedCellSchedulerCell {
     LiveTypedCellSchedulerCell { source, index, type_script: Some(type_script), data }
+}
+
+fn code_cell_dep(outpoint: &TransactionOutpoint) -> CellDep {
+    CellDep { out_point: OutPoint::new(outpoint.tx_hash, outpoint.index), dep_type: DepType::Code }
+}
+
+fn invoice_typed_cell_type_script(name: &str) -> Script {
+    Script::new(always_success_code_hash(), 0, format!("invoice-financing:{name}").into_bytes())
 }
 
 fn with_live_typed_cell_action_scheduler_witness(
@@ -10120,23 +10132,11 @@ fn live_typed_cell_type_script_for_access(
             return spora_script_to_cellscript_type_script(type_script);
         }
     }
-    synthetic_live_typed_cell_type_script(&access.ty, context)
+    panic!("{context} typed-cell scheduler access {}#{} requires a real type script", access.source, access.index)
 }
 
 fn spora_script_to_cellscript_type_script(script: &Script) -> cellscript::TypedCellTypeScriptInput {
     cellscript::TypedCellTypeScriptInput::new(script.code_hash, script.hash_type, script.args.clone())
-}
-
-fn synthetic_live_typed_cell_type_script(ty: &str, context: &str) -> cellscript::TypedCellTypeScriptInput {
-    assert!(!ty.is_empty(), "{context} synthetic typed-cell type script fallback requires a non-empty CellScript type name");
-    live_typed_cell_scheduler_type_script(ty)
-}
-
-fn live_typed_cell_scheduler_type_script(ty: &str) -> cellscript::TypedCellTypeScriptInput {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"spora-devnet-acceptance:typed-cell:type-script:v1:");
-    hasher.update(ty.as_bytes());
-    cellscript::TypedCellTypeScriptInput::new(*hasher.finalize().as_bytes(), 0, Vec::new())
 }
 
 fn live_typed_cell_conflict_key(
