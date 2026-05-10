@@ -4,7 +4,7 @@ use crate::result::Result;
 use crate::tx::{generator as native, Fees, PaymentDestination, PaymentOutputs};
 use crate::wasm::tx::generator::*;
 use crate::wasm::tx::IFees;
-use spora_exec::{CellDep, DepType, OutPoint};
+use spora_exec::{CellDep, DepType, OutPoint, Script};
 // use crate::wasm::wallet::Account;
 use crate::wasm::CellContext;
 
@@ -29,6 +29,31 @@ export interface ICellDep {
     out_point?: ICellDepOutPoint;
     depType?: "code" | "depGroup" | "dep_group" | "dep-group" | 0 | 1;
     dep_type?: "code" | "depGroup" | "dep_group" | "dep-group" | 0 | 1;
+}
+
+export interface ICellScriptTypeScript {
+    codeHash?: Uint8Array | HexString;
+    code_hash?: Uint8Array | HexString;
+    hashType?: number;
+    hash_type?: number;
+    args?: Uint8Array | HexString;
+}
+
+export interface ICellScriptTypedCellOutput {
+    outputIndex?: number;
+    output_index?: number;
+    index?: number;
+    typeScript?: ICellScriptTypeScript;
+    type_script?: ICellScriptTypeScript;
+    data: Uint8Array | HexString;
+}
+
+export interface ICellScriptTypedCellResolvedCell {
+    source: "Input" | "CellDep" | "input" | "cellDep" | "cell_dep" | "cell-dep";
+    index: number;
+    typeScript?: ICellScriptTypeScript;
+    type_script?: ICellScriptTypeScript;
+    data: Uint8Array | HexString;
 }
 
 /**
@@ -138,6 +163,17 @@ interface IGeneratorSettingsObject {
      * Action name to consume from `cellscriptMetadata`.
      */
     cellscriptAction?: string;
+    /**
+     * Final transaction user outputs that should become typed cells before
+     * live CellScript typed-cell scheduler witness generation. Indexes refer
+     * to supplied outputs before change.
+     */
+    cellscriptTypedCellOutputs?: ICellScriptTypedCellOutput[];
+    /**
+     * Resolved Input/CellDep typed cells needed for live CellScript typed-cell
+     * scheduler witness generation.
+     */
+    cellscriptTypedCellResolvedCells?: ICellScriptTypedCellResolvedCell[];
 
     /**
      * Optional NetworkId or network id as string (i.e. `mainnet` or `testnet-11`). Required when {@link IGeneratorSettingsObject.entries} is array
@@ -222,6 +258,8 @@ impl Generator {
             ckb_type_id_output_indexes,
             final_cellscript_compiled_scheduler_witness,
             cellscript_typed_cell_scheduler_plan,
+            cellscript_typed_cell_outputs,
+            cellscript_typed_cell_resolved_cells,
         } = settings;
 
         let mut settings = match source {
@@ -267,6 +305,9 @@ impl Generator {
         .with_header_deps(header_deps)
         .with_cell_deps(cell_deps)
         .with_ckb_type_id_output_indexes(ckb_type_id_output_indexes);
+        settings = settings
+            .with_cellscript_typed_cell_outputs(cellscript_typed_cell_outputs)
+            .with_cellscript_typed_cell_resolved_cells(cellscript_typed_cell_resolved_cells);
         if let Some(plan) = cellscript_typed_cell_scheduler_plan {
             settings = settings.with_cellscript_typed_cell_scheduler_plan(plan)?;
         }
@@ -335,6 +376,8 @@ struct GeneratorSettings {
     pub ckb_type_id_output_indexes: Vec<usize>,
     pub final_cellscript_compiled_scheduler_witness: Option<Vec<u8>>,
     pub cellscript_typed_cell_scheduler_plan: Option<native::CellScriptTypedCellSchedulerPlan>,
+    pub cellscript_typed_cell_outputs: Vec<native::CellScriptTypedCellOutput>,
+    pub cellscript_typed_cell_resolved_cells: Vec<native::CellScriptTypedCellResolvedCell>,
 }
 
 impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
@@ -375,6 +418,16 @@ impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
         let cell_deps = args.try_get_value("cellDeps")?.map(parse_cell_deps).transpose()?.unwrap_or_default();
         let mut ckb_type_id_output_indexes =
             args.try_get_value("ckbTypeIdOutputs")?.map(parse_ckb_type_id_output_indexes).transpose()?.unwrap_or_default();
+        let cellscript_typed_cell_outputs = args
+            .try_get_value("cellscriptTypedCellOutputs")?
+            .map(parse_cellscript_typed_cell_outputs)
+            .transpose()?
+            .unwrap_or_default();
+        let cellscript_typed_cell_resolved_cells = args
+            .try_get_value("cellscriptTypedCellResolvedCells")?
+            .map(parse_cellscript_typed_cell_resolved_cells)
+            .transpose()?
+            .unwrap_or_default();
         let mut final_cellscript_compiled_scheduler_witness = None;
         let mut cellscript_typed_cell_scheduler_plan = None;
         let cellscript_metadata_json = args.try_get_value("cellscriptMetadata")?.map(parse_cellscript_metadata_json).transpose()?;
@@ -411,6 +464,8 @@ impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
             ckb_type_id_output_indexes,
             final_cellscript_compiled_scheduler_witness,
             cellscript_typed_cell_scheduler_plan,
+            cellscript_typed_cell_outputs,
+            cellscript_typed_cell_resolved_cells,
         };
 
         Ok(settings)
@@ -457,6 +512,106 @@ fn parse_ckb_type_id_output_indexes(value: JsValue) -> Result<Vec<usize>> {
         output_indexes.push(raw as usize);
     }
     Ok(output_indexes)
+}
+
+fn parse_cellscript_typed_cell_outputs(value: JsValue) -> Result<Vec<native::CellScriptTypedCellOutput>> {
+    if !Array::is_array(&value) {
+        return Err(Error::custom("cellscriptTypedCellOutputs must be an array"));
+    }
+
+    let array = Array::from(&value);
+    let mut typed_outputs = Vec::with_capacity(array.length() as usize);
+    for (index, value) in array.iter().enumerate() {
+        typed_outputs.push(parse_cellscript_typed_cell_output(value, index)?);
+    }
+    Ok(typed_outputs)
+}
+
+fn parse_cellscript_typed_cell_output(value: JsValue, index: usize) -> Result<native::CellScriptTypedCellOutput> {
+    let context = format!("cellscriptTypedCellOutputs[{index}]");
+    let object = Object::try_from(&value).ok_or_else(|| Error::custom(format!("{context} must be an object")))?;
+    let output_index_value = object_try_get_any(&object, &["outputIndex", "output_index", "index"])?
+        .ok_or_else(|| Error::custom(format!("{context}.outputIndex is required")))?;
+    let output_index = parse_usize_value(output_index_value, &format!("{context}.outputIndex"))?;
+    let type_script_value = object_try_get_any(&object, &["typeScript", "type_script"])?
+        .ok_or_else(|| Error::custom(format!("{context}.typeScript is required")))?;
+    let type_script = parse_cellscript_type_script(type_script_value, &format!("{context}.typeScript"))?;
+    let data_value = object.get_value("data")?;
+    if data_value.is_undefined() {
+        return Err(Error::custom(format!("{context}.data is required")));
+    }
+    let data = data_value.try_as_vec_u8().map_err(|err| Error::custom(format!("{context}.data: {err}")))?;
+    Ok(native::CellScriptTypedCellOutput::new(output_index, type_script, data))
+}
+
+fn parse_cellscript_typed_cell_resolved_cells(value: JsValue) -> Result<Vec<native::CellScriptTypedCellResolvedCell>> {
+    if !Array::is_array(&value) {
+        return Err(Error::custom("cellscriptTypedCellResolvedCells must be an array"));
+    }
+
+    let array = Array::from(&value);
+    let mut resolved_cells = Vec::with_capacity(array.length() as usize);
+    for (index, value) in array.iter().enumerate() {
+        resolved_cells.push(parse_cellscript_typed_cell_resolved_cell(value, index)?);
+    }
+    Ok(resolved_cells)
+}
+
+fn parse_cellscript_typed_cell_resolved_cell(value: JsValue, index: usize) -> Result<native::CellScriptTypedCellResolvedCell> {
+    let context = format!("cellscriptTypedCellResolvedCells[{index}]");
+    let object = Object::try_from(&value).ok_or_else(|| Error::custom(format!("{context} must be an object")))?;
+    let source_value = object.get_value("source")?;
+    if source_value.is_undefined() {
+        return Err(Error::custom(format!("{context}.source is required")));
+    }
+    let source = parse_cellscript_typed_cell_source(source_value, &format!("{context}.source"))?;
+    let index_value = object.get_value("index")?;
+    if index_value.is_undefined() {
+        return Err(Error::custom(format!("{context}.index is required")));
+    }
+    let cell_index = parse_usize_value(index_value, &format!("{context}.index"))?;
+    let type_script_value = object_try_get_any(&object, &["typeScript", "type_script"])?
+        .ok_or_else(|| Error::custom(format!("{context}.typeScript is required")))?;
+    let type_script = parse_cellscript_type_script(type_script_value, &format!("{context}.typeScript"))?;
+    let data_value = object.get_value("data")?;
+    if data_value.is_undefined() {
+        return Err(Error::custom(format!("{context}.data is required")));
+    }
+    let data = data_value.try_as_vec_u8().map_err(|err| Error::custom(format!("{context}.data: {err}")))?;
+    match source.as_str() {
+        "Input" => Ok(native::CellScriptTypedCellResolvedCell::input(cell_index, type_script, data)),
+        "CellDep" => Ok(native::CellScriptTypedCellResolvedCell::cell_dep(cell_index, type_script, data)),
+        _ => unreachable!("typed-cell source parser only returns supported sources"),
+    }
+}
+
+fn parse_cellscript_typed_cell_source(value: JsValue, context: &str) -> Result<String> {
+    let source = value.as_string().ok_or_else(|| Error::custom(format!("{context} must be 'Input' or 'CellDep'")))?;
+    let normalized = source.trim().to_ascii_lowercase().replace('_', "").replace('-', "").replace(' ', "");
+    match normalized.as_str() {
+        "input" => Ok("Input".to_string()),
+        "celldep" => Ok("CellDep".to_string()),
+        _ => Err(Error::custom(format!("{context} must be 'Input' or 'CellDep'"))),
+    }
+}
+
+fn parse_cellscript_type_script(value: JsValue, context: &str) -> Result<Script> {
+    let object = Object::try_from(&value).ok_or_else(|| Error::custom(format!("{context} must be an object")))?;
+    let code_hash_value = object_try_get_any(&object, &["codeHash", "code_hash"])?
+        .ok_or_else(|| Error::custom(format!("{context}.codeHash is required")))?;
+    let code_hash_bytes = code_hash_value.try_as_vec_u8().map_err(|err| Error::custom(format!("{context}.codeHash: {err}")))?;
+    let code_hash = code_hash_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| Error::custom(format!("{context}.codeHash must be exactly 32 bytes, got {}", code_hash_bytes.len())))?;
+    let hash_type_value = object_try_get_any(&object, &["hashType", "hash_type"])?
+        .ok_or_else(|| Error::custom(format!("{context}.hashType is required")))?;
+    let hash_type = parse_u8_value(hash_type_value, &format!("{context}.hashType"))?;
+    let args = match object.get_value("args")? {
+        value if value.is_undefined() => Vec::new(),
+        value => value.try_as_vec_u8().map_err(|err| Error::custom(format!("{context}.args: {err}")))?,
+    };
+    Ok(Script::new(code_hash, hash_type, args))
 }
 
 fn parse_header_deps(value: JsValue) -> Result<Vec<[u8; 32]>> {
@@ -546,6 +701,22 @@ fn parse_u32_value(value: JsValue, context: &str) -> Result<u32> {
         return Err(Error::custom(format!("{context} must be a non-negative u32 integer")));
     }
     Ok(raw as u32)
+}
+
+fn parse_u8_value(value: JsValue, context: &str) -> Result<u8> {
+    let raw = value.as_f64().ok_or_else(|| Error::custom(format!("{context} must be a non-negative u8 integer")))?;
+    if !raw.is_finite() || raw.fract() != 0.0 || raw < 0.0 || raw > u8::MAX as f64 {
+        return Err(Error::custom(format!("{context} must be a non-negative u8 integer")));
+    }
+    Ok(raw as u8)
+}
+
+fn parse_usize_value(value: JsValue, context: &str) -> Result<usize> {
+    let raw = value.as_f64().ok_or_else(|| Error::custom(format!("{context} must be a non-negative integer")))?;
+    if !raw.is_finite() || raw.fract() != 0.0 || raw < 0.0 || raw > usize::MAX as f64 {
+        return Err(Error::custom(format!("{context} must be a non-negative integer")));
+    }
+    Ok(raw as usize)
 }
 
 fn object_try_get_any(object: &Object, keys: &[&str]) -> Result<Option<JsValue>> {
