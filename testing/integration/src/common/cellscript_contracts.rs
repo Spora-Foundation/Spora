@@ -1,7 +1,7 @@
 use camino::Utf8PathBuf;
 use cellscript::{
     compile, compile_file, compile_file_with_entry_action, ActionMetadata, ArtifactFormat, CompileOptions, CompileResult,
-    EntryWitnessArg,
+    EntryWitnessArg, TypeMetadata,
 };
 
 pub const BUNDLED_CELLSCRIPT_EXAMPLES: [&str; 8] = [
@@ -52,6 +52,7 @@ pub struct CompiledCellScriptActionArtifact {
     pub artifact_bytes: Vec<u8>,
     pub code_hash: [u8; 32],
     pub action: ActionMetadata,
+    pub types: Vec<TypeMetadata>,
 }
 
 struct TypedCellMassEstimate {
@@ -298,6 +299,7 @@ pub fn compile_all_spora_example_contracts() -> Vec<CompiledCellScriptExample> {
                     artifact_bytes: scoped.artifact_bytes,
                     code_hash: scoped_code_hash,
                     action: scoped_action,
+                    types: scoped.metadata.types,
                 });
             }
 

@@ -8618,7 +8618,7 @@ async fn run_invoice_financing_action_builder_matrix(
         .expect("invoice register_invoice action must leave fee");
     let malformed_register_data =
         invoice_cell_data(invoice_id, seller, buyer, face_value.saturating_add(1), 0, due_timepoint, INVOICE_STATE_ISSUED);
-    let malformed_register_tx = with_live_invoice_action_scheduler_witness(
+    let malformed_register_tx = with_live_typed_cell_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(OutPoint::new(register_input.tx_hash, register_input.index), 0)],
             vec![CellDep {
@@ -8631,7 +8631,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("malformed invoice register_invoice transaction must be structurally valid"),
         register_artifact,
-        &[invoice_live_cell("Output", 0, malformed_register_data)],
+        &[live_typed_cell("Output", 0, malformed_register_data)],
         "malformed invoice register_invoice transaction",
     );
     let malformed_register_reason = rpc_client
@@ -8642,7 +8642,7 @@ async fn run_invoice_financing_action_builder_matrix(
     assert_action_malformed_rejection(&malformed_register_reason, "invoice register_invoice");
 
     let valid_register_data = invoice_cell_data(invoice_id, seller, buyer, face_value, 0, due_timepoint, INVOICE_STATE_ISSUED);
-    let valid_register_tx = with_live_invoice_action_scheduler_witness(
+    let valid_register_tx = with_live_typed_cell_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(OutPoint::new(register_input.tx_hash, register_input.index), 0)],
             vec![CellDep {
@@ -8655,7 +8655,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("valid invoice register_invoice transaction must be structurally valid"),
         register_artifact,
-        &[invoice_live_cell("Output", 0, valid_register_data)],
+        &[live_typed_cell("Output", 0, valid_register_data)],
         "valid invoice register_invoice transaction",
     );
     let valid_register_tx_id = spora_hashes::Hash::from_bytes(valid_register_tx.id());
@@ -8732,7 +8732,7 @@ async fn run_invoice_financing_action_builder_matrix(
         invoice_cell_data(approve_invoice_id, seller, buyer, face_value, principal, due_timepoint, INVOICE_STATE_FUNDED);
     let malformed_approve_position_data =
         financing_position_cell_data(approve_invoice_id, lender, principal, malformed_discount_bps, INVOICE_STATE_FUNDED);
-    let malformed_approve_tx = with_live_invoice_action_scheduler_witness(
+    let malformed_approve_tx = with_live_typed_cell_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(OutPoint::new(approve_invoice_input.tx_hash, approve_invoice_input.index), 0)],
             vec![
@@ -8755,9 +8755,9 @@ async fn run_invoice_financing_action_builder_matrix(
         .expect("malformed invoice approve_drawdown transaction must be structurally valid"),
         approve_artifact,
         &[
-            invoice_live_cell("Input", 0, approve_before_data.clone()),
-            invoice_live_cell("Output", 0, approve_after_data.clone()),
-            invoice_live_cell("Output", 1, malformed_approve_position_data),
+            live_typed_cell("Input", 0, approve_before_data.clone()),
+            live_typed_cell("Output", 0, approve_after_data.clone()),
+            live_typed_cell("Output", 1, malformed_approve_position_data),
         ],
         "malformed invoice approve_drawdown transaction",
     );
@@ -8770,7 +8770,7 @@ async fn run_invoice_financing_action_builder_matrix(
 
     let valid_approve_position_data =
         financing_position_cell_data(approve_invoice_id, lender, principal, discount_bps, INVOICE_STATE_FUNDED);
-    let valid_approve_tx = with_live_invoice_action_scheduler_witness(
+    let valid_approve_tx = with_live_typed_cell_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(OutPoint::new(approve_invoice_input.tx_hash, approve_invoice_input.index), 0)],
             vec![
@@ -8793,9 +8793,9 @@ async fn run_invoice_financing_action_builder_matrix(
         .expect("valid invoice approve_drawdown transaction must be structurally valid"),
         approve_artifact,
         &[
-            invoice_live_cell("Input", 0, approve_before_data),
-            invoice_live_cell("Output", 0, approve_after_data),
-            invoice_live_cell("Output", 1, valid_approve_position_data),
+            live_typed_cell("Input", 0, approve_before_data),
+            live_typed_cell("Output", 0, approve_after_data),
+            live_typed_cell("Output", 1, valid_approve_position_data),
         ],
         "valid invoice approve_drawdown transaction",
     );
@@ -8856,7 +8856,7 @@ async fn run_invoice_financing_action_builder_matrix(
     let inspect_output_capacity = inspect_cell_capacity
         .checked_sub(required_fee(1, 1).saturating_add(100_000))
         .expect("invoice inspect_invoice action must leave change");
-    let malformed_inspect_tx = with_live_invoice_action_scheduler_witness(
+    let malformed_inspect_tx = with_live_typed_cell_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(OutPoint::new(inspect_action_input.tx_hash, inspect_action_input.index), 0)],
             vec![
@@ -8875,7 +8875,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("malformed invoice inspect_invoice transaction must be structurally valid"),
         inspect_artifact,
-        &[invoice_live_cell("CellDep", 0, inspect_inactive_data)],
+        &[live_typed_cell("CellDep", 0, inspect_inactive_data)],
         "malformed invoice inspect_invoice transaction",
     );
     let malformed_inspect_reason = rpc_client
@@ -8885,7 +8885,7 @@ async fn run_invoice_financing_action_builder_matrix(
         .to_string();
     assert_action_malformed_rejection(&malformed_inspect_reason, "invoice inspect_invoice");
 
-    let valid_inspect_tx = with_live_invoice_action_scheduler_witness(
+    let valid_inspect_tx = with_live_typed_cell_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(OutPoint::new(inspect_action_input.tx_hash, inspect_action_input.index), 0)],
             vec![
@@ -8901,7 +8901,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("valid invoice inspect_invoice transaction must be structurally valid"),
         inspect_artifact,
-        &[invoice_live_cell("CellDep", 0, inspect_active_data)],
+        &[live_typed_cell("CellDep", 0, inspect_active_data)],
         "valid invoice inspect_invoice transaction",
     );
     let valid_inspect_tx_id = spora_hashes::Hash::from_bytes(valid_inspect_tx.id());
@@ -8980,7 +8980,7 @@ async fn run_invoice_financing_action_builder_matrix(
         invoice_cell_data(settle_invoice_id, seller, buyer, face_value, principal, due_timepoint, INVOICE_STATE_SETTLED);
     let malformed_settle_receipt_data =
         settlement_receipt_cell_data(settle_invoice_id, payer, malformed_paid_amount, INVOICE_STATE_SETTLED);
-    let malformed_settle_tx = with_live_invoice_action_scheduler_witness(
+    let malformed_settle_tx = with_live_typed_cell_action_scheduler_witness(
         CellTx::new(
             vec![
                 CellInput::new(OutPoint::new(settle_invoice_input.tx_hash, settle_invoice_input.index), 0),
@@ -9006,10 +9006,10 @@ async fn run_invoice_financing_action_builder_matrix(
         .expect("malformed invoice settle_invoice transaction must be structurally valid"),
         settle_artifact,
         &[
-            invoice_live_cell("Input", 0, settle_before_invoice_data.clone()),
-            invoice_live_cell("Input", 1, settle_before_position_data.clone()),
-            invoice_live_cell("Output", 0, settle_after_data.clone()),
-            invoice_live_cell("Output", 1, malformed_settle_receipt_data),
+            live_typed_cell("Input", 0, settle_before_invoice_data.clone()),
+            live_typed_cell("Input", 1, settle_before_position_data.clone()),
+            live_typed_cell("Output", 0, settle_after_data.clone()),
+            live_typed_cell("Output", 1, malformed_settle_receipt_data),
         ],
         "malformed invoice settle_invoice transaction",
     );
@@ -9021,7 +9021,7 @@ async fn run_invoice_financing_action_builder_matrix(
     assert_action_malformed_rejection(&malformed_settle_reason, "invoice settle_invoice");
 
     let valid_settle_receipt_data = settlement_receipt_cell_data(settle_invoice_id, payer, paid_amount, INVOICE_STATE_SETTLED);
-    let valid_settle_tx = with_live_invoice_action_scheduler_witness(
+    let valid_settle_tx = with_live_typed_cell_action_scheduler_witness(
         CellTx::new(
             vec![
                 CellInput::new(OutPoint::new(settle_invoice_input.tx_hash, settle_invoice_input.index), 0),
@@ -9047,10 +9047,10 @@ async fn run_invoice_financing_action_builder_matrix(
         .expect("valid invoice settle_invoice transaction must be structurally valid"),
         settle_artifact,
         &[
-            invoice_live_cell("Input", 0, settle_before_invoice_data),
-            invoice_live_cell("Input", 1, settle_before_position_data),
-            invoice_live_cell("Output", 0, settle_after_data),
-            invoice_live_cell("Output", 1, valid_settle_receipt_data),
+            live_typed_cell("Input", 0, settle_before_invoice_data),
+            live_typed_cell("Input", 1, settle_before_position_data),
+            live_typed_cell("Output", 0, settle_after_data),
+            live_typed_cell("Output", 1, valid_settle_receipt_data),
         ],
         "valid invoice settle_invoice transaction",
     );
@@ -9102,7 +9102,7 @@ async fn run_invoice_financing_action_builder_matrix(
         .expect("invoice cancel_invoice action must leave fee");
     let malformed_cancel_data =
         invoice_cell_data(cancel_invoice_id, seller, buyer, face_value, 0, due_timepoint, INVOICE_STATE_FUNDED);
-    let malformed_cancel_tx = with_live_invoice_action_scheduler_witness(
+    let malformed_cancel_tx = with_live_typed_cell_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(OutPoint::new(cancel_invoice_input.tx_hash, cancel_invoice_input.index), 0)],
             vec![CellDep {
@@ -9115,7 +9115,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("malformed invoice cancel_invoice transaction must be structurally valid"),
         cancel_artifact,
-        &[invoice_live_cell("Input", 0, cancel_before_data.clone()), invoice_live_cell("Output", 0, malformed_cancel_data)],
+        &[live_typed_cell("Input", 0, cancel_before_data.clone()), live_typed_cell("Output", 0, malformed_cancel_data)],
         "malformed invoice cancel_invoice transaction",
     );
     let malformed_cancel_reason = rpc_client
@@ -9126,7 +9126,7 @@ async fn run_invoice_financing_action_builder_matrix(
     assert_action_malformed_rejection(&malformed_cancel_reason, "invoice cancel_invoice");
 
     let valid_cancel_data = invoice_cell_data(cancel_invoice_id, seller, buyer, face_value, 0, due_timepoint, INVOICE_STATE_CANCELLED);
-    let valid_cancel_tx = with_live_invoice_action_scheduler_witness(
+    let valid_cancel_tx = with_live_typed_cell_action_scheduler_witness(
         CellTx::new(
             vec![CellInput::new(OutPoint::new(cancel_invoice_input.tx_hash, cancel_invoice_input.index), 0)],
             vec![CellDep {
@@ -9139,7 +9139,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("valid invoice cancel_invoice transaction must be structurally valid"),
         cancel_artifact,
-        &[invoice_live_cell("Input", 0, cancel_before_data), invoice_live_cell("Output", 0, valid_cancel_data)],
+        &[live_typed_cell("Input", 0, cancel_before_data), live_typed_cell("Output", 0, valid_cancel_data)],
         "valid invoice cancel_invoice transaction",
     );
     let valid_cancel_tx_id = spora_hashes::Hash::from_bytes(valid_cancel_tx.id());
@@ -10003,20 +10003,20 @@ fn with_compiled_action_scheduler_witness(mut tx: CellTx, action: &cellscript::A
 }
 
 #[derive(Clone)]
-struct InvoiceLiveSchedulerCell {
+struct LiveTypedCellSchedulerCell {
     source: &'static str,
     index: usize,
     data: Vec<u8>,
 }
 
-fn invoice_live_cell(source: &'static str, index: usize, data: Vec<u8>) -> InvoiceLiveSchedulerCell {
-    InvoiceLiveSchedulerCell { source, index, data }
+fn live_typed_cell(source: &'static str, index: usize, data: Vec<u8>) -> LiveTypedCellSchedulerCell {
+    LiveTypedCellSchedulerCell { source, index, data }
 }
 
-fn with_live_invoice_action_scheduler_witness(
+fn with_live_typed_cell_action_scheduler_witness(
     mut tx: CellTx,
     action_artifact: &CompiledCellScriptActionArtifact,
-    cells: &[InvoiceLiveSchedulerCell],
+    cells: &[LiveTypedCellSchedulerCell],
     context: &str,
 ) -> CellTx {
     let action = &action_artifact.action;
@@ -10030,22 +10030,18 @@ fn with_live_invoice_action_scheduler_witness(
                 .iter()
                 .find(|cell| cell.source == access.source.as_str() && cell.index == access.index)
                 .unwrap_or_else(|| panic!("{context} missing live scheduler cell for {}#{}", access.source, access.index));
-            assert!(
-                access.conflict_key_fields.len() == 1 && access.conflict_key_fields[0] == "invoice_id",
-                "{context} live invoice scheduler currently derives only invoice_id conflict keys"
-            );
-            assert_eq!(
-                access.conflict_key_encoding.as_deref(),
-                Some("single-field-fixed-bytes-v1"),
-                "{context} live invoice scheduler requires fixed invoice_id conflict-key encoding"
-            );
+            let type_metadata = action_artifact
+                .types
+                .iter()
+                .find(|ty| ty.name == access.ty)
+                .unwrap_or_else(|| panic!("{context} missing typed-cell type metadata for {}", access.ty));
             let index = u32::try_from(access.index).unwrap_or_else(|_| panic!("{context} scheduler source index must fit u32"));
             cellscript::TypedCellSchedulerAccessInput {
                 operation: access.operation.clone(),
                 source: access.source.clone(),
                 index,
-                type_script: invoice_live_scheduler_type_script(&access.ty),
-                conflict_key_value: invoice_conflict_key(&cell.data, context),
+                type_script: live_typed_cell_scheduler_type_script(&access.ty),
+                conflict_key_value: live_typed_cell_conflict_key(type_metadata, access, &cell.data, context),
                 typed_data: cell.data.clone(),
             }
         })
@@ -10063,16 +10059,74 @@ fn with_live_invoice_action_scheduler_witness(
     tx
 }
 
-fn invoice_live_scheduler_type_script(ty: &str) -> cellscript::TypedCellTypeScriptInput {
+fn live_typed_cell_scheduler_type_script(ty: &str) -> cellscript::TypedCellTypeScriptInput {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"spora-devnet-acceptance:invoice-financing:type-script:v1:");
+    hasher.update(b"spora-devnet-acceptance:typed-cell:type-script:v1:");
     hasher.update(ty.as_bytes());
     cellscript::TypedCellTypeScriptInput::new(*hasher.finalize().as_bytes(), 0, Vec::new())
 }
 
-fn invoice_conflict_key(data: &[u8], context: &str) -> Vec<u8> {
-    assert!(data.len() >= 32, "{context} invoice typed-cell data must include the 32-byte invoice_id conflict key");
-    data[..32].to_vec()
+fn live_typed_cell_conflict_key(
+    type_metadata: &cellscript::TypeMetadata,
+    access: &cellscript::TypedCellSchedulerAccessPlanMetadata,
+    data: &[u8],
+    context: &str,
+) -> Vec<u8> {
+    let encoding = access.conflict_key_encoding.as_deref().unwrap_or_else(|| {
+        panic!("{context} typed-cell access {}#{} must declare conflict-key encoding", access.source, access.index)
+    });
+    let field_values = access
+        .conflict_key_fields
+        .iter()
+        .map(|field| live_typed_cell_field_value(type_metadata, field, data, context))
+        .collect::<Vec<_>>();
+    match encoding {
+        "single-field-fixed-bytes-v1" => {
+            assert_eq!(
+                field_values.len(),
+                1,
+                "{context} single-field conflict key for {} must reference exactly one field",
+                type_metadata.name
+            );
+            field_values.into_iter().next().expect("single conflict-key field value")
+        }
+        "composite-fixed-bytes-v1" => {
+            assert!(
+                field_values.len() > 1,
+                "{context} composite conflict key for {} must reference multiple fields",
+                type_metadata.name
+            );
+            let field_refs = field_values.iter().map(Vec::as_slice).collect::<Vec<_>>();
+            cellscript::encode_typed_cell_composite_conflict_key(&field_refs)
+        }
+        _ => panic!("{context} unsupported typed-cell conflict-key encoding '{encoding}' for {}", type_metadata.name),
+    }
+}
+
+fn live_typed_cell_field_value(type_metadata: &cellscript::TypeMetadata, field_name: &str, data: &[u8], context: &str) -> Vec<u8> {
+    let field = type_metadata
+        .fields
+        .iter()
+        .find(|field| field.name == field_name)
+        .unwrap_or_else(|| panic!("{context} typed-cell type {} missing conflict-key field {field_name}", type_metadata.name));
+    assert!(field.fixed_width, "{context} typed-cell conflict-key field {}.{} must be fixed-width", type_metadata.name, field.name);
+    let encoded_size = field.encoded_size.unwrap_or_else(|| {
+        panic!("{context} typed-cell conflict-key field {}.{} must declare encoded_size", type_metadata.name, field.name)
+    });
+    let end = field
+        .offset
+        .checked_add(encoded_size)
+        .unwrap_or_else(|| panic!("{context} typed-cell conflict-key field {}.{} offset overflows", type_metadata.name, field.name));
+    assert!(
+        end <= data.len(),
+        "{context} typed-cell data for {} is too short for conflict-key field {}.{} at {}..{}",
+        type_metadata.name,
+        type_metadata.name,
+        field.name,
+        field.offset,
+        end
+    );
+    data[field.offset..end].to_vec()
 }
 
 fn action_builder_requirements(
