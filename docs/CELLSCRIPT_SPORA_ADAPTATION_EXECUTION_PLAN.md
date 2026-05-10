@@ -2,7 +2,7 @@
 
 Branch: `spora-typed`
 日期：2026-05-11
-状态：方案形成，CellScript typed-cell profile MVP、profile-gated conflict_key/identity metadata、live scheduler witness plan/builder、Spora compile-metadata acceptance、wallet/action-builder typed-cell scheduler plan 解析、Generator live witness/typed output/WASM 入参桥接、Generator plan/config fail-closed 校验、wallet RPC sidecar resolver、invoice financing live witness action-builder matrix、base/cellscript/production acceptance profiles 已落地
+状态：方案形成，CellScript typed-cell profile MVP、profile-gated conflict_key/identity metadata、live scheduler witness plan/builder、Spora compile-metadata acceptance、wallet/action-builder typed-cell scheduler plan 解析、Generator live witness/typed output/WASM 入参桥接、Generator plan/config fail-closed 校验、wallet RPC sidecar resolver、PendingTransaction/JS SDK witness attach 入口、invoice financing live witness action-builder matrix、base/cellscript/production acceptance profiles 已落地
 
 ## 结论
 
@@ -18,7 +18,8 @@ CellScript 已重新作为 submodule 接入 Spora，并切到 0.20-based 独立�
 8. Spora wallet/action-builder 已开始消费该 plan：typed-cell metadata 解析会校验 scheduler plan ABI/hash domain/source-operation/data-source 组合，补齐 effect/cycles 与 conflict-key field slice，并把 plan 存入 `GeneratorSettings`；wallet core 现在还能从 plan/metadata 派生 typed-cell builder requirements，明确列出 final Output 需要的 typed config 与 Input/CellDep 需要的 resolved sidecar。
 9. Wallet 已新增 live typed-cell scheduler witness helper，并接入 `Generator` final tx 路径：当 `typed_cell_scheduler_plan` 存在时，Generator 优先用显式 typed output 配置或 resolved Input/CellDep sidecar 生成 live Molecule witness，不再把 compile-time shape witness 当作最终调度凭证；WASM generator 也已能接收这些 typed-cell output/sidecar 参数；Generator 初始化阶段会校验 plan 与 output/sidecar 配置一致，缺失、重复、未引用、无 plan 或 conflict-key 数据长度不足的 typed-cell 配置均 fail-closed。
 10. Spora devnet invoice financing matrix 已从静态 `scheduler_witness_hex` 切到 live witness：测试按 CellScript `typed_cell_scheduler_plan` 读取 source/index/type，通过 scoped action artifact 中的 `TypeMetadata.fields` 自动按 offset/encoded_size/fixed_width 抽取 conflict key，并使用真实 Output type script 或 fixture registry 解析出的 Input/CellDep type script 生成 Molecule scheduler witness；Output 访问现在直接从 `CellTx.outputs_data[index]` 派生，Input/CellDep sidecar 由 fixture outpoint registry 自动回填，invoice/position/receipt fixture 已安装真实 always-success type script，不再依赖 synthetic fallback。
-11. Wallet core 已新增 RPC sidecar resolver：给定候选 `CellTx` 与 `typed_cell_scheduler_plan`，可按 Input/CellDep outpoint 拉取源交易 output，解析 type script 与 output data，校验 conflict-key slice 长度后生成 `CellScriptTypedCellResolvedCell`。
+11. Wallet core 已新增 RPC sidecar resolver：给定候选 `CellTx` 与 `typed_cell_scheduler_plan`，可按 Input/CellDep outpoint 拉取源交易 output，解析 type script 与 output data，校验 conflict-key slice 长度后生成 `CellScriptTypedCellResolvedCell`；同时提供 metadata/action 入口，可直接对具体 `CellTx` append live typed-cell scheduler witness。
+12. `PendingTransaction` 已新增 native 与 WASM SDK 入口，可在 action-builder 生成交易 skeleton 后调用 RPC resolver 并把 live typed-cell scheduler witness 写回 pending transaction；JS 侧入口为 `attachCellScriptTypedCellSchedulerWitnessFromRpc(rpc, metadata, action)`。
 
 因此执行策略是：先闭合 Spora runtime 消费侧，再在 CellScript 增加 typed-cell profile，恢复端到端 acceptance，最后把 metadata plan 下沉到 wallet live tx builder；当前断点已转向把 wallet RPC sidecar resolver 接入具体业务 action-builder skeleton，使应用只提供 action metadata 与业务 outpoint。
 
@@ -43,7 +44,8 @@ CellScript 已重新作为 submodule 接入 Spora，并切到 0.20-based 独立�
 | wallet live witness helper | 已支持 Output 真实 tx data、Input/CellDep resolved sidecar、single/composite fixed conflict key extraction、Molecule witness append；Generator final tx 会在 typed-cell plan 存在时优先生成 live witness，并在初始化时校验 plan/config 一致性与 conflict-key 数据长度 |
 | wallet typed output config | 已支持 action-specific builder 显式配置 final output 的 typed-cell type script/data，并与 CKB TYPE_ID 输出冲突、缺 plan、缺 plan 引用等情况 fail-closed |
 | typed-cell builder requirements | 已新增 native / WASM requirements discovery：从 `typed_cell_scheduler_plan` 派生 `outputConfigs` 与 `resolvedCellSidecars`，包含 source/index/binding/type/conflict-key fields/required data length，作为后续 resolver 自动补齐 sidecar 的稳定查询面 |
-| wallet RPC sidecar resolver | 已新增 native resolver：从候选 `CellTx` 的 Input/CellDep outpoint 调用 `get_transaction`，读取源 output 的 type script 与 data，校验 plan conflict-key slice 后返回 `CellScriptTypedCellResolvedCell`；Output 仍由 final tx 本身解析 |
+| wallet RPC sidecar resolver | 已新增 native resolver：从候选 `CellTx` 的 Input/CellDep outpoint 调用 `get_transaction`，读取源 output 的 type script 与 data，校验 plan conflict-key slice 后返回 `CellScriptTypedCellResolvedCell`；也支持 metadata/action + tx skeleton 直接 append live witness；Output 仍由 final tx 本身解析 |
+| PendingTransaction typed-cell attach | 已新增 native / WASM SDK 入口，action-builder 可在 pending transaction 上通过 RPC 自动解析 sidecar 并写回 live typed-cell scheduler witness |
 | WASM generator typed-cell bridge | 已新增 `cellscriptTypedCellOutputs` / `cellscriptTypedCellResolvedCells` 入参，支持 JS 侧传入 typed output type script/data 与 Input/CellDep sidecar；并暴露 `cellscriptTypedCellSchedulerRequirements(metadata, action)` 帮 JS 侧先发现必填 typed-cell 配置 |
 | devnet live witness helper | 已把 invoice financing 5 个 action 的 valid/malformed action-builder matrix 切到 concrete cell data -> metadata-driven live typed-cell scheduler witness，支持从 tx output 自动读取 Output data、从 fixture outpoint registry 自动解析 Input/CellDep sidecar、真实 Output/sidecar type script、single/composite fixed conflict key；invoice fixtures 已去掉 synthetic type script fallback |
 | production evidence live coverage | 已新增 typed-cell scheduler plan 覆盖数、live typed-cell scheduler witness 覆盖数和 per-action live witness 标记 |
@@ -136,7 +138,7 @@ Production devnet acceptance 通过并生成 production evidence：
 6. CellScript 新增 `#[identity(field(...))]` / `#[conflict_key(...)]` typed-cell attribute 语义，AST/IR/metadata 全链路 profile-gated，invoice financing example 已声明 `invoice_id` 作为 shared/receipt conflict key。
 7. CellScript 新增 `typed_cell_scheduler_plan` 和 live scheduler witness builder，hash helper 已与 Spora `typed_cell_vectors` 中的 conflict hash、typed data hash、Molecule witness 固定向量对齐。
 
-下一阶段重点转为把具体 action-builder tx skeleton 的 typed-cell cell 构造补齐：在 Rust/JS builder 层自动提供 Input/CellDep resolved sidecar 与 typed output 配置，并把 live witness 覆盖从 invoice financing 推广到更多 typed-cell examples；invoice matrix 的 Output 访问已改为由 tx skeleton 自动派生，Input/CellDep sidecar 已由 fixture registry 按 outpoint 自动解析，并安装真实 type script。wallet core 已暴露 requirements discovery 与 RPC sidecar resolver，下一步应把 resolver 接到 action-builder / indexer / cell-context 查询流，让应用只提供 action metadata 与业务 outpoint，resolver 自动回填 type script/data sidecar；Generator 现在会提前拒绝不完整配置，production evidence 已能追踪 scheduler plan / live witness 覆盖缺口。
+下一阶段重点转为把具体 action-builder tx skeleton 的 typed-cell cell 构造补齐：在 Rust/JS builder 层自动提供 Input/CellDep resolved sidecar 与 typed output 配置，并把 live witness 覆盖从 invoice financing 推广到更多 typed-cell examples；invoice matrix 的 Output 访问已改为由 tx skeleton 自动派生，Input/CellDep sidecar 已由 fixture registry 按 outpoint 自动解析，并安装真实 type script。wallet core 已暴露 requirements discovery、RPC sidecar resolver 与 PendingTransaction/JS SDK attach 入口，下一步应把 production action builders 改成“build skeleton -> attach witness from RPC -> sign/submit”的固定流程；Generator 现在会提前拒绝不完整配置，production evidence 已能追踪 scheduler plan / live witness 覆盖缺口。
 
 ## 目标
 
@@ -357,7 +359,7 @@ MVP 已超过原始最小可交付，typed-cell attribute metadata 与 live sche
 
 1. wallet/action-builder API 已能从 CellScript metadata 解析并保存 `typed_cell_scheduler_plan`，包含 effect/cycles 与 conflict-key field slices。
 2. wallet live helper 已能从真实 Output data 与 resolved Input/CellDep data 自动抽取 `conflict_key_value` 与 typed data，并 append live scheduler witness。
-3. Generator 已在 final tx 路径优先使用 live typed-cell scheduler witness，并支持 native/WASM typed output type script/data 与 resolved sidecar 配置；初始化阶段已校验 plan/output/sidecar 一致性，wallet core 已能通过 RPC 从候选 tx 的 Input/CellDep outpoint 解析 resolved sidecar，devnet invoice tx skeleton 已自动从 transaction outputs 派生 Output typed data 并使用真实 typed-cell type script，下一步是把 RPC resolver 接入更多 action-builder。
+3. Generator 已在 final tx 路径优先使用 live typed-cell scheduler witness，并支持 native/WASM typed output type script/data 与 resolved sidecar 配置；初始化阶段已校验 plan/output/sidecar 一致性，wallet core 已能通过 RPC 从候选 tx 的 Input/CellDep outpoint 解析 resolved sidecar，并能在 PendingTransaction/JS SDK 层把 witness 写回交易；devnet invoice tx skeleton 已自动从 transaction outputs 派生 Output typed data 并使用真实 typed-cell type script，下一步是把该 attach 流程接入更多 action-builder。
 4. production evidence 下一步固定 typed-cell metadata、builder matrix、scheduler plan 和 witness shape 的发布口径。
 
 这能把当前 parse/metadata 层能力推进到 tx 构造和调度层，再逐步补 `settlement`、accounting、ProofPlan 和更复杂业务约束。

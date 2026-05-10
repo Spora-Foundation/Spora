@@ -61,9 +61,9 @@ use crate::cell::{CellContext, CellEntryReference, NetworkParams};
 use crate::imports::*;
 use crate::result::Result;
 use crate::tx::{
-    mass::*, CellScriptTypedCellOutput, CellScriptTypedCellResolvedCell, CellScriptTypedCellSchedulerAccessPlan,
-    CellScriptTypedCellSchedulerPlan, Fees, GeneratorSettings, GeneratorSummary, PaymentDestination, PaymentOutput,
-    PendingTransaction, PendingTransactionIterator, PendingTransactionStream,
+    mass::*, typed_cell_scheduler_plan_from_cellscript_metadata_json, CellScriptTypedCellOutput, CellScriptTypedCellResolvedCell,
+    CellScriptTypedCellSchedulerAccessPlan, CellScriptTypedCellSchedulerPlan, Fees, GeneratorSettings, GeneratorSummary,
+    PaymentDestination, PaymentOutput, PendingTransaction, PendingTransactionIterator, PendingTransactionStream,
 };
 use spora_consensus_client::{pay_to_address_lock_script, CellEntry, TransactionInput};
 use spora_consensus_core::block::CellScriptSchedulerAccessList;
@@ -1736,6 +1736,27 @@ pub async fn resolve_cellscript_typed_cell_resolved_cells_from_rpc(
     Ok(resolved_cells)
 }
 
+pub async fn attach_cellscript_typed_cell_scheduler_witness_from_rpc(
+    rpc: &Arc<DynRpcApi>,
+    tx: &mut CellTx,
+    plan: &CellScriptTypedCellSchedulerPlan,
+) -> Result<CellScriptSchedulerAccessList> {
+    let resolved_cells = resolve_cellscript_typed_cell_resolved_cells_from_rpc(rpc, tx, plan).await?;
+    attach_cellscript_typed_cell_scheduler_witness(tx, plan, &resolved_cells)
+}
+
+pub async fn attach_cellscript_typed_cell_scheduler_witness_from_metadata_json_and_rpc(
+    rpc: &Arc<DynRpcApi>,
+    tx: &mut CellTx,
+    metadata_json: &str,
+    action_name: &str,
+) -> Result<CellScriptSchedulerAccessList> {
+    let plan = typed_cell_scheduler_plan_from_cellscript_metadata_json(metadata_json, action_name)?.ok_or_else(|| {
+        Error::custom(format!("CellScript metadata action '{action_name}' does not declare a typed-cell scheduler plan"))
+    })?;
+    attach_cellscript_typed_cell_scheduler_witness_from_rpc(rpc, tx, &plan).await
+}
+
 struct ResolvedTypedCellAccess {
     type_script: Script,
     data: Vec<u8>,
@@ -2313,6 +2334,33 @@ mod tests {
                 CellScriptTypedCellResolvedCell::cell_dep(0, dep_type_script, dep_data),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn attach_typed_cell_scheduler_witness_from_metadata_json_and_rpc_uses_source_cell_data() {
+        let rpc_core = Arc::new(crate::tests::RpcCoreMock::new());
+        let rpc: Arc<DynRpcApi> = rpc_core.clone();
+        let stale_compiled_witness = typed_cell_input_scheduler_witness_with_hash([0xEE; 32]);
+        let metadata = typed_cell_input_action_metadata_json(&bytes_to_hex(&stale_compiled_witness));
+        let type_script = Script::new([0x42; 32], 1, b"invoice-input-script-args".to_vec());
+        let mut data = vec![0x33; 32];
+        data.extend_from_slice(b"invoice-state:funded");
+        rpc_core.insert_transaction(
+            TransactionId::from_bytes([0xC1; 32]),
+            rpc_transaction_with_typed_output(0, type_script.clone(), data.clone()),
+        );
+        let mut tx = CellTx::new(vec![CellInput::new(OutPoint::new([0xC1; 32], 0), 0)], vec![], vec![], vec![], vec![]).unwrap();
+
+        let summary =
+            attach_cellscript_typed_cell_scheduler_witness_from_metadata_json_and_rpc(&rpc, &mut tx, &metadata, "settle_invoice")
+                .await
+                .unwrap();
+
+        assert_eq!(summary.accesses.len(), 1);
+        assert_eq!(summary.accesses[0].source, CELLSCRIPT_SCHEDULER_SOURCE_INPUT);
+        assert_eq!(summary.accesses[0].conflict_hash, compute_conflict_hash(&type_script, &[0x33; 32]));
+        assert_eq!(summary.accesses[0].typed_data_hash, compute_typed_data_hash(&type_script, &data));
+        assert_eq!(tx.witnesses.len(), 1);
     }
 
     #[test]

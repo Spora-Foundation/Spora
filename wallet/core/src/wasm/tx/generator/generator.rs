@@ -511,7 +511,7 @@ impl TryFrom<IGeneratorSettingsObject> for GeneratorSettings {
     }
 }
 
-fn parse_cellscript_metadata_json(value: JsValue) -> Result<String> {
+pub(crate) fn parse_cellscript_metadata_json(value: JsValue) -> Result<String> {
     if let Some(metadata_json) = value.as_string() {
         if metadata_json.trim().is_empty() {
             return Err(Error::custom("cellscriptMetadata must not be empty"));
@@ -528,7 +528,7 @@ fn parse_cellscript_metadata_json(value: JsValue) -> Result<String> {
     Ok(serialized)
 }
 
-fn parse_cellscript_action_name(value: JsValue) -> Result<String> {
+pub(crate) fn parse_cellscript_action_name(value: JsValue) -> Result<String> {
     let action_name = value.as_string().ok_or_else(|| Error::custom("cellscriptAction must be a string"))?;
     if action_name.trim().is_empty() {
         return Err(Error::custom("cellscriptAction must not be empty"));

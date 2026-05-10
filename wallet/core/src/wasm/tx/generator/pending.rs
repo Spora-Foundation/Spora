@@ -162,6 +162,27 @@ impl PendingTransaction {
         Ok(args.as_slice().to_hex().into())
     }
 
+    /// Resolve Input/CellDep typed-cell sidecars through RPC and append the live
+    /// CellScript typed-cell scheduler witness declared by action metadata.
+    #[wasm_bindgen(js_name = attachCellScriptTypedCellSchedulerWitnessFromRpc)]
+    pub async fn attach_cellscript_typed_cell_scheduler_witness_from_rpc(
+        &self,
+        wasm_rpc_client: &RpcClient,
+        cellscript_metadata: JsValue,
+        cellscript_action: String,
+    ) -> Result<()> {
+        let metadata_json = super::generator::parse_cellscript_metadata_json(cellscript_metadata)?;
+        let action_name = cellscript_action.trim();
+        if action_name.is_empty() {
+            return Err(Error::custom("cellscriptAction must not be empty"));
+        }
+        let rpc: Arc<DynRpcApi> = wasm_rpc_client.client().clone();
+        self.inner
+            .attach_cellscript_typed_cell_scheduler_witness_from_metadata_json_and_rpc(&rpc, &metadata_json, action_name)
+            .await?;
+        Ok(())
+    }
+
     /// Submit transaction to the supplied [`RpcClient`]
     /// **IMPORTANT:** This method will remove cells from the associated
     /// {@link CellContext} if one was used to create the transaction

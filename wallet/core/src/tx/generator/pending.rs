@@ -8,7 +8,9 @@ use crate::cell::{CellContext, CellEntryId, CellEntryReference};
 use crate::imports::*;
 use crate::result::Result;
 use crate::rpc::DynRpcApi;
-use crate::tx::{DataKind, Generator, MAXIMUM_STANDARD_TRANSACTION_MASS};
+use crate::tx::{
+    CellScriptTypedCellSchedulerAccessPlan, CellScriptTypedCellSchedulerPlan, DataKind, Generator, MAXIMUM_STANDARD_TRANSACTION_MASS,
+};
 use spora_consensus_core::block::CellScriptSchedulerAccessList;
 use spora_consensus_core::hashing::sighash_type::SigHashType;
 use spora_consensus_core::sign::{sign_input, sign_with_multiple_v2, Signed};
@@ -446,6 +448,39 @@ impl PendingTransaction {
         Ok(args)
     }
 
+    /// Resolve Input/CellDep typed-cell sidecars over RPC and append the live
+    /// CellScript typed-cell scheduler witness to this transaction.
+    pub async fn attach_cellscript_typed_cell_scheduler_witness_from_rpc(
+        &self,
+        rpc: &Arc<DynRpcApi>,
+        plan: &CellScriptTypedCellSchedulerPlan,
+    ) -> Result<CellScriptSchedulerAccessList> {
+        let mut mutable_tx = self.inner.signable_tx.lock()?.clone();
+        let accesses = crate::tx::attach_cellscript_typed_cell_scheduler_witness_from_rpc(rpc, &mut mutable_tx.tx, plan).await?;
+        *self.inner.signable_tx.lock().unwrap() = mutable_tx;
+        Ok(accesses)
+    }
+
+    /// Parse CellScript action metadata, resolve Input/CellDep typed-cell
+    /// sidecars over RPC, and append the live typed-cell scheduler witness.
+    pub async fn attach_cellscript_typed_cell_scheduler_witness_from_metadata_json_and_rpc(
+        &self,
+        rpc: &Arc<DynRpcApi>,
+        metadata_json: &str,
+        action_name: &str,
+    ) -> Result<CellScriptSchedulerAccessList> {
+        let mut mutable_tx = self.inner.signable_tx.lock()?.clone();
+        let accesses = crate::tx::attach_cellscript_typed_cell_scheduler_witness_from_metadata_json_and_rpc(
+            rpc,
+            &mut mutable_tx.tx,
+            metadata_json,
+            action_name,
+        )
+        .await?;
+        *self.inner.signable_tx.lock().unwrap() = mutable_tx;
+        Ok(accesses)
+    }
+
     pub fn try_sign_with_keys(&self, privkeys: &[[u8; 32]], check_fully_signed: Option<bool>) -> Result<()> {
         let mutable_tx = self.inner.signable_tx.lock()?.clone();
         let signed = sign_with_multiple_v2(mutable_tx, privkeys);
@@ -603,10 +638,12 @@ pub fn increase_fees_for_rbf(&self, additional_fees: u64) -> Result<PendingTrans
 mod tests {
     use super::*;
     use crate::tx::{Fees, GeneratorSettings, PaymentDestination};
+    use spora_exec::celltx::{compute_conflict_hash, CELLSCRIPT_SCHEDULER_OP_CONSUME, CELLSCRIPT_SCHEDULER_SOURCE_INPUT};
     use spora_exec::{
-        ckb_secp256k1_blake160_pubkey_hash, ckb_type_id_args, CellDep, CellInput, DepType, OutPoint, CKB_SCRIPT_HASH_TYPE_TYPE,
-        CKB_TYPE_ID_CODE_HASH,
+        ckb_secp256k1_blake160_pubkey_hash, ckb_type_id_args, CellDep, CellInput, CellOutput, DepType, OutPoint,
+        CKB_SCRIPT_HASH_TYPE_TYPE, CKB_TYPE_ID_CODE_HASH,
     };
+    use spora_rpc_core::RpcTransactionOutput;
 
     fn empty_generator() -> Generator {
         let change_address = Address::new_std_single(Prefix::Testnet, &[0x11; 32]).unwrap();
@@ -624,6 +661,51 @@ mod tests {
         )
         .unwrap();
         Generator::try_new(settings, None, None).unwrap()
+    }
+
+    fn typed_cell_scheduler_plan() -> CellScriptTypedCellSchedulerPlan {
+        CellScriptTypedCellSchedulerPlan {
+            abi: "spora-typed-cell-scheduler-plan-v1".to_string(),
+            conflict_hash_domain: "spora-typed-cell/conflict-hash/v1".to_string(),
+            typed_data_hash_domain: "spora-typed-cell/typed-data-hash/v1".to_string(),
+            effect_class: "Mutating".to_string(),
+            parallelizable: false,
+            estimated_cycles: 500,
+            accesses: vec![CellScriptTypedCellSchedulerAccessPlan {
+                operation: "consume".to_string(),
+                source: "Input".to_string(),
+                index: 0,
+                binding: "invoice".to_string(),
+                ty: "Invoice".to_string(),
+                conflict_key: Some("field(invoice_id)".to_string()),
+                conflict_key_fields: vec!["invoice_id".to_string()],
+                conflict_key_encoding: Some("single-field-fixed-bytes-v1".to_string()),
+                conflict_key_field_slices: vec![crate::tx::CellScriptTypedCellFieldSlice {
+                    field: "invoice_id".to_string(),
+                    offset: 0,
+                    size: 32,
+                }],
+                conflict_key_value_source: "transaction-input-data-conflict-key-fields".to_string(),
+                typed_data_source: "transaction-input-data".to_string(),
+            }],
+        }
+    }
+
+    fn rpc_transaction_with_typed_output(type_script: Script, data: Vec<u8>) -> RpcTransaction {
+        let output = RpcTransactionOutput::from_cell_output(
+            &CellOutput { lock: Script::new([0x51; 32], 0, vec![]), type_: Some(type_script), capacity: 1000 },
+            &data,
+        );
+        RpcTransaction {
+            version: 0,
+            inputs: vec![],
+            cell_deps: vec![],
+            header_deps: vec![],
+            outputs: vec![output],
+            payload: vec![],
+            mass: 0,
+            verbose_data: None,
+        }
     }
 
     #[test]
@@ -726,5 +808,49 @@ mod tests {
         assert_eq!(type_script.code_hash, CKB_TYPE_ID_CODE_HASH);
         assert_eq!(type_script.hash_type, CKB_SCRIPT_HASH_TYPE_TYPE);
         assert_eq!(type_script.args, args.to_vec());
+    }
+
+    #[tokio::test]
+    async fn attach_cellscript_typed_cell_scheduler_witness_from_rpc_updates_pending_transaction() {
+        let rpc_core = Arc::new(crate::tests::RpcCoreMock::new());
+        let rpc: Arc<DynRpcApi> = rpc_core.clone();
+        let type_script = Script::new([0x42; 32], 1, b"invoice-input-script-args".to_vec());
+        let mut data = vec![0x44; 32];
+        data.extend_from_slice(b"invoice-state:funded");
+        rpc_core.insert_transaction(
+            TransactionId::from_bytes([0x91; 32]),
+            rpc_transaction_with_typed_output(type_script.clone(), data.clone()),
+        );
+        let tx = CellTx::new(vec![CellInput::new(OutPoint::new([0x91; 32], 0), 0)], vec![], vec![], vec![], vec![]).unwrap();
+        let id = TransactionId::from_bytes(tx.id());
+        let pending = PendingTransaction {
+            inner: Arc::new(PendingTransactionInner {
+                generator: empty_generator(),
+                cell_entries: Default::default(),
+                id,
+                signable_tx: Mutex::new(SignableTransaction::new(tx)),
+                addresses: vec![],
+                is_submitted: AtomicBool::new(false),
+                payment_value: None,
+                change_output_index: None,
+                change_output_value: 0,
+                aggregate_input_value: 1_000,
+                aggregate_output_value: 0,
+                minimum_signatures: 1,
+                mass: 0,
+                fees: 0,
+                kind: DataKind::Final,
+                cellscript_scheduler_accesses: None,
+            }),
+        };
+
+        let summary =
+            pending.attach_cellscript_typed_cell_scheduler_witness_from_rpc(&rpc, &typed_cell_scheduler_plan()).await.unwrap();
+
+        assert_eq!(summary.accesses.len(), 1);
+        assert_eq!(summary.accesses[0].operation, CELLSCRIPT_SCHEDULER_OP_CONSUME);
+        assert_eq!(summary.accesses[0].source, CELLSCRIPT_SCHEDULER_SOURCE_INPUT);
+        assert_eq!(summary.accesses[0].conflict_hash, compute_conflict_hash(&type_script, &[0x44; 32]));
+        assert_eq!(pending.transaction().witnesses.len(), 1);
     }
 }
