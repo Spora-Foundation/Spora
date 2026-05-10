@@ -467,8 +467,10 @@ impl Generator {
             }
         };
         validate_ckb_type_id_output_indexes(&ckb_type_id_output_indexes, final_transaction_outputs.len())?;
-        validate_cellscript_typed_cell_outputs(
+        validate_cellscript_typed_cell_scheduler_configuration(
+            cellscript_typed_cell_scheduler_plan.as_ref(),
             &cellscript_typed_cell_outputs,
+            &cellscript_typed_cell_resolved_cells,
             final_transaction_outputs.len(),
             &ckb_type_id_output_indexes,
         )?;
@@ -1473,6 +1475,104 @@ fn validate_cellscript_typed_cell_outputs(
     Ok(())
 }
 
+fn validate_cellscript_typed_cell_resolved_cells(resolved_cells: &[CellScriptTypedCellResolvedCell]) -> Result<()> {
+    if resolved_cells.is_empty() {
+        return Ok(());
+    }
+    let mut bindings = resolved_cells.iter().map(|cell| (cell.source.as_str(), cell.index)).collect::<Vec<_>>();
+    bindings.sort_unstable();
+    for (source, index) in &bindings {
+        match *source {
+            "Input" | "CellDep" => {}
+            other => {
+                return Err(Error::custom(format!("CellScript typed-cell resolved sidecar {other}#{index} has unsupported source")));
+            }
+        }
+    }
+    for pair in bindings.windows(2) {
+        if pair[0] == pair[1] {
+            return Err(Error::custom(format!("duplicate CellScript typed-cell resolved sidecar {}#{}", pair[0].0, pair[0].1)));
+        }
+    }
+    Ok(())
+}
+
+fn validate_cellscript_typed_cell_scheduler_configuration(
+    plan: Option<&CellScriptTypedCellSchedulerPlan>,
+    typed_outputs: &[CellScriptTypedCellOutput],
+    resolved_cells: &[CellScriptTypedCellResolvedCell],
+    output_count: usize,
+    ckb_type_id_output_indexes: &[usize],
+) -> Result<()> {
+    validate_cellscript_typed_cell_outputs(typed_outputs, output_count, ckb_type_id_output_indexes)?;
+    validate_cellscript_typed_cell_resolved_cells(resolved_cells)?;
+
+    let Some(plan) = plan else {
+        if !typed_outputs.is_empty() || !resolved_cells.is_empty() {
+            return Err(Error::custom("CellScript typed-cell output/sidecar configuration requires a typed-cell scheduler plan"));
+        }
+        return Ok(());
+    };
+
+    for access in &plan.accesses {
+        match access.source.as_str() {
+            "Output" => {
+                if access.index >= output_count {
+                    return Err(Error::custom(format!(
+                        "CellScript typed-cell scheduler access {} Output#{} is outside final user output count {}",
+                        access.binding, access.index, output_count
+                    )));
+                }
+                let typed_output = typed_outputs.iter().find(|output| output.output_index == access.index).ok_or_else(|| {
+                    Error::custom(format!(
+                        "CellScript typed-cell scheduler access {} Output#{} requires typed output type script and data configuration",
+                        access.binding, access.index
+                    ))
+                })?;
+                extract_typed_cell_conflict_key_value(access, &typed_output.data)?;
+            }
+            "Input" | "CellDep" => {
+                let resolved_cell = resolved_cells
+                    .iter()
+                    .find(|cell| cell.source == access.source && cell.index == access.index)
+                    .ok_or_else(|| {
+                        Error::custom(format!(
+                            "CellScript typed-cell scheduler access {} {}#{} requires resolved type script and data sidecar",
+                            access.binding, access.source, access.index
+                        ))
+                    })?;
+                extract_typed_cell_conflict_key_value(access, &resolved_cell.data)?;
+            }
+            other => {
+                return Err(Error::custom(format!(
+                    "CellScript typed-cell scheduler access {} has unsupported source {other}",
+                    access.binding
+                )));
+            }
+        }
+    }
+
+    for typed_output in typed_outputs {
+        if !plan.accesses.iter().any(|access| access.source == "Output" && access.index == typed_output.output_index) {
+            return Err(Error::custom(format!(
+                "CellScript typed-cell output index {} is not referenced by the typed-cell scheduler plan",
+                typed_output.output_index
+            )));
+        }
+    }
+
+    for resolved_cell in resolved_cells {
+        if !plan.accesses.iter().any(|access| access.source == resolved_cell.source && access.index == resolved_cell.index) {
+            return Err(Error::custom(format!(
+                "CellScript typed-cell resolved sidecar {}#{} is not referenced by the typed-cell scheduler plan",
+                resolved_cell.source, resolved_cell.index
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 fn apply_ckb_type_id_output_scripts(tx: &mut CellTx, output_indexes: &[usize]) -> Result<Vec<[u8; 32]>> {
     output_indexes
         .iter()
@@ -1906,6 +2006,27 @@ mod tests {
         )
     }
 
+    fn typed_cell_generator_settings(seed: u8) -> GeneratorSettings {
+        let source_address = Address::new_std_single(Prefix::Testnet, &[seed; 32]).unwrap();
+        let change_address = Address::new_std_single(Prefix::Testnet, &[seed.wrapping_add(1); 32]).unwrap();
+        let recipient = Address::new_std_single(Prefix::Testnet, &[seed.wrapping_add(2); 32]).unwrap();
+        let cell = CellEntryReference::simulated_with_address(20_000_000_000, &source_address);
+        let outputs = PaymentOutputs { outputs: vec![PaymentOutput::new(recipient, 5_000_000_000)] };
+        GeneratorSettings::try_new_with_iterator(
+            NetworkId::with_suffix(NetworkType::Testnet, 10),
+            Box::new(vec![cell].into_iter()),
+            None,
+            change_address,
+            1,
+            PaymentDestination::PaymentOutputs(outputs),
+            None,
+            Fees::SenderPays(0),
+            None,
+            None,
+        )
+        .unwrap()
+    }
+
     #[test]
     fn build_typed_cell_scheduler_witness_uses_output_data_field_slices() {
         let type_script = Script::new([0x42; 32], 1, b"invoice-script-args".to_vec());
@@ -2065,32 +2186,12 @@ mod tests {
 
     #[test]
     fn generator_rejects_typed_cell_plan_without_resolved_input_sidecar() {
-        let source_address = Address::new_std_single(Prefix::Testnet, &[0x24; 32]).unwrap();
-        let change_address = Address::new_std_single(Prefix::Testnet, &[0x25; 32]).unwrap();
-        let recipient = Address::new_std_single(Prefix::Testnet, &[0x26; 32]).unwrap();
-        let cell = CellEntryReference::simulated_with_address(20_000_000_000, &source_address);
-        let outputs = PaymentOutputs { outputs: vec![PaymentOutput::new(recipient, 5_000_000_000)] };
         let stale_compiled_witness = typed_cell_input_scheduler_witness_with_hash([0xEE; 32]);
         let metadata = typed_cell_input_action_metadata_json(&bytes_to_hex(&stale_compiled_witness));
-        let settings = GeneratorSettings::try_new_with_iterator(
-            NetworkId::with_suffix(NetworkType::Testnet, 10),
-            Box::new(vec![cell].into_iter()),
-            None,
-            change_address,
-            1,
-            PaymentDestination::PaymentOutputs(outputs),
-            None,
-            Fees::SenderPays(0),
-            None,
-            None,
-        )
-        .unwrap()
-        .with_cellscript_action_metadata_json(&metadata, "settle_invoice")
-        .unwrap();
-        let generator = Generator::try_new(settings, None, None).unwrap();
+        let settings = typed_cell_generator_settings(0x24).with_cellscript_action_metadata_json(&metadata, "settle_invoice").unwrap();
 
-        let err = match generator.generate_transaction() {
-            Ok(_) => panic!("typed-cell scheduler plan without resolved input sidecar should fail"),
+        let err = match Generator::try_new(settings, None, None) {
+            Ok(_) => panic!("typed-cell scheduler plan without resolved input sidecar should fail at generator init"),
             Err(err) => err,
         };
 
@@ -2140,34 +2241,127 @@ mod tests {
 
     #[test]
     fn generator_rejects_output_plan_without_typed_output_config() {
-        let source_address = Address::new_std_single(Prefix::Testnet, &[0x2A; 32]).unwrap();
-        let change_address = Address::new_std_single(Prefix::Testnet, &[0x2B; 32]).unwrap();
-        let recipient = Address::new_std_single(Prefix::Testnet, &[0x2C; 32]).unwrap();
-        let cell = CellEntryReference::simulated_with_address(20_000_000_000, &source_address);
-        let outputs = PaymentOutputs { outputs: vec![PaymentOutput::new(recipient, 5_000_000_000)] };
-        let settings = GeneratorSettings::try_new_with_iterator(
-            NetworkId::with_suffix(NetworkType::Testnet, 10),
-            Box::new(vec![cell].into_iter()),
-            None,
-            change_address,
-            1,
-            PaymentDestination::PaymentOutputs(outputs),
-            None,
-            Fees::SenderPays(0),
-            None,
-            None,
-        )
-        .unwrap()
-        .with_cellscript_typed_cell_scheduler_plan(typed_cell_scheduler_plan("create", "Output", 0))
-        .unwrap();
-        let generator = Generator::try_new(settings, None, None).unwrap();
+        let settings = typed_cell_generator_settings(0x2A)
+            .with_cellscript_typed_cell_scheduler_plan(typed_cell_scheduler_plan("create", "Output", 0))
+            .unwrap();
 
-        let err = match generator.generate_transaction() {
-            Ok(_) => panic!("typed-cell output scheduler plan without output type/data should fail"),
+        let err = match Generator::try_new(settings, None, None) {
+            Ok(_) => panic!("typed-cell output scheduler plan without output type/data should fail at generator init"),
             Err(err) => err,
         };
 
-        assert!(err.to_string().contains("Output#0 has no type script"), "unexpected error: {err}");
+        assert!(err.to_string().contains("Output#0 requires typed output type script and data"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn generator_rejects_typed_cell_output_without_scheduler_plan() {
+        let settings = typed_cell_generator_settings(0x30).with_cellscript_typed_cell_output(CellScriptTypedCellOutput::new(
+            0,
+            Script::new([0x42; 32], 1, b"invoice-output-type".to_vec()),
+            vec![0xF0; 32],
+        ));
+
+        let err = match Generator::try_new(settings, None, None) {
+            Ok(_) => panic!("typed-cell output configuration without scheduler plan should fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("requires a typed-cell scheduler plan"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn generator_rejects_typed_cell_output_with_short_conflict_key_data() {
+        let settings = typed_cell_generator_settings(0x32)
+            .with_cellscript_typed_cell_scheduler_plan(typed_cell_scheduler_plan("create", "Output", 0))
+            .unwrap()
+            .with_cellscript_typed_cell_output(CellScriptTypedCellOutput::new(
+                0,
+                Script::new([0x42; 32], 1, b"invoice-output-type".to_vec()),
+                vec![0xF1; 31],
+            ));
+
+        let err = match Generator::try_new(settings, None, None) {
+            Ok(_) => panic!("typed-cell output with short conflict key data should fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("needs bytes [0..32)"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn generator_rejects_duplicate_typed_cell_resolved_sidecars() {
+        let type_script = Script::new([0x42; 32], 1, b"invoice-input-type".to_vec());
+        let settings = typed_cell_generator_settings(0x33)
+            .with_cellscript_typed_cell_scheduler_plan(typed_cell_scheduler_plan("consume", "Input", 0))
+            .unwrap()
+            .with_cellscript_typed_cell_resolved_cells(vec![
+                CellScriptTypedCellResolvedCell::input(0, type_script.clone(), vec![0xF1; 32]),
+                CellScriptTypedCellResolvedCell::input(0, type_script, vec![0xF2; 32]),
+            ]);
+
+        let err = match Generator::try_new(settings, None, None) {
+            Ok(_) => panic!("duplicate typed-cell sidecars should fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("duplicate CellScript typed-cell resolved sidecar Input#0"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn generator_rejects_typed_cell_resolved_sidecar_with_short_conflict_key_data() {
+        let type_script = Script::new([0x42; 32], 1, b"invoice-input-type".to_vec());
+        let settings = typed_cell_generator_settings(0x35)
+            .with_cellscript_typed_cell_scheduler_plan(typed_cell_scheduler_plan("consume", "Input", 0))
+            .unwrap()
+            .with_cellscript_typed_cell_resolved_cell(CellScriptTypedCellResolvedCell::input(0, type_script, vec![0xF2; 31]));
+
+        let err = match Generator::try_new(settings, None, None) {
+            Ok(_) => panic!("typed-cell sidecar with short conflict key data should fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("needs bytes [0..32)"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn generator_rejects_unreferenced_typed_cell_output_config() {
+        let type_script = Script::new([0x42; 32], 1, b"invoice-input-type".to_vec());
+        let settings = typed_cell_generator_settings(0x36)
+            .with_cellscript_typed_cell_scheduler_plan(typed_cell_scheduler_plan("consume", "Input", 0))
+            .unwrap()
+            .with_cellscript_typed_cell_resolved_cell(CellScriptTypedCellResolvedCell::input(0, type_script.clone(), vec![0xF3; 32]))
+            .with_cellscript_typed_cell_output(CellScriptTypedCellOutput::new(0, type_script, vec![0xF4; 32]));
+
+        let err = match Generator::try_new(settings, None, None) {
+            Ok(_) => panic!("unreferenced typed-cell output configuration should fail"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string().contains("CellScript typed-cell output index 0 is not referenced by the typed-cell scheduler plan"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn generator_rejects_unreferenced_typed_cell_resolved_sidecar() {
+        let type_script = Script::new([0x42; 32], 1, b"invoice-output-type".to_vec());
+        let settings = typed_cell_generator_settings(0x39)
+            .with_cellscript_typed_cell_scheduler_plan(typed_cell_scheduler_plan("create", "Output", 0))
+            .unwrap()
+            .with_cellscript_typed_cell_output(CellScriptTypedCellOutput::new(0, type_script.clone(), vec![0xF5; 32]))
+            .with_cellscript_typed_cell_resolved_cell(CellScriptTypedCellResolvedCell::input(0, type_script, vec![0xF6; 32]));
+
+        let err = match Generator::try_new(settings, None, None) {
+            Ok(_) => panic!("unreferenced typed-cell sidecar should fail"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string()
+                .contains("CellScript typed-cell resolved sidecar Input#0 is not referenced by the typed-cell scheduler plan"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
