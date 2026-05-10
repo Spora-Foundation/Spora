@@ -8631,7 +8631,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("malformed invoice register_invoice transaction must be structurally valid"),
         register_artifact,
-        &[live_typed_cell("Output", 0, malformed_register_data)],
+        &[],
         "malformed invoice register_invoice transaction",
     );
     let malformed_register_reason = rpc_client
@@ -8655,7 +8655,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("valid invoice register_invoice transaction must be structurally valid"),
         register_artifact,
-        &[live_typed_cell("Output", 0, valid_register_data)],
+        &[],
         "valid invoice register_invoice transaction",
     );
     let valid_register_tx_id = spora_hashes::Hash::from_bytes(valid_register_tx.id());
@@ -8754,11 +8754,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("malformed invoice approve_drawdown transaction must be structurally valid"),
         approve_artifact,
-        &[
-            live_typed_cell("Input", 0, approve_before_data.clone()),
-            live_typed_cell("Output", 0, approve_after_data.clone()),
-            live_typed_cell("Output", 1, malformed_approve_position_data),
-        ],
+        &[live_typed_cell("Input", 0, approve_before_data.clone())],
         "malformed invoice approve_drawdown transaction",
     );
     let malformed_approve_reason = rpc_client
@@ -8792,11 +8788,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("valid invoice approve_drawdown transaction must be structurally valid"),
         approve_artifact,
-        &[
-            live_typed_cell("Input", 0, approve_before_data),
-            live_typed_cell("Output", 0, approve_after_data),
-            live_typed_cell("Output", 1, valid_approve_position_data),
-        ],
+        &[live_typed_cell("Input", 0, approve_before_data)],
         "valid invoice approve_drawdown transaction",
     );
     let valid_approve_tx_id = spora_hashes::Hash::from_bytes(valid_approve_tx.id());
@@ -9008,8 +9000,6 @@ async fn run_invoice_financing_action_builder_matrix(
         &[
             live_typed_cell("Input", 0, settle_before_invoice_data.clone()),
             live_typed_cell_with_type_script("Input", 1, position_type.clone(), settle_before_position_data.clone()),
-            live_typed_cell("Output", 0, settle_after_data.clone()),
-            live_typed_cell("Output", 1, malformed_settle_receipt_data),
         ],
         "malformed invoice settle_invoice transaction",
     );
@@ -9049,8 +9039,6 @@ async fn run_invoice_financing_action_builder_matrix(
         &[
             live_typed_cell("Input", 0, settle_before_invoice_data),
             live_typed_cell_with_type_script("Input", 1, position_type.clone(), settle_before_position_data),
-            live_typed_cell("Output", 0, settle_after_data),
-            live_typed_cell("Output", 1, valid_settle_receipt_data),
         ],
         "valid invoice settle_invoice transaction",
     );
@@ -9115,7 +9103,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("malformed invoice cancel_invoice transaction must be structurally valid"),
         cancel_artifact,
-        &[live_typed_cell("Input", 0, cancel_before_data.clone()), live_typed_cell("Output", 0, malformed_cancel_data)],
+        &[live_typed_cell("Input", 0, cancel_before_data.clone())],
         "malformed invoice cancel_invoice transaction",
     );
     let malformed_cancel_reason = rpc_client
@@ -9139,7 +9127,7 @@ async fn run_invoice_financing_action_builder_matrix(
         )
         .expect("valid invoice cancel_invoice transaction must be structurally valid"),
         cancel_artifact,
-        &[live_typed_cell("Input", 0, cancel_before_data), live_typed_cell("Output", 0, valid_cancel_data)],
+        &[live_typed_cell("Input", 0, cancel_before_data)],
         "valid invoice cancel_invoice transaction",
     );
     let valid_cancel_tx_id = spora_hashes::Hash::from_bytes(valid_cancel_tx.id());
@@ -10032,27 +10020,26 @@ fn with_live_typed_cell_action_scheduler_witness(
     let action = &action_artifact.action;
     let plan =
         action.typed_cell_scheduler_plan.as_ref().unwrap_or_else(|| panic!("{context} must have typed-cell scheduler plan metadata"));
+    validate_live_typed_cell_scheduler_cells(plan, cells, context);
     let scheduler_inputs = plan
         .accesses
         .iter()
         .map(|access| {
-            let cell = cells
-                .iter()
-                .find(|cell| cell.source == access.source.as_str() && cell.index == access.index)
-                .unwrap_or_else(|| panic!("{context} missing live scheduler cell for {}#{}", access.source, access.index));
+            let cell = cells.iter().find(|cell| cell.source == access.source.as_str() && cell.index == access.index);
             let type_metadata = action_artifact
                 .types
                 .iter()
                 .find(|ty| ty.name == access.ty)
                 .unwrap_or_else(|| panic!("{context} missing typed-cell type metadata for {}", access.ty));
             let index = u32::try_from(access.index).unwrap_or_else(|_| panic!("{context} scheduler source index must fit u32"));
+            let data = live_typed_cell_data_for_access(&tx, access, cell, context);
             cellscript::TypedCellSchedulerAccessInput {
                 operation: access.operation.clone(),
                 source: access.source.clone(),
                 index,
                 type_script: live_typed_cell_type_script_for_access(&tx, access, cell, context),
-                conflict_key_value: live_typed_cell_conflict_key(type_metadata, access, &cell.data, context),
-                typed_data: cell.data.clone(),
+                conflict_key_value: live_typed_cell_conflict_key(type_metadata, access, &data, context),
+                typed_data: data,
             }
         })
         .collect::<Vec<_>>();
@@ -10069,13 +10056,63 @@ fn with_live_typed_cell_action_scheduler_witness(
     tx
 }
 
+fn validate_live_typed_cell_scheduler_cells(
+    plan: &cellscript::TypedCellSchedulerPlanMetadata,
+    cells: &[LiveTypedCellSchedulerCell],
+    context: &str,
+) {
+    for (index, cell) in cells.iter().enumerate() {
+        assert!(
+            matches!(cell.source, "Input" | "CellDep" | "Output"),
+            "{context} live typed-cell scheduler cell {index} has unsupported source {}",
+            cell.source
+        );
+        assert!(
+            plan.accesses.iter().any(|access| access.source == cell.source && access.index == cell.index),
+            "{context} live typed-cell scheduler cell {}#{} is not referenced by the typed-cell scheduler plan",
+            cell.source,
+            cell.index
+        );
+        assert!(
+            !cells[..index].iter().any(|existing| existing.source == cell.source && existing.index == cell.index),
+            "{context} duplicate live typed-cell scheduler cell {}#{}",
+            cell.source,
+            cell.index
+        );
+    }
+}
+
+fn live_typed_cell_data_for_access(
+    tx: &CellTx,
+    access: &cellscript::TypedCellSchedulerAccessPlanMetadata,
+    cell: Option<&LiveTypedCellSchedulerCell>,
+    context: &str,
+) -> Vec<u8> {
+    if access.source == "Output" {
+        let output_data = tx
+            .outputs_data
+            .get(access.index)
+            .unwrap_or_else(|| panic!("{context} typed-cell scheduler access Output#{} has no transaction output data", access.index));
+        if let Some(cell) = cell {
+            assert_eq!(
+                cell.data.as_slice(),
+                output_data.as_slice(),
+                "{context} explicit live scheduler Output#{} data must match transaction output data",
+                access.index
+            );
+        }
+        return output_data.clone();
+    }
+    cell.unwrap_or_else(|| panic!("{context} missing live scheduler sidecar for {}#{}", access.source, access.index)).data.clone()
+}
+
 fn live_typed_cell_type_script_for_access(
     tx: &CellTx,
     access: &cellscript::TypedCellSchedulerAccessPlanMetadata,
-    cell: &LiveTypedCellSchedulerCell,
+    cell: Option<&LiveTypedCellSchedulerCell>,
     context: &str,
 ) -> cellscript::TypedCellTypeScriptInput {
-    if let Some(type_script) = cell.type_script.as_ref() {
+    if let Some(type_script) = cell.and_then(|cell| cell.type_script.as_ref()) {
         return spora_script_to_cellscript_type_script(type_script);
     }
     if access.source == "Output" {
