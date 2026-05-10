@@ -4,7 +4,7 @@
 
 use crate::error::Error;
 use crate::result::Result;
-use crate::tx::PaymentOutput;
+use crate::tx::{CellScriptTypedCellOutput, PaymentOutput};
 use spora_consensus_client as kcc;
 use spora_consensus_client::TransactionInput;
 use spora_consensus_client::{pay_to_address_lock_script, CellEntryReference};
@@ -191,6 +191,19 @@ impl MassCalculator {
             .saturating_mul(self.mass_per_script_pub_key_byte)
             .saturating_add(CELL_OUTPUT_TYPE_SCRIPT_SERIALIZED_DELTA.saturating_mul(self.mass_per_tx_byte));
         per_output.saturating_mul(count as u64)
+    }
+
+    pub(crate) fn calc_compute_mass_for_cellscript_typed_cell_outputs(&self, outputs: &[CellScriptTypedCellOutput]) -> u64 {
+        outputs.iter().map(|output| self.calc_compute_mass_for_cellscript_typed_cell_output(output)).sum()
+    }
+
+    fn calc_compute_mass_for_cellscript_typed_cell_output(&self, output: &CellScriptTypedCellOutput) -> u64 {
+        let script_size = 32u64.saturating_add(1).saturating_add(output.type_script.args.len() as u64);
+        let serialized_script_size = script_size.saturating_add(8);
+        script_size
+            .saturating_mul(self.mass_per_script_pub_key_byte)
+            .saturating_add(serialized_script_size.saturating_mul(self.mass_per_tx_byte))
+            .saturating_add((output.data.len() as u64).saturating_mul(self.mass_per_tx_byte))
     }
 
     /// Client-side input mass based on serialized input bytes only.

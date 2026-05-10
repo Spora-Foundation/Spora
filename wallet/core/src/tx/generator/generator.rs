@@ -61,9 +61,9 @@ use crate::cell::{CellContext, CellEntryReference, NetworkParams};
 use crate::imports::*;
 use crate::result::Result;
 use crate::tx::{
-    mass::*, CellScriptTypedCellResolvedCell, CellScriptTypedCellSchedulerAccessPlan, CellScriptTypedCellSchedulerPlan, Fees,
-    GeneratorSettings, GeneratorSummary, PaymentDestination, PaymentOutput, PendingTransaction, PendingTransactionIterator,
-    PendingTransactionStream,
+    mass::*, CellScriptTypedCellOutput, CellScriptTypedCellResolvedCell, CellScriptTypedCellSchedulerAccessPlan,
+    CellScriptTypedCellSchedulerPlan, Fees, GeneratorSettings, GeneratorSummary, PaymentDestination, PaymentOutput,
+    PendingTransaction, PendingTransactionIterator, PendingTransactionStream,
 };
 use spora_consensus_client::{pay_to_address_lock_script, CellEntry, TransactionInput};
 use spora_consensus_core::block::CellScriptSchedulerAccessList;
@@ -361,6 +361,8 @@ struct Inner {
     header_deps: Vec<[u8; 32]>,
     // Final-transaction user output indexes that should receive CKB TYPE_ID scripts.
     ckb_type_id_output_indexes: Vec<usize>,
+    // Final-transaction user outputs that should receive typed-cell type script and data.
+    cellscript_typed_cell_outputs: Vec<CellScriptTypedCellOutput>,
     // execution context
     context: Mutex<Context>,
 }
@@ -395,6 +397,7 @@ impl std::fmt::Debug for Inner {
             .field("cell_deps", &self.cell_deps)
             .field("header_deps", &self.header_deps)
             .field("ckb_type_id_output_indexes", &self.ckb_type_id_output_indexes)
+            .field("cellscript_typed_cell_outputs", &self.cellscript_typed_cell_outputs.len())
             // .field("context", &self.context)
             .finish()
     }
@@ -427,6 +430,7 @@ impl Generator {
             cell_deps,
             header_deps,
             ckb_type_id_output_indexes,
+            cellscript_typed_cell_outputs,
             cellscript_typed_cell_scheduler_plan,
             cellscript_typed_cell_resolved_cells,
             destination_cell_context,
@@ -463,6 +467,11 @@ impl Generator {
             }
         };
         validate_ckb_type_id_output_indexes(&ckb_type_id_output_indexes, final_transaction_outputs.len())?;
+        validate_cellscript_typed_cell_outputs(
+            &cellscript_typed_cell_outputs,
+            final_transaction_outputs.len(),
+            &ckb_type_id_output_indexes,
+        )?;
 
         if final_transaction_outputs.is_empty() && matches!(final_transaction_priority_fee, Fees::ReceiverPays(_)) {
             return Err(Error::GeneratorIncludeFeesRequiresOneOutput);
@@ -477,7 +486,8 @@ impl Generator {
             mass_calculator.calc_compute_mass_for_payment_output(&PaymentOutput::new(change_address.clone(), 0));
         let signature_mass_per_input = mass_calculator.calc_compute_mass_for_signature(minimum_signatures);
         let final_transaction_outputs_compute_mass = mass_calculator.calc_compute_mass_for_payment_outputs(&final_transaction_outputs)
-            + mass_calculator.calc_compute_mass_for_ckb_type_id_output_scripts(ckb_type_id_output_indexes.len());
+            + mass_calculator.calc_compute_mass_for_ckb_type_id_output_scripts(ckb_type_id_output_indexes.len())
+            + mass_calculator.calc_compute_mass_for_cellscript_typed_cell_outputs(&cellscript_typed_cell_outputs);
         let final_transaction_payload = final_transaction_payload.unwrap_or_default();
         let final_transaction_payload_mass = mass_calculator.calc_compute_mass_for_payload(final_transaction_payload.len());
         let final_cellscript_compiled_scheduler_witness_mass =
@@ -554,6 +564,7 @@ impl Generator {
             cell_deps,
             header_deps,
             ckb_type_id_output_indexes,
+            cellscript_typed_cell_outputs,
             destination_cell_context,
         };
 
@@ -1208,6 +1219,7 @@ impl Generator {
 
                 let mut tx =
                     self.build_unsigned_cell_transaction(inputs, final_outputs, self.inner.final_transaction_payload.clone())?;
+                apply_cellscript_typed_cell_outputs(&mut tx, &self.inner.cellscript_typed_cell_outputs)?;
                 apply_ckb_type_id_output_scripts(&mut tx, &self.inner.ckb_type_id_output_indexes)?;
                 let cellscript_scheduler_accesses = if let Some(plan) = self.inner.cellscript_typed_cell_scheduler_plan.as_ref() {
                     Some(attach_cellscript_typed_cell_scheduler_witness(
@@ -1429,6 +1441,38 @@ fn validate_ckb_type_id_output_indexes(output_indexes: &[usize], output_count: u
     Ok(())
 }
 
+fn validate_cellscript_typed_cell_outputs(
+    typed_outputs: &[CellScriptTypedCellOutput],
+    output_count: usize,
+    ckb_type_id_output_indexes: &[usize],
+) -> Result<()> {
+    if typed_outputs.is_empty() {
+        return Ok(());
+    }
+    let mut output_indexes = typed_outputs.iter().map(|output| output.output_index).collect::<Vec<_>>();
+    output_indexes.sort_unstable();
+    for output_index in &output_indexes {
+        if *output_index >= output_count {
+            return Err(Error::custom(format!(
+                "CellScript typed-cell output index {} is outside final user output count {}",
+                output_index, output_count
+            )));
+        }
+        if ckb_type_id_output_indexes.contains(output_index) {
+            return Err(Error::custom(format!(
+                "CellScript typed-cell output index {} conflicts with CKB TYPE_ID output configuration",
+                output_index
+            )));
+        }
+    }
+    for pair in output_indexes.windows(2) {
+        if pair[0] == pair[1] {
+            return Err(Error::custom(format!("duplicate CellScript typed-cell output index {}", pair[0])));
+        }
+    }
+    Ok(())
+}
+
 fn apply_ckb_type_id_output_scripts(tx: &mut CellTx, output_indexes: &[usize]) -> Result<Vec<[u8; 32]>> {
     output_indexes
         .iter()
@@ -1437,6 +1481,32 @@ fn apply_ckb_type_id_output_scripts(tx: &mut CellTx, output_indexes: &[usize]) -
                 .map_err(|err| Error::custom(format!("failed to apply CKB TYPE_ID script to output {output_index}: {err}")))
         })
         .collect()
+}
+
+fn apply_cellscript_typed_cell_outputs(tx: &mut CellTx, typed_outputs: &[CellScriptTypedCellOutput]) -> Result<()> {
+    for typed_output in typed_outputs {
+        let output = tx.outputs.get_mut(typed_output.output_index).ok_or_else(|| {
+            Error::custom(format!(
+                "CellScript typed-cell output index {} is outside final transaction outputs",
+                typed_output.output_index
+            ))
+        })?;
+        if output.type_.is_some() {
+            return Err(Error::custom(format!(
+                "CellScript typed-cell output index {} already has a type script",
+                typed_output.output_index
+            )));
+        }
+        let output_data = tx.outputs_data.get_mut(typed_output.output_index).ok_or_else(|| {
+            Error::custom(format!(
+                "CellScript typed-cell output index {} is outside final transaction output data",
+                typed_output.output_index
+            ))
+        })?;
+        output.type_ = Some(typed_output.type_script.clone());
+        *output_data = typed_output.data.clone();
+    }
+    Ok(())
 }
 
 fn attach_cellscript_compiled_scheduler_witness(
@@ -2025,6 +2095,114 @@ mod tests {
         };
 
         assert!(err.to_string().contains("requires resolved type script and data sidecar"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn generator_attaches_live_typed_cell_scheduler_witness_from_typed_output_config() {
+        let source_address = Address::new_std_single(Prefix::Testnet, &[0x27; 32]).unwrap();
+        let change_address = Address::new_std_single(Prefix::Testnet, &[0x28; 32]).unwrap();
+        let recipient = Address::new_std_single(Prefix::Testnet, &[0x29; 32]).unwrap();
+        let cell = CellEntryReference::simulated_with_address(20_000_000_000, &source_address);
+        let outputs = PaymentOutputs { outputs: vec![PaymentOutput::new(recipient, 5_000_000_000)] };
+        let type_script = Script::new([0x42; 32], 1, b"invoice-output-type".to_vec());
+        let mut data = vec![0xE5; 32];
+        data.extend_from_slice(b"invoice-state:created-output");
+        let settings = GeneratorSettings::try_new_with_iterator(
+            NetworkId::with_suffix(NetworkType::Testnet, 10),
+            Box::new(vec![cell].into_iter()),
+            None,
+            change_address,
+            1,
+            PaymentDestination::PaymentOutputs(outputs),
+            None,
+            Fees::SenderPays(0),
+            None,
+            None,
+        )
+        .unwrap()
+        .with_cellscript_typed_cell_scheduler_plan(typed_cell_scheduler_plan("create", "Output", 0))
+        .unwrap()
+        .with_cellscript_typed_cell_output(CellScriptTypedCellOutput::new(0, type_script.clone(), data.clone()));
+        let generator = Generator::try_new(settings, None, None).unwrap();
+
+        let pending = generator.generate_transaction().unwrap().expect("final transaction");
+        let tx = pending.transaction();
+        let witness = decode_cellscript_scheduler_witness(tx.witnesses.last().expect("scheduler witness")).unwrap();
+
+        assert_eq!(tx.outputs[0].type_.as_ref(), Some(&type_script));
+        assert_eq!(tx.outputs_data[0], data);
+        assert_eq!(witness.access_count, 1);
+        assert_eq!(witness.accesses[0].operation, CELLSCRIPT_SCHEDULER_OP_CREATE);
+        assert_eq!(witness.accesses[0].source, CELLSCRIPT_SCHEDULER_SOURCE_OUTPUT);
+        assert_eq!(witness.accesses[0].conflict_hash, compute_conflict_hash(&type_script, &[0xE5; 32]));
+        assert_eq!(witness.accesses[0].typed_data_hash, compute_typed_data_hash(&type_script, &data));
+    }
+
+    #[test]
+    fn generator_rejects_output_plan_without_typed_output_config() {
+        let source_address = Address::new_std_single(Prefix::Testnet, &[0x2A; 32]).unwrap();
+        let change_address = Address::new_std_single(Prefix::Testnet, &[0x2B; 32]).unwrap();
+        let recipient = Address::new_std_single(Prefix::Testnet, &[0x2C; 32]).unwrap();
+        let cell = CellEntryReference::simulated_with_address(20_000_000_000, &source_address);
+        let outputs = PaymentOutputs { outputs: vec![PaymentOutput::new(recipient, 5_000_000_000)] };
+        let settings = GeneratorSettings::try_new_with_iterator(
+            NetworkId::with_suffix(NetworkType::Testnet, 10),
+            Box::new(vec![cell].into_iter()),
+            None,
+            change_address,
+            1,
+            PaymentDestination::PaymentOutputs(outputs),
+            None,
+            Fees::SenderPays(0),
+            None,
+            None,
+        )
+        .unwrap()
+        .with_cellscript_typed_cell_scheduler_plan(typed_cell_scheduler_plan("create", "Output", 0))
+        .unwrap();
+        let generator = Generator::try_new(settings, None, None).unwrap();
+
+        let err = match generator.generate_transaction() {
+            Ok(_) => panic!("typed-cell output scheduler plan without output type/data should fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("Output#0 has no type script"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn generator_rejects_typed_cell_output_ckb_type_id_overlap() {
+        let source_address = Address::new_std_single(Prefix::Testnet, &[0x2D; 32]).unwrap();
+        let change_address = Address::new_std_single(Prefix::Testnet, &[0x2E; 32]).unwrap();
+        let recipient = Address::new_std_single(Prefix::Testnet, &[0x2F; 32]).unwrap();
+        let cell = CellEntryReference::simulated_with_address(20_000_000_000, &source_address);
+        let outputs = PaymentOutputs { outputs: vec![PaymentOutput::new(recipient, 5_000_000_000)] };
+        let settings = GeneratorSettings::try_new_with_iterator(
+            NetworkId::with_suffix(NetworkType::Testnet, 10),
+            Box::new(vec![cell].into_iter()),
+            None,
+            change_address,
+            1,
+            PaymentDestination::PaymentOutputs(outputs),
+            None,
+            Fees::SenderPays(0),
+            None,
+            None,
+        )
+        .unwrap()
+        .with_ckb_type_id_output_index(0)
+        .with_cellscript_typed_cell_output(CellScriptTypedCellOutput::new(
+            0,
+            Script::new([0x42; 32], 1, b"invoice-output-type".to_vec()),
+            vec![0xE6; 32],
+        ));
+
+        let err = match Generator::try_new(settings, None, None) {
+            Ok(_) => panic!("typed-cell output must not overlap CKB TYPE_ID output configuration"),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("conflicts with CKB TYPE_ID output configuration"), "unexpected error: {err}");
     }
 
     #[test]

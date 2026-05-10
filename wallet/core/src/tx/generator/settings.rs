@@ -59,6 +59,8 @@ pub struct GeneratorSettings {
     pub header_deps: Vec<[u8; 32]>,
     // Final-transaction user output indexes that should receive a CKB built-in TYPE_ID type script.
     pub ckb_type_id_output_indexes: Vec<usize>,
+    // Final-transaction user outputs that should receive typed-cell type script and data.
+    pub cellscript_typed_cell_outputs: Vec<CellScriptTypedCellOutput>,
     // Typed-cell action scheduler plan extracted from CellScript metadata.
     // Builders use this to map transaction input/cell_dep/output data into
     // live conflict_hash / typed_data_hash scheduler witnesses.
@@ -109,6 +111,19 @@ pub struct CellScriptTypedCellFieldSlice {
     pub field: String,
     pub offset: usize,
     pub size: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CellScriptTypedCellOutput {
+    pub output_index: usize,
+    pub type_script: Script,
+    pub data: Vec<u8>,
+}
+
+impl CellScriptTypedCellOutput {
+    pub fn new(output_index: usize, type_script: Script, data: Vec<u8>) -> Self {
+        Self { output_index, type_script, data }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -177,6 +192,7 @@ impl GeneratorSettings {
             cell_deps: Vec::new(),
             header_deps: Vec::new(),
             ckb_type_id_output_indexes: Vec::new(),
+            cellscript_typed_cell_outputs: Vec::new(),
             cellscript_typed_cell_scheduler_plan: None,
             cellscript_typed_cell_resolved_cells: Vec::new(),
             destination_cell_context: None,
@@ -214,6 +230,7 @@ impl GeneratorSettings {
             cell_deps: Vec::new(),
             header_deps: Vec::new(),
             ckb_type_id_output_indexes: Vec::new(),
+            cellscript_typed_cell_outputs: Vec::new(),
             cellscript_typed_cell_scheduler_plan: None,
             cellscript_typed_cell_resolved_cells: Vec::new(),
             destination_cell_context: None,
@@ -251,6 +268,7 @@ impl GeneratorSettings {
             cell_deps: Vec::new(),
             header_deps: Vec::new(),
             ckb_type_id_output_indexes: Vec::new(),
+            cellscript_typed_cell_outputs: Vec::new(),
             cellscript_typed_cell_scheduler_plan: None,
             cellscript_typed_cell_resolved_cells: Vec::new(),
             destination_cell_context: None,
@@ -326,6 +344,22 @@ impl GeneratorSettings {
             self.cellscript_typed_cell_scheduler_plan = Some(typed_cell_scheduler_plan);
         }
         Ok(self)
+    }
+
+    /// Configure final transaction user outputs that should become typed cells.
+    ///
+    /// Indexes refer to the user-supplied final outputs, before any generated
+    /// change output is appended. These outputs must not overlap with CKB TYPE_ID
+    /// output indexes because each output can only carry one concrete type script.
+    pub fn with_cellscript_typed_cell_outputs(mut self, typed_outputs: Vec<CellScriptTypedCellOutput>) -> Self {
+        self.cellscript_typed_cell_outputs = typed_outputs;
+        self
+    }
+
+    /// Add one final transaction user output that should become a typed cell.
+    pub fn with_cellscript_typed_cell_output(mut self, typed_output: CellScriptTypedCellOutput) -> Self {
+        self.cellscript_typed_cell_outputs.push(typed_output);
+        self
     }
 
     /// Configure all resolved typed cells needed by live CellScript scheduler witness generation.
